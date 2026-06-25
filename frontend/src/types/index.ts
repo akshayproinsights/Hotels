@@ -1,0 +1,111 @@
+export interface Room {
+  id: string
+  number: string
+  floor: number
+  room_type: 'AC Deluxe' | 'Non AC Deluxe' | 'AC Standard' | 'Non AC Standard'
+  base_price: number
+  extra_bed_price: number
+  is_active: boolean
+  created_at: string
+}
+
+export interface User {
+  id: string
+  email: string
+  name: string
+}
+
+export interface Guest {
+  id: string
+  name: string
+  phone: string
+  email?: string | null
+  address?: string | null
+  last_visit?: string | null // YYYY-MM-DD
+  total_visits: number
+  created_at: string
+}
+
+export interface Booking {
+  id: string
+  booking_number: string
+  room_id: string
+  guest_id: string
+  check_in: string // ISO string
+  check_out: string // ISO string
+  adults: number
+  children: number
+  extra_beds: number
+  room_price: number
+  extra_bed_total: number
+  total_amount: number
+  paid_amount: number
+  payment_mode: 'Cash' | 'UPI' | 'Pending'
+  payment_status: 'paid' | 'unpaid' | 'partial' | 'hold'
+  deposit_amount: number
+  occupation?: string | null
+  notes?: string | null
+  status: 'active' | 'checked_out' | 'cancelled'
+  created_by?: string | null
+  created_at: string
+  updated_at: string
+  rooms?: Room
+  guests?: Guest
+  documents?: Document[]
+}
+
+export interface BookingCreate {
+  room_id: string
+  guest_id?: string
+  guest_name?: string
+  guest_phone?: string
+  check_in: string // ISO string
+  check_out: string // ISO string
+  adults: number
+  children: number
+  extra_beds: number
+  room_price: number
+  payment_mode: 'Cash' | 'UPI' | 'Pending'
+  payment_status: 'paid' | 'unpaid' | 'hold'
+  deposit_amount: number
+  occupation?: string
+  notes?: string
+}
+
+export interface BookingUpdate {
+  check_out?: string // ISO string
+  paid_amount?: number
+  payment_mode?: 'Cash' | 'UPI' | 'Pending'
+  payment_status?: 'paid' | 'unpaid' | 'partial' | 'hold'
+  status?: 'active' | 'checked_out' | 'cancelled'
+  notes?: string
+}
+
+export interface Document {
+  id: string
+  booking_id: string
+  guest_id: string
+  r2_key: string
+  file_name: string
+  doc_type: string
+  uploaded_at: string
+  public_url?: string
+}
+
+export interface InventoryRoom extends Room {
+  room_status: 'vacant' | 'occupied' | 'hold' | 'unpaid'
+  booking?: {
+    id: string
+    room_id: string
+    guest_id: string
+    check_in: string
+    check_out: string
+    payment_status: 'paid' | 'unpaid' | 'partial' | 'hold'
+    total_amount: number
+    paid_amount: number
+    guests?: {
+      name: string
+      phone: string
+    }
+  } | null
+}

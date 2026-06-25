@@ -6,7 +6,15 @@ venv/
 .venv/
 env/
 .env
+.env.*
+
+# Node / JS
+node_modules/
+dist/
+.npm
+.eslintcache
 
 # OS-specific
 .DS_Store
 Thumbs.db
+
