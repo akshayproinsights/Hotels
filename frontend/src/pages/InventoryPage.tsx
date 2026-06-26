@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { format, addDays, subDays, parseISO } from 'date-fns'
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, RefreshCw, Layers, ShieldAlert, Loader2, LayoutGrid, Map } from 'lucide-react'
 import { useInventory } from '../hooks/useInventory'
@@ -11,6 +11,7 @@ import { useLanguage } from '../context/LanguageContext'
 
 export default function InventoryPage() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const navigate = useNavigate()
   const initialDate = searchParams.get('date') || format(new Date(), 'yyyy-MM-dd')
   const [selectedDate, setSelectedDate] = useState(initialDate)
   const [selectedRoomForBooking, setSelectedRoomForBooking] = useState<InventoryRoom | null>(null)
@@ -141,11 +142,17 @@ export default function InventoryPage() {
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2">
-          <CalendarIcon className="h-4 w-4 sm:h-4.5 sm:w-4.5 text-emerald-400 flex-shrink-0" />
-          <span className="text-xs sm:text-sm font-extrabold text-slate-200 tracking-tight whitespace-nowrap">
-            <span className="inline sm:hidden">{formattedDateCompact}</span>
-            <span className="hidden sm:inline">{formattedDate}</span>
-          </span>
+          <button
+            onClick={() => navigate(`/?date=${selectedDate}`)}
+            className="flex items-center gap-1.5 sm:gap-2 hover:bg-slate-800/30 px-2 py-1.5 rounded-xl transition active:scale-95 text-left border border-transparent hover:border-slate-850"
+            title={language === 'mr' ? 'तारीख बदलण्यासाठी कॅलेंडरवर जा' : 'Go to calendar to change date'}
+          >
+            <CalendarIcon className="h-4 w-4 sm:h-4.5 sm:w-4.5 text-emerald-400 flex-shrink-0" />
+            <span className="text-xs sm:text-sm font-extrabold text-slate-200 tracking-tight whitespace-nowrap">
+              <span className="inline sm:hidden">{formattedDateCompact}</span>
+              <span className="hidden sm:inline">{formattedDate}</span>
+            </span>
+          </button>
           <button
             onClick={() => refetch()}
             disabled={isRefetching}
@@ -183,37 +190,37 @@ export default function InventoryPage() {
       </div>
 
       {/* Occupancy Stats Summary */}
-      <div className="flex flex-row gap-2 overflow-x-auto pb-1.5 sm:pb-0 sm:grid sm:grid-cols-4 sm:gap-3 scrollbar-none">
-        <div className="glass-panel flex-shrink-0 flex items-center justify-between gap-3 px-3 py-1.5 rounded-full sm:rounded-2xl sm:flex-col sm:items-start sm:p-3.5 bg-emerald-500/5 border-emerald-500/10 min-w-[100px] sm:min-w-0">
-          <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-400 flex items-center gap-1.5">
+      <div className="grid grid-cols-4 gap-1.5 sm:gap-3">
+        <div className="glass-panel flex flex-col items-center justify-center p-1.5 rounded-xl sm:rounded-2xl sm:items-start sm:p-3.5 bg-emerald-500/5 border-emerald-500/10">
+          <span className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-emerald-400 flex items-center gap-1 sm:gap-1.5">
             <span>✅</span>
-            <span>{language === 'mr' ? 'रिकामी' : 'Vacant'}</span>
+            <span className="truncate">{language === 'mr' ? 'रिकामी' : 'Free'}</span>
           </span>
-          <span className="text-xs sm:text-2xl font-black text-slate-100 sm:mt-2">{data.summary.vacant}</span>
+          <span className="text-xs sm:text-2xl font-black text-slate-100 mt-0.5 sm:mt-2">{data.summary.vacant}</span>
         </div>
 
-        <div className="glass-panel flex-shrink-0 flex items-center justify-between gap-3 px-3 py-1.5 rounded-full sm:rounded-2xl sm:flex-col sm:items-start sm:p-3.5 bg-slate-500/5 border-slate-800 min-w-[110px] sm:min-w-0">
-          <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 flex items-center gap-1.5">
+        <div className="glass-panel flex flex-col items-center justify-center p-1.5 rounded-xl sm:rounded-2xl sm:items-start sm:p-3.5 bg-slate-500/5 border-slate-800">
+          <span className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-slate-400 flex items-center gap-1 sm:gap-1.5">
             <span>👤</span>
-            <span>{language === 'mr' ? 'भरलेली' : 'Occupied'}</span>
+            <span className="truncate">{language === 'mr' ? 'भरलेली' : 'Occupied'}</span>
           </span>
-          <span className="text-xs sm:text-2xl font-black text-slate-100 sm:mt-2">{data.summary.occupied}</span>
+          <span className="text-xs sm:text-2xl font-black text-slate-100 mt-0.5 sm:mt-2">{data.summary.occupied}</span>
         </div>
 
-        <div className="glass-panel flex-shrink-0 flex items-center justify-between gap-3 px-3 py-1.5 rounded-full sm:rounded-2xl sm:flex-col sm:items-start sm:p-3.5 bg-amber-500/5 border-amber-500/10 min-w-[90px] sm:min-w-0">
-          <span className="text-[10px] uppercase font-bold tracking-wider text-amber-500 flex items-center gap-1.5">
+        <div className="glass-panel flex flex-col items-center justify-center p-1.5 rounded-xl sm:rounded-2xl sm:items-start sm:p-3.5 bg-amber-500/5 border-amber-500/10">
+          <span className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-amber-500 flex items-center gap-1 sm:gap-1.5">
             <span>🔒</span>
-            <span>{language === 'mr' ? 'होल्ड' : 'Hold'}</span>
+            <span className="truncate">{language === 'mr' ? 'होल्ड' : 'Hold'}</span>
           </span>
-          <span className="text-xs sm:text-2xl font-black text-slate-100 sm:mt-2">{data.summary.hold}</span>
+          <span className="text-xs sm:text-2xl font-black text-slate-100 mt-0.5 sm:mt-2">{data.summary.hold}</span>
         </div>
 
-        <div className="glass-panel flex-shrink-0 flex items-center justify-between gap-3 px-3 py-1.5 rounded-full sm:rounded-2xl sm:flex-col sm:items-start sm:p-3.5 bg-rose-500/5 border-rose-500/10 min-w-[100px] sm:min-w-0">
-          <span className="text-[10px] uppercase font-bold tracking-wider text-rose-500 flex items-center gap-1.5">
+        <div className="glass-panel flex flex-col items-center justify-center p-1.5 rounded-xl sm:rounded-2xl sm:items-start sm:p-3.5 bg-rose-500/5 border-rose-500/10">
+          <span className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-rose-500 flex items-center gap-1 sm:gap-1.5">
             <span>⚠️</span>
-            <span>{language === 'mr' ? 'बाकी' : 'Unpaid'}</span>
+            <span className="truncate">{language === 'mr' ? 'बाकी' : 'Unpaid'}</span>
           </span>
-          <span className="text-xs sm:text-2xl font-black text-slate-100 sm:mt-2">{data.summary.unpaid}</span>
+          <span className="text-xs sm:text-2xl font-black text-slate-100 mt-0.5 sm:mt-2">{data.summary.unpaid}</span>
         </div>
       </div>
 
@@ -359,7 +366,7 @@ function MiniRoomBox({ room, onClick }: MiniRoomBoxProps) {
 
   const getStatusText = () => {
     switch (room.room_status) {
-      case 'vacant': return language === 'mr' ? 'रिकामी' : 'Vacant'
+      case 'vacant': return language === 'mr' ? 'रिकामी' : 'Free'
       case 'hold': return language === 'mr' ? 'होल्ड' : 'Hold'
       case 'unpaid': return language === 'mr' ? 'बाकी पेमेंट' : 'Dues Pending'
       case 'occupied': return language === 'mr' ? 'भरलेली' : 'Occupied'

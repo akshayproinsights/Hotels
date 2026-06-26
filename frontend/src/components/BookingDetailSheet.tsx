@@ -2,7 +2,7 @@ import * as React from 'react'
 import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { X, User, Phone, CheckCircle, LogOut, FileText, Camera, Upload, ArrowRight, Loader2, Copy } from 'lucide-react'
+import { X, Phone, CheckCircle, LogOut, FileText, Camera, Upload, ArrowRight, Loader2, Copy } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
 import { getBooking, updateBooking, checkBookingExtension } from '../api/bookings'
@@ -171,6 +171,8 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
     )
   }
 
+  const guestPhotoDoc = guestDocs?.find(d => d.doc_type === 'guest_photo') || booking?.documents?.find(d => d.doc_type === 'guest_photo');
+
   const handleMarkAsPaid = () => {
     const updates: Parameters<typeof updateBooking>[1] = {
       payment_status: 'paid',
@@ -257,12 +259,44 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
     }
   }
 
-  const getStatusBadgeStyles = () => {
-    switch (booking.payment_status) {
+  const handleGuestPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const file = e.target.files[0]
+      setIsUploading(true)
+      const uploadToast = toast.loading(language === 'mr' ? 'फोटो अपलोड होत आहे...' : 'Uploading photo...')
+
+      try {
+        const { upload_url, document_id } = await getUploadUrl(
+          booking.id,
+          booking.guest_id,
+          file.name || 'guest_photo.jpg',
+          file.type || 'image/jpeg',
+          'guest_photo'
+        )
+        await uploadFileToR2(upload_url, file)
+        await confirmUpload(document_id)
+        toast.success(language === 'mr' ? 'फोटो यशस्वीरित्या अपलोड झाला' : 'Photo uploaded successfully', { id: uploadToast })
+        refetch()
+        refetchGuestDocs()
+      } catch (err) {
+        console.error(err)
+        toast.error(language === 'mr' ? 'फोटो अपलोड करण्यात अडचण आली' : 'Failed to upload photo', { id: uploadToast })
+      } finally {
+        setIsUploading(false)
+      }
+    }
+  }
+
+  const effectivePaymentStatus = booking
+    ? ((booking.payment_status === 'unpaid' && booking.paid_amount > 0) ? 'partial' : booking.payment_status)
+    : 'unpaid';
+
+  const getStatusBadgeStyles = (status: string) => {
+    switch (status) {
       case 'hold':
+      case 'partial':
         return 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
       case 'unpaid':
-      case 'partial':
         return 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
       case 'paid':
       default:
@@ -358,10 +392,44 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
           {/* Guest Summary Card */}
           <div className="glass-panel p-4 rounded-2xl flex flex-col gap-3 bg-slate-955/40">
             {/* Row 1: Name + Status Badge */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-slate-200 font-extrabold text-base">
-                <User className="h-4 w-4 text-slate-500 flex-shrink-0" />
-                {booking.guests?.name}
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                {guestPhotoDoc ? (
+                  <div className="relative group w-12 h-12 flex-shrink-0">
+                    <img
+                      src={guestPhotoDoc.public_url}
+                      alt="Guest Photo"
+                      className="w-full h-full rounded-xl object-cover border border-slate-700 cursor-pointer hover:border-emerald-500 transition"
+                    />
+                    <label className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 rounded-xl flex items-center justify-center cursor-pointer transition">
+                      <Camera className="h-4.5 w-4.5 text-slate-300" />
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        className="hidden"
+                        onChange={handleGuestPhotoUpload}
+                      />
+                    </label>
+                  </div>
+                ) : (
+                  <label className="w-12 h-12 rounded-xl bg-slate-900 border border-slate-800 hover:border-emerald-500 flex items-center justify-center flex-shrink-0 text-slate-500 cursor-pointer transition group">
+                    <Camera className="h-5 w-5 group-hover:text-emerald-400 transition" />
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="hidden"
+                      onChange={handleGuestPhotoUpload}
+                    />
+                  </label>
+                )}
+                <div>
+                  <div className="text-slate-200 font-extrabold text-base">{booking.guests?.name}</div>
+                  <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">
+                    {language === 'mr' ? 'पाहुण्यांचा फोटो' : 'Guest Photo'}
+                  </div>
+                </div>
               </div>
               <div className="flex items-center gap-1.5 flex-shrink-0">
                 {booking.status !== 'active' && (
@@ -375,12 +443,12 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                       : (language === 'mr' ? 'रद्द केले' : 'Cancelled')}
                   </span>
                 )}
-                <span className={`text-[10px] uppercase tracking-wider font-extrabold px-2.5 py-1 rounded-lg flex-shrink-0 ${getStatusBadgeStyles()}`}>
-                  {booking.payment_status === 'hold' 
+                <span className={`text-[10px] uppercase tracking-wider font-extrabold px-2.5 py-1 rounded-lg flex-shrink-0 ${getStatusBadgeStyles(effectivePaymentStatus)}`}>
+                  {effectivePaymentStatus === 'hold' 
                     ? (language === 'mr' ? 'होल्डवर' : 'On Hold')
-                    : booking.payment_status === 'unpaid'
+                    : effectivePaymentStatus === 'unpaid'
                       ? (language === 'mr' ? 'पेमेंट केले नाही' : 'Unpaid')
-                      : booking.payment_status === 'partial'
+                      : effectivePaymentStatus === 'partial'
                         ? (language === 'mr' ? 'अंशतः पेमेंट' : 'Partial')
                         : (language === 'mr' ? 'पूर्ण भरले' : 'Paid')}
                 </span>
@@ -628,47 +696,52 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
           <div className="flex flex-col gap-2">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-400">{language === 'mr' ? 'पाहुण्यांचे ओळखपत्र (ग्राहक रेकॉर्ड)' : 'Guest ID Proofs (Customer Record)'}</span>
             <div className="flex flex-wrap gap-2">
-              {guestDocs && guestDocs.length > 0 ? (
-                guestDocs.map((doc) => (
-                  <a
-                    key={doc.id}
-                    href={doc.public_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="relative w-16 h-16 rounded-xl overflow-hidden border border-slate-800 bg-slate-955 flex items-center justify-center hover:border-emerald-500 transition group"
-                  >
-                    {doc.file_name.toLowerCase().endsWith('.pdf') ? (
-                      <FileText className="h-6 w-6 text-slate-400" />
-                    ) : (
-                      <img src={doc.public_url} alt={doc.file_name} className="w-full h-full object-cover" />
-                    )}
-                    <span className="absolute bottom-0 inset-x-0 bg-slate-955/80 text-[8px] text-slate-400 font-bold px-1 py-0.5 truncate text-center">
-                      {doc.file_name}
-                    </span>
-                  </a>
-                ))
-              ) : booking.documents && booking.documents.length > 0 ? (
-                booking.documents.map((doc) => (
-                  <a
-                    key={doc.id}
-                    href={doc.public_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="relative w-16 h-16 rounded-xl overflow-hidden border border-slate-800 bg-slate-955 flex items-center justify-center hover:border-emerald-500 transition group"
-                  >
-                    {doc.file_name.toLowerCase().endsWith('.pdf') ? (
-                      <FileText className="h-6 w-6 text-slate-400" />
-                    ) : (
-                      <img src={doc.public_url} alt={doc.file_name} className="w-full h-full object-cover" />
-                    )}
-                    <span className="absolute bottom-0 inset-x-0 bg-slate-955/80 text-[8px] text-slate-400 font-bold px-1 py-0.5 truncate text-center">
-                      {doc.file_name}
-                    </span>
-                  </a>
-                ))
-              ) : (
-                <div className="text-xs text-slate-500 italic">{language === 'mr' ? 'अद्याप कोणतेही ओळखपत्र जोडलेले नाही.' : 'No documentation uploaded yet.'}</div>
-              )}
+              {(() => {
+                const idDocsOnly = guestDocs ? guestDocs.filter(d => d.doc_type !== 'guest_photo') : [];
+                const bookingDocsOnly = booking.documents ? booking.documents.filter(d => d.doc_type !== 'guest_photo') : [];
+                
+                if (idDocsOnly.length > 0) {
+                  return idDocsOnly.map((doc) => (
+                    <a
+                      key={doc.id}
+                      href={doc.public_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="relative w-16 h-16 rounded-xl overflow-hidden border border-slate-800 bg-slate-955 flex items-center justify-center hover:border-emerald-500 transition group"
+                    >
+                      {doc.file_name.toLowerCase().endsWith('.pdf') ? (
+                        <FileText className="h-6 w-6 text-slate-400" />
+                      ) : (
+                        <img src={doc.public_url} alt={doc.file_name} className="w-full h-full object-cover" />
+                      )}
+                      <span className="absolute bottom-0 inset-x-0 bg-slate-955/80 text-[8px] text-slate-400 font-bold px-1 py-0.5 truncate text-center">
+                        {doc.file_name}
+                      </span>
+                    </a>
+                  ));
+                } else if (bookingDocsOnly.length > 0) {
+                  return bookingDocsOnly.map((doc) => (
+                    <a
+                      key={doc.id}
+                      href={doc.public_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="relative w-16 h-16 rounded-xl overflow-hidden border border-slate-800 bg-slate-955 flex items-center justify-center hover:border-emerald-500 transition group"
+                    >
+                      {doc.file_name.toLowerCase().endsWith('.pdf') ? (
+                        <FileText className="h-6 w-6 text-slate-400" />
+                      ) : (
+                        <img src={doc.public_url} alt={doc.file_name} className="w-full h-full object-cover" />
+                      )}
+                      <span className="absolute bottom-0 inset-x-0 bg-slate-955/80 text-[8px] text-slate-400 font-bold px-1 py-0.5 truncate text-center">
+                        {doc.file_name}
+                      </span>
+                    </a>
+                  ));
+                } else {
+                  return <div className="text-xs text-slate-500 italic">{language === 'mr' ? 'अद्याप कोणतेही ओळखपत्र जोडलेले नाही.' : 'No documentation uploaded yet.'}</div>;
+                }
+              })()}
             </div>
 
             {/* Document upload triggers */}

@@ -21,6 +21,7 @@ export interface Guest {
   phone: string
   email?: string | null
   address?: string | null
+  age?: number | null
   last_visit?: string | null // YYYY-MM-DD
   total_visits: number
   created_at: string
@@ -68,6 +69,35 @@ export interface BookingCreate {
   children: number
   extra_beds: number
   room_price: number
+  payment_mode: 'Cash' | 'UPI' | 'Pending'
+  payment_status: 'paid' | 'unpaid' | 'hold' | 'partial'
+  deposit_amount: number
+  occupation?: string
+  notes?: string
+  total_amount?: number
+  guest_address?: string
+  guest_age?: number
+}
+
+export interface RoomBookingInfo {
+  room_id: string
+  room_type: 'AC Deluxe' | 'Non AC Deluxe' | 'AC Standard' | 'Non AC Standard'
+  adults: number
+  children: number
+  extra_beds: number
+  room_price: number
+  notes?: string
+}
+
+export interface BookingBatchCreate {
+  rooms: RoomBookingInfo[]
+  guest_id?: string
+  guest_name?: string
+  guest_phone?: string
+  guest_address?: string
+  guest_age?: number
+  check_in: string // ISO string
+  check_out: string // ISO string
   payment_mode: 'Cash' | 'UPI' | 'Pending'
   payment_status: 'paid' | 'unpaid' | 'hold' | 'partial'
   deposit_amount: number

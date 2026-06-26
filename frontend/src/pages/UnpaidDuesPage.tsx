@@ -5,7 +5,6 @@ import {
   RefreshCw, 
   Loader2, 
   ShieldAlert, 
-  AlertCircle,
   IndianRupee,
   Phone,
   CalendarClock,
@@ -34,18 +33,19 @@ export default function UnpaidDuesPage() {
     queryFn: getUnpaidDues,
   })
 
-  // Sort by highest due first
+  // Sort by checkout date (earliest/overdue first), then by highest due amount
   const sortedData = unpaidData
     ? [...unpaidData].sort((a, b) => {
+        const dateCompare = a.check_out.localeCompare(b.check_out)
+        if (dateCompare !== 0) {
+          return dateCompare
+        }
         const aDue = a.total_amount - a.paid_amount
         const bDue = b.total_amount - b.paid_amount
         return bDue - aDue
       })
     : []
 
-  // Calculate totals
-  const totalPending = sortedData.reduce((sum, item) => sum + (item.total_amount - item.paid_amount), 0)
-  const totalCollected = sortedData.reduce((sum, item) => sum + item.paid_amount, 0)
 
   const handleCardClick = (bookingId: string) => {
     setSelectedBookingId(bookingId)
@@ -125,32 +125,6 @@ export default function UnpaidDuesPage() {
       ) : (
         <div className="space-y-5">
 
-          {/* Summary KPI Cards */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="glass-panel p-4 rounded-2xl flex flex-col gap-1 bg-rose-500/5 border-rose-500/10">
-              <span className="text-[10px] uppercase font-bold tracking-wider text-rose-400 flex items-center gap-1.5">
-                <AlertCircle className="h-3.5 w-3.5" />
-                {language === 'mr' ? 'एकूण बाकी' : 'To Collect'}
-              </span>
-              <span className="text-2xl font-black text-slate-100 mt-1">₹{totalPending.toLocaleString()}</span>
-              <span className="text-[10px] text-slate-500">
-                {language === 'mr' 
-                  ? `${sortedData.length} पाहुण्यांचे पेमेंट बाकी` 
-                  : `${sortedData.length} guest${sortedData.length !== 1 ? 's' : ''} pending`}
-              </span>
-            </div>
-
-            <div className="glass-panel p-4 rounded-2xl flex flex-col gap-1 bg-emerald-500/5 border-emerald-500/10">
-              <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-400 flex items-center gap-1.5">
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                {language === 'mr' ? 'एकूण जमा' : 'Received So Far'}
-              </span>
-              <span className="text-2xl font-black text-slate-100 mt-1">₹{totalCollected.toLocaleString()}</span>
-              <span className="text-[10px] text-slate-500">
-                {language === 'mr' ? 'अंशतः पेमेंट समाविष्ट' : 'partial payments included'}
-              </span>
-            </div>
-          </div>
 
           {/* Guest Cards */}
           {sortedData.length === 0 ? (
@@ -165,7 +139,8 @@ export default function UnpaidDuesPage() {
                 const pending = due.total_amount - due.paid_amount
                 const isFullyUnpaid = due.paid_amount === 0
                 const paidPct = Math.round((due.paid_amount / due.total_amount) * 100)
-                const statusInfo = getStatusLabel(due.payment_status)
+                const effectiveStatus = (due.payment_status === 'unpaid' && due.paid_amount > 0) ? 'partial' : due.payment_status
+                const statusInfo = getStatusLabel(effectiveStatus)
                 const urgency = getCheckoutUrgency(due.check_out)
 
                 return (
@@ -260,8 +235,8 @@ export default function UnpaidDuesPage() {
             <p className="text-center text-[10px] text-slate-600 pt-1">
               <IndianRupee className="inline h-3 w-3 mr-0.5" />
               {language === 'mr' 
-                ? 'जास्त बाकी असलेले पेमेंट आधी दाखवले आहे · पेमेंट बदलण्यासाठी कार्डवर टॅप करा'
-                : 'Sorted by highest amount due first · Tap any card to manage payment'}
+                ? 'चेकआउट तारीख (लवकर असणारे आधी) आणि जास्त बाकी रक्कमेनुसार क्रमवारी लावली आहे · कार्डवर टॅप करा'
+                : 'Sorted by checkout date (earliest first) and highest due amount · Tap any card to manage payment'}
             </p>
           )}
         </div>

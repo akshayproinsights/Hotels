@@ -5,6 +5,7 @@ export interface CalendarDay {
   date: string       // YYYY-MM-DD
   vacant: number
   occupied: number
+  pending: number
   status: 'full' | 'few_left' | 'vacant'
 }
 

@@ -116,7 +116,7 @@ export default function CalendarGrid({ year, month, daysData, onDayClick }: Cale
               key={`day-${cell.dayNumber}`}
               onClick={() => onDayClick(cell.dateStr)}
               className={`min-h-[58px] relative rounded-xl border flex flex-col items-center justify-between py-2 px-1 transition duration-200 ${statusClasses} ${
-                cell.isToday ? 'ring-2 ring-emerald-400 ring-offset-2 ring-offset-slate-900' : ''
+                cell.isToday ? 'ring-2 ring-emerald-400 ring-offset-2 ring-offset-slate-900 bg-emerald-500/[0.08]' : ''
               } ${isPast ? 'opacity-40 grayscale-[30%] bg-slate-950/20 hover:opacity-70 transition-opacity' : ''}`}
             >
               <span className={`text-xs font-bold ${cell.isToday ? 'text-slate-100' : 'text-slate-300'}`}>

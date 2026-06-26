@@ -66,7 +66,7 @@ export default function DayDetailPanel({ dateStr, onClose }: DayDetailPanelProps
             {/* Occupancy stats summary row */}
             <div className="grid grid-cols-4 gap-2 text-center bg-slate-950/40 p-2.5 rounded-2xl border border-slate-800/45">
               <div>
-                <div className="text-[9px] uppercase font-bold tracking-wider text-emerald-500">Vacant</div>
+                <div className="text-[9px] uppercase font-bold tracking-wider text-emerald-500">Free</div>
                 <div className="text-base font-black text-slate-200">{data.summary.vacant}</div>
               </div>
               <div>

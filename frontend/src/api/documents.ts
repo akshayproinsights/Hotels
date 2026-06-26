@@ -12,13 +12,15 @@ export async function getUploadUrl(
   bookingId: string,
   guestId: string,
   fileName: string,
-  contentType: string
+  contentType: string,
+  docType?: string
 ): Promise<UploadUrlResponse> {
   const res = await api.post<UploadUrlResponse>('/documents/upload-url', {
     booking_id: bookingId,
     guest_id: guestId,
     file_name: fileName,
     content_type: contentType,
+    doc_type: docType,
   })
   return res.data
 }
@@ -49,14 +51,23 @@ export async function uploadFileToR2(uploadUrl: string, file: File): Promise<voi
   })
 }
 
-export async function extractNameFromId(file: File): Promise<string> {
+export interface ExtractedDetails {
+  name: string
+  address?: string
+  age?: number | null
+}
+
+export async function extractNameFromId(files: File | File[]): Promise<ExtractedDetails> {
   const formData = new FormData()
-  formData.append('file', file)
-  const res = await api.post<{ name: string }>('/documents/extract-name', formData, {
+  const filesArray = Array.isArray(files) ? files : [files]
+  filesArray.forEach(file => {
+    formData.append('files', file)
+  })
+  const res = await api.post<ExtractedDetails>('/documents/extract-name', formData, {
     headers: {
       'Content-Type': 'multipart/form-data',
     },
   })
-  return res.data.name
+  return res.data
 }
 

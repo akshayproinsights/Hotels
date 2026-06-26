@@ -67,6 +67,41 @@ export default function GuestProfileSheet({ guest, onClose }: GuestProfileSheetP
     }
   }
 
+  const handleGuestPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      if (bookings.length === 0) {
+        toast.error('Cannot upload documents for a guest with no bookings')
+        return
+      }
+
+      const file = e.target.files[0]
+      setIsUploading(true)
+      const uploadToast = toast.loading('Uploading guest photo...')
+
+      // Associate with the guest's latest booking ID
+      const latestBookingId = bookings[0].id
+
+      try {
+        const { upload_url, document_id } = await getUploadUrl(
+          latestBookingId,
+          guest.id,
+          file.name || 'guest_photo.jpg',
+          file.type || 'image/jpeg',
+          'guest_photo'
+        )
+        await uploadFileToR2(upload_url, file)
+        await confirmUpload(document_id)
+        toast.success('Guest photo uploaded successfully', { id: uploadToast })
+        refetchDocs()
+      } catch (err) {
+        console.error(err)
+        toast.error('Failed to upload guest photo', { id: uploadToast })
+      } finally {
+        setIsUploading(false)
+      }
+    }
+  }
+
   // Calculate unpaid balance sum across all bookings
   const totalPendingDues = bookings.reduce((sum, b) => {
     const pending = b.total_amount - b.paid_amount
@@ -104,19 +139,50 @@ export default function GuestProfileSheet({ guest, onClose }: GuestProfileSheetP
           
           {/* Profile Card */}
           <div className="glass-panel p-4 rounded-2xl flex flex-col gap-3 bg-slate-950/40 border-slate-800/40">
-            <div className="flex justify-between items-start">
-              <div>
-                <h3 className="text-lg font-black text-slate-100 flex items-center gap-2">
-                  <User className="h-5 w-5 text-emerald-400" />
-                  {guest.name}
-                </h3>
-                <a
-                  href={`tel:${guest.phone}`}
-                  className="text-xs text-slate-400 hover:text-emerald-400 font-bold mt-1 flex items-center gap-2 transition"
-                >
-                  <Phone className="h-3.5 w-3.5 text-slate-500" />
-                  {guest.phone}
-                </a>
+            <div className="flex justify-between items-start gap-4">
+              <div className="flex gap-3">
+                {guestDocs.find(d => d.doc_type === 'guest_photo') ? (
+                  <div className="relative group w-12 h-12 flex-shrink-0">
+                    <img
+                      src={guestDocs.find(d => d.doc_type === 'guest_photo')?.public_url}
+                      alt="Guest Photo"
+                      className="w-full h-full rounded-xl object-cover border border-slate-700 cursor-pointer hover:border-emerald-500 transition"
+                    />
+                    <label className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 rounded-xl flex items-center justify-center cursor-pointer transition">
+                      <Camera className="h-4.5 w-4.5 text-slate-300" />
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        className="hidden"
+                        onChange={handleGuestPhotoUpload}
+                      />
+                    </label>
+                  </div>
+                ) : (
+                  <label className="w-12 h-12 rounded-xl bg-slate-950 border border-slate-800 hover:border-emerald-500 flex items-center justify-center flex-shrink-0 text-slate-500 cursor-pointer transition group">
+                    <Camera className="h-5 w-5 group-hover:text-emerald-400 transition" />
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="hidden"
+                      onChange={handleGuestPhotoUpload}
+                    />
+                  </label>
+                )}
+                <div>
+                  <h3 className="text-lg font-black text-slate-100 flex items-center gap-2">
+                    {guest.name}
+                  </h3>
+                  <a
+                    href={`tel:${guest.phone}`}
+                    className="text-xs text-slate-400 hover:text-emerald-400 font-bold mt-1 flex items-center gap-2 transition"
+                  >
+                    <Phone className="h-3.5 w-3.5 text-slate-500" />
+                    {guest.phone}
+                  </a>
+                </div>
               </div>
               <div className="text-right">
                 <span className="text-[10px] uppercase tracking-wider font-extrabold px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
@@ -141,6 +207,15 @@ export default function GuestProfileSheet({ guest, onClose }: GuestProfileSheetP
                   </div>
                 </div>
               )}
+              {guest.age !== undefined && guest.age !== null && (
+                <div className="flex items-start gap-2 text-slate-400">
+                  <User className="h-4 w-4 text-slate-500 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold text-slate-500 block uppercase text-[9px] tracking-wider">Age</span>
+                    {guest.age} years
+                  </div>
+                </div>
+              )}
               {bookings.length > 0 && bookings[0].occupation && (
                 <div className="flex items-start gap-2 text-slate-400">
                   <Briefcase className="h-4 w-4 text-slate-500 shrink-0 mt-0.5" />
@@ -155,42 +230,49 @@ export default function GuestProfileSheet({ guest, onClose }: GuestProfileSheetP
 
           {/* ID Documents Grid */}
           <div className="flex flex-col gap-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center justify-between">
-              <span>ID Proofs & Documents ({guestDocs.length})</span>
-            </span>
+            {(() => {
+              const idDocsOnly = guestDocs.filter(d => d.doc_type !== 'guest_photo');
+              return (
+                <>
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center justify-between">
+                    <span>ID Proofs & Documents ({idDocsOnly.length})</span>
+                  </span>
 
-            {isLoadingDocs ? (
-              <div className="flex items-center justify-center p-6 text-slate-500">
-                <Loader2 className="h-5 w-5 animate-spin mr-2 text-emerald-400" />
-                <span className="text-xs font-semibold">Loading documents...</span>
-              </div>
-            ) : guestDocs.length > 0 ? (
-              <div className="grid grid-cols-4 gap-2">
-                {guestDocs.map((doc) => (
-                  <button
-                    key={doc.id}
-                    onClick={() => setSelectedDoc(doc)}
-                    className="relative aspect-square rounded-xl overflow-hidden border border-slate-800 bg-slate-950 flex flex-col items-center justify-center hover:border-emerald-500 transition group"
-                  >
-                    {doc.file_name.toLowerCase().endsWith('.pdf') ? (
-                      <FileText className="h-8 w-8 text-slate-400 group-hover:scale-105 transition" />
-                    ) : (
-                      <img src={doc.public_url} alt={doc.file_name} className="w-full h-full object-cover group-hover:scale-105 transition" />
-                    )}
-                    <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
-                      <ZoomIn className="h-5 w-5 text-slate-200" />
+                  {isLoadingDocs ? (
+                    <div className="flex items-center justify-center p-6 text-slate-500">
+                      <Loader2 className="h-5 w-5 animate-spin mr-2 text-emerald-400" />
+                      <span className="text-xs font-semibold">Loading documents...</span>
                     </div>
-                    <span className="absolute bottom-0 inset-x-0 bg-slate-950/85 text-[8px] text-slate-400 font-bold px-1 py-0.5 truncate text-center">
-                      {doc.file_name}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="text-xs text-slate-500 italic p-3 bg-slate-950/20 border border-slate-850 rounded-2xl">
-                No ID documentation uploaded for this guest.
-              </div>
-            )}
+                  ) : idDocsOnly.length > 0 ? (
+                    <div className="grid grid-cols-4 gap-2">
+                      {idDocsOnly.map((doc) => (
+                        <button
+                          key={doc.id}
+                          onClick={() => setSelectedDoc(doc)}
+                          className="relative aspect-square rounded-xl overflow-hidden border border-slate-800 bg-slate-950 flex flex-col items-center justify-center hover:border-emerald-500 transition group"
+                        >
+                          {doc.file_name.toLowerCase().endsWith('.pdf') ? (
+                            <FileText className="h-8 w-8 text-slate-400 group-hover:scale-105 transition" />
+                          ) : (
+                            <img src={doc.public_url} alt={doc.file_name} className="w-full h-full object-cover group-hover:scale-105 transition" />
+                          )}
+                          <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+                            <ZoomIn className="h-5 w-5 text-slate-200" />
+                          </div>
+                          <span className="absolute bottom-0 inset-x-0 bg-slate-950/85 text-[8px] text-slate-400 font-bold px-1 py-0.5 truncate text-center">
+                            {doc.file_name}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-500 italic p-3 bg-slate-950/20 border border-slate-850 rounded-2xl">
+                      No ID documentation uploaded for this guest.
+                    </div>
+                  )}
+                </>
+              );
+            })()}
 
             {/* Document upload zone */}
             {bookings.length > 0 && (

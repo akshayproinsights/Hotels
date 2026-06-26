@@ -66,6 +66,7 @@ def get_calendar(
                 "room_id": b["room_id"],
                 "check_in": ci,
                 "check_out": co,
+                "payment_status": b.get("payment_status", "paid")
             })
         except Exception as ex:
             logging.warning(f"Failed to parse booking dates: {str(ex)}")
@@ -79,12 +80,15 @@ def get_calendar(
         day_start = datetime(year, month, d, 0, 0, 0, tzinfo=IST)
         day_end = datetime(year, month, d, 23, 59, 59, tzinfo=IST)
 
-        # Count occupied rooms for this day
+        # Count occupied rooms and pending bookings for this day
         occupied_rooms = set()
+        pending_count = 0
         for pb in parsed_bookings:
             # Overlap: booking starts before end of day, and ends after start of day
             if pb["check_in"] <= day_end and pb["check_out"] > day_start:
                 occupied_rooms.add(pb["room_id"])
+                if pb.get("payment_status") in ("unpaid", "partial", "hold"):
+                    pending_count += 1
         
         occupied_count = len(occupied_rooms)
         vacant_count = max(0, total_rooms - occupied_count)
@@ -101,6 +105,7 @@ def get_calendar(
             "date": day_date.isoformat(),
             "vacant": vacant_count,
             "occupied": occupied_count,
+            "pending": pending_count,
             "status": day_status
         })
 

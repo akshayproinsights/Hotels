@@ -29,6 +29,7 @@ create table guests (
   phone        text not null unique,
   email        text,
   address      text,
+  age          int,
   last_visit   date,
   total_visits int  not null default 0,
   created_at   timestamptz not null default now()

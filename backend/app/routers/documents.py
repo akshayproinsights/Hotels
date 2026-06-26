@@ -19,6 +19,7 @@ class UploadRequest(BaseModel):
     guest_id: str
     file_name: str
     content_type: str   # e.g. "image/jpeg"
+    doc_type: str = "id_proof"
 
 class ConfirmUpload(BaseModel):
     document_id: str
@@ -36,6 +37,7 @@ def get_upload_url(body: UploadRequest, user=Depends(get_current_user)):
         "guest_id":   body.guest_id,
         "r2_key":     r2_key,
         "file_name":  body.file_name,
+        "doc_type":   body.doc_type,
     }).execute()
 
     upload_url = generate_presigned_upload_url(r2_key, body.content_type)
@@ -65,35 +67,61 @@ def list_guest_docs(guest_id: str, user=Depends(get_current_user)):
              "public_url": public_url(d["r2_key"]),
              "uploaded_at": d["uploaded_at"]} for d in res.data]
 
-def call_gemini_extract_name(image_bytes: bytes, mime_type: str) -> str:
+from typing import List
+
+def call_gemini_extract_details(
+    files_data: List[tuple] | tuple | bytes,
+    mime_type: str | None = None
+) -> dict:
     from app.config import settings
     api_key = settings.gemini_api_key
     if not api_key:
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured in backend environment variables")
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
-    base64_data = base64.b64encode(image_bytes).decode("utf-8")
+
+    # Normalize input to list of (file_bytes, mime_type)
+    normalized_files = []
+    if isinstance(files_data, list):
+        normalized_files = files_data
+    elif isinstance(files_data, tuple):
+        normalized_files = [files_data]
+    elif isinstance(files_data, bytes):
+        if not mime_type:
+            raise HTTPException(status_code=400, detail="mime_type must be provided if raw bytes are passed")
+        normalized_files = [(files_data, mime_type)]
+    else:
+        raise HTTPException(status_code=400, detail="Invalid input type for call_gemini_extract_details")
 
     prompt = (
-        "You are an OCR assistant for a hotel reception desk. Extract the main guest's full name from the uploaded ID document. "
-        "ID documents might be an Aadhar Card, Driving License, Passport, PAN Card, etc. "
-        "Search for labels like 'Name', 'Full Name', 'नाम', or similar, and extract the corresponding name value. "
-        "Return ONLY the extracted name (e.g. 'John Doe' or 'राजेश कुमार'). If you cannot find any name, return an empty string. "
-        "Do not include any formatting, markdown, explanation, or JSON wrapper. Just the name string."
+        "You are an OCR assistant for a hotel reception desk. Extract the guest details from the uploaded ID document image(s). "
+        "ID documents might be an Aadhar Card, Driving License, Passport, PAN Card, etc.\n\n"
+        "Extract the following fields:\n"
+        "1. Full Name: Look for labels like 'Name', 'Full Name', 'नाम', or similar. Return the name value.\n"
+        "2. Address: Look for labels like 'Address', 'पता', or similar. Return the complete address value. If not found, return empty string.\n"
+        "3. Age: Look for Date of Birth (DOB), Year of Birth (YOB), or labels like 'DOB', 'Year of Birth', 'जन्म तारीख', 'जन्म वर्ष'. "
+        f"Calculate the guest's age as of today ({date.today().isoformat()}). "
+        "The age must be a whole number (integer). If DOB/YOB cannot be found, calculate/return null.\n\n"
+        "Return the output as a valid JSON object with the keys 'name', 'address', and 'age'. "
+        "Do not include any markdown formatting, code blocks, or extra text. Just the raw JSON string. "
+        "Example output:\n"
+        "{\"name\": \"John Doe\", \"address\": \"123 Main St, New York, NY\", \"age\": 34}"
     )
+
+    parts = [{"text": prompt}]
+    for file_bytes, mtype in normalized_files:
+        base64_data = base64.b64encode(file_bytes).decode("utf-8")
+        parts.append({
+            "inlineData": {
+                "mimeType": mtype,
+                "data": base64_data
+            }
+        })
 
     payload = {
         "contents": [
             {
-                "parts": [
-                    {"text": prompt},
-                    {
-                        "inlineData": {
-                            "mimeType": mime_type,
-                            "data": base64_data
-                        }
-                    }
-                ]
+                "parts": parts
             }
         ]
     }
@@ -110,8 +138,27 @@ def call_gemini_extract_name(image_bytes: bytes, mime_type: str) -> str:
         with urllib.request.urlopen(req) as response:
             res_data = response.read().decode("utf-8")
             res_json = json.loads(res_data)
-            text = res_json["candidates"][0]["content"]["parts"][0]["text"]
-            return text.strip()
+            text = res_json["candidates"][0]["content"]["parts"][0]["text"].strip()
+            
+            # Clean up potential markdown formatting (like ```json ... ```)
+            if text.startswith("```"):
+                lines = text.splitlines()
+                if lines[0].startswith("```"):
+                    lines = lines[1:]
+                if lines and lines[-1].startswith("```"):
+                    lines = lines[:-1]
+                text = "\n".join(lines).strip()
+                
+            try:
+                details = json.loads(text)
+                return {
+                    "name": details.get("name", "").strip(),
+                    "address": details.get("address", "").strip(),
+                    "age": details.get("age")
+                }
+            except json.JSONDecodeError:
+                # Fallback: if JSON fails to parse, return text as name
+                return {"name": text, "address": "", "age": None}
     except urllib.error.HTTPError as e:
         err_msg = e.read().decode("utf-8")
         print(f"Gemini API Error: {err_msg}")
@@ -121,12 +168,30 @@ def call_gemini_extract_name(image_bytes: bytes, mime_type: str) -> str:
         raise HTTPException(status_code=500, detail=f"Failed to process image: {str(e)}")
 
 @router.post("/extract-name")
-async def extract_name(file: UploadFile = File(...), user=Depends(get_current_user)):
-    # Validate mime_type is image or PDF
-    if not (file.content_type.startswith("image/") or file.content_type == "application/pdf"):
-        raise HTTPException(status_code=400, detail="Invalid file type. Only images and PDFs are allowed.")
-    
-    file_bytes = await file.read()
-    extracted_name = call_gemini_extract_name(file_bytes, file.content_type)
-    return {"name": extracted_name}
+async def extract_name(
+    file: UploadFile = File(None),
+    files: List[UploadFile] = File(None),
+    user=Depends(get_current_user)
+):
+    all_files = []
+    if file is not None:
+        all_files.append(file)
+    if files is not None:
+        all_files.extend(files)
+        
+    # filter out empty files or mock files without filenames
+    all_files = [f for f in all_files if f.filename]
+        
+    if not all_files:
+        raise HTTPException(status_code=400, detail="No files uploaded.")
+        
+    files_data = []
+    for f in all_files:
+        if not (f.content_type.startswith("image/") or f.content_type == "application/pdf"):
+            raise HTTPException(status_code=400, detail=f"Invalid file type for {f.filename}. Only images and PDFs are allowed.")
+        file_bytes = await f.read()
+        files_data.append((file_bytes, f.content_type))
+        
+    extracted_details = call_gemini_extract_details(files_data)
+    return extracted_details
 

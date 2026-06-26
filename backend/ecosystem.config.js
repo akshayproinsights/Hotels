@@ -10,18 +10,18 @@
 module.exports = {
   apps: [
     {
-      name:        'santosh-palace-api',
+      name:        'hotel-santosh-api',
       script:      'uvicorn',
-      args:        'app.main:app --host 127.0.0.1 --port 8001 --workers 2',
-      interpreter: '/var/www/santosh-palace/backend/venv/bin/python',
-      cwd:         '/var/www/santosh-palace/backend',
-      env_file:    '/var/www/santosh-palace/backend/.env',
+      args:        'app.main:app --host 127.0.0.1 --port 8002 --workers 2',
+      interpreter: '/root/Hotel_Santosh/backend/venv/bin/python',
+      cwd:         '/root/Hotel_Santosh/backend',
+      env_file:    '/root/Hotel_Santosh/backend/.env',
       autorestart: true,
       watch:       false,
       max_memory_restart: '300M',
       log_date_format: 'YYYY-MM-DD HH:mm:ss',
-      error_file:  '/var/log/santosh-palace/api-error.log',
-      out_file:    '/var/log/santosh-palace/api-out.log',
+      error_file:  '/var/log/hotel-santosh/api-error.log',
+      out_file:    '/var/log/hotel-santosh/api-out.log',
     },
   ],
 }

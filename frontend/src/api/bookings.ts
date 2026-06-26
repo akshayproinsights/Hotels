@@ -1,8 +1,13 @@
 import api from './client'
-import type { Booking, BookingCreate, BookingUpdate } from '../types'
+import type { Booking, BookingCreate, BookingUpdate, BookingBatchCreate } from '../types'
 
 export async function createBooking(payload: BookingCreate): Promise<Booking> {
   const res = await api.post<Booking>('/bookings', payload)
+  return res.data
+}
+
+export async function createBookingsBatch(payload: BookingBatchCreate): Promise<Booking[]> {
+  const res = await api.post<Booking[]>('/bookings/batch', payload)
   return res.data
 }
 

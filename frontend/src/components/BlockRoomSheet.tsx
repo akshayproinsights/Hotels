@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { X, User, Phone, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, Minus, Camera, Upload, Briefcase, FileText, Loader2 } from 'lucide-react'
+import { X, User, Phone, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, Minus, Camera, Upload, Briefcase, FileText, Loader2, MapPin } from 'lucide-react'
 import { 
   format, 
   addDays, 
@@ -21,9 +21,9 @@ import {
   startOfDay 
 } from 'date-fns'
 import toast from 'react-hot-toast'
-import type { InventoryRoom, Room, Document } from '../types'
+import type { InventoryRoom, Room, Document, Guest } from '../types'
 import { searchGuests, getGuestBookings } from '../api/guests'
-import { createBooking } from '../api/bookings'
+import { createBookingsBatch } from '../api/bookings'
 import { getUploadUrl, uploadFileToR2, confirmUpload, listGuestDocs, extractNameFromId } from '../api/documents'
 import { listAvailableRooms } from '../api/rooms'
 import { useLanguage } from '../context/LanguageContext'
@@ -53,15 +53,103 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
   const [guestName, setGuestName] = useState('')
   const [selectedGuestId, setSelectedGuestId] = useState<string | undefined>(undefined)
   const [guestPhone, setGuestPhone] = useState('')
-  const [searchResults, setSearchResults] = useState<{ id: string; name: string; phone: string }[]>([])
+  const [guestAddress, setGuestAddress] = useState('')
+  const [guestAge, setGuestAge] = useState('')
+  const [searchResults, setSearchResults] = useState<Guest[]>([])
   const [showDropdown, setShowDropdown] = useState(false)
   const [activeSearchField, setActiveSearchField] = useState<'name' | 'phone' | null>(null)
-  const [recentGuests, setRecentGuests] = useState<{ id: string; name: string; phone: string }[]>([])
+  const [recentGuests, setRecentGuests] = useState<{ id: string; name: string; phone: string; address?: string | null; age?: number | null }[]>([])
   
-  // Steppers
-  const [adults, setAdults] = useState(1)
-  const [children, setChildren] = useState(0)
-  const [extraBeds, setExtraBeds] = useState(0)
+  // Dynamic Room interface and states
+  interface SelectedRoomConfig {
+    id: string
+    room_type: 'AC Deluxe' | 'Non AC Deluxe' | 'AC Standard' | 'Non AC Standard'
+    room_id: string
+    adults: number
+    children: number
+    extra_beds: number
+    room_price: number
+    notes: string
+  }
+
+  const [selectedRooms, setSelectedRooms] = useState<SelectedRoomConfig[]>([
+    {
+      id: Math.random().toString(36).substring(2, 9),
+      room_type: room?.room_type ?? 'AC Deluxe',
+      room_id: room?.id ?? '',
+      adults: 1,
+      children: 0,
+      extra_beds: 0,
+      room_price: room?.base_price ?? 0,
+      notes: '',
+    }
+  ])
+
+  const [availableRooms, setAvailableRooms] = useState<Room[]>([])
+  const [isLoadingAvailableRooms, setIsLoadingAvailableRooms] = useState(false)
+
+  const updateRoomConfig = (id: string, updates: Partial<SelectedRoomConfig>) => {
+    setSelectedRooms(prev => prev.map(r => {
+      if (r.id !== id) return r
+      const newConfig = { ...r, ...updates }
+      
+      if (updates.room_type) {
+        const selectedIds = prev.filter(x => x.id !== id && x.room_id).map(x => x.room_id)
+        const filtered = availableRooms.filter(roomOpt => roomOpt.room_type === updates.room_type && !selectedIds.includes(roomOpt.id))
+        
+        if (filtered.length > 0) {
+          newConfig.room_id = filtered[0].id
+          newConfig.room_price = filtered[0].base_price
+        } else {
+          newConfig.room_id = ''
+          newConfig.room_price = 0
+        }
+      }
+      
+      if (updates.room_id) {
+        const found = availableRooms.find(roomOpt => roomOpt.id === updates.room_id)
+        if (found) {
+          newConfig.room_price = found.base_price
+        }
+      }
+      
+      return newConfig
+    }))
+  }
+
+  const addRoomConfig = () => {
+    const selectedIds = selectedRooms.map(r => r.room_id)
+    const nextAvail = availableRooms.find(r => !selectedIds.includes(r.id))
+    const type = nextAvail?.room_type ?? 'AC Deluxe'
+    const id = nextAvail?.id ?? ''
+    const price = nextAvail?.base_price ?? 0
+    
+    setSelectedRooms(prev => [
+      ...prev,
+      {
+        id: Math.random().toString(36).substring(2, 9),
+        room_type: type,
+        room_id: id,
+        adults: 1,
+        children: 0,
+        extra_beds: 0,
+        room_price: price,
+        notes: ''
+      }
+    ])
+  }
+
+  const removeRoomConfig = (id: string) => {
+    if (selectedRooms.length <= 1) return
+    setSelectedRooms(prev => prev.filter(r => r.id !== id))
+  }
+
+  const getRoomOptions = (configId: string) => {
+    const selectedIds = selectedRooms
+      .filter(r => r.id !== configId && r.room_id)
+      .map(r => r.room_id)
+    return availableRooms.filter(r => !selectedIds.includes(r.id))
+  }
 
   // Dates — use initialDate (calendar-selected day) if provided, otherwise default to today
   const now = new Date()
@@ -82,12 +170,12 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
   // Additional Fields
   const [occupation, setOccupation] = useState('')
   const [notes, setNotes] = useState('')
-  const [roomPrice, setRoomPrice] = useState(room?.base_price ?? 0)
   const [paymentMode, setPaymentMode] = useState<'Cash' | 'UPI' | 'Pending'>('Pending')
   const [depositAmount, setDepositAmount] = useState<string | number>(0)
   
   // Documents
   const [selectedFiles, setSelectedFiles] = useState<LocalFile[]>([])
+  const [guestPhoto, setGuestPhoto] = useState<LocalFile | { preview: string; file?: null } | null>(null)
   
   // Total Amount State (for editing)
   const [totalAmount, setTotalAmount] = useState<string | number>('')
@@ -100,13 +188,6 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
   const [isExtractingName, setIsExtractingName] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
-
-  // Dynamic Room states
-  const [selectedRoomType, setSelectedRoomType] = useState<'AC Deluxe' | 'Non AC Deluxe' | 'AC Standard' | 'Non AC Standard'>(room?.room_type ?? 'AC Deluxe')
-  const [selectedRoomId, setSelectedRoomId] = useState<string>(room?.id ?? '')
-  const [availableRooms, setAvailableRooms] = useState<Room[]>([])
-  const [isLoadingAvailableRooms, setIsLoadingAvailableRooms] = useState(false)
-  
   // Custom Date Picker states
   const [showDatePicker, setShowDatePicker] = useState(false)
   const [pickerMonth, setPickerMonth] = useState<Date>(now)
@@ -166,7 +247,6 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
         const endISO = parse(`${checkOutDate} ${checkOutTime}`, 'yyyy-MM-dd HH:mm', new Date()).toISOString()
         const res = await listAvailableRooms(startISO, endISO)
         if (active) {
-          // Keep initial room in selection list if available, or if selection hasn't changed
           if (room) {
             const containsRoom = res.some(r => r.id === room.id)
             const updatedRooms = containsRoom ? res : [room, ...res.filter(r => r.id !== room.id)]
@@ -190,34 +270,32 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
     }
   }, [checkInDate, checkInTime, checkOutDate, checkOutTime, room])
 
-  // Filter available rooms by selected room type
-  const filteredRooms = availableRooms.filter(r => r.room_type === selectedRoomType)
-
-  // Auto-select first room of selected type when list or type changes
+  // Automatically fill in empty room IDs or update selected rooms if availableRooms changes
   useEffect(() => {
-    const filtered = availableRooms.filter(r => r.room_type === selectedRoomType)
-    if (filtered.length > 0) {
-      const exists = filtered.some(r => r.id === selectedRoomId)
-      if (!exists) {
-        setSelectedRoomId(filtered[0].id)
+    if (availableRooms.length === 0) return
+    setSelectedRooms(prev => prev.map(config => {
+      if (config.room_id) {
+        const isStillAvailable = availableRooms.some(r => r.id === config.room_id)
+        if (isStillAvailable || (room && config.room_id === room.id)) {
+          return config
+        }
       }
-    } else {
-      if (room && room.room_type === selectedRoomType) {
-        setSelectedRoomId(room.id)
-      } else {
-        setSelectedRoomId('')
+      const selectedIds = prev.filter(x => x !== config && x.room_id).map(x => x.room_id)
+      const filtered = availableRooms.filter(r => r.room_type === config.room_type && !selectedIds.includes(r.id))
+      if (filtered.length > 0) {
+        return {
+          ...config,
+          room_id: filtered[0].id,
+          room_price: filtered[0].base_price
+        }
       }
-    }
-  }, [selectedRoomType, availableRooms, selectedRoomId, room])
-
-  // Update room price state when the selected room updates
-  useEffect(() => {
-    const cur = (room && selectedRoomId === room.id) ? room : availableRooms.find(r => r.id === selectedRoomId)
-    if (cur) {
-      setRoomPrice(cur.base_price)
-      setSelectedRoomType(cur.room_type)
-    }
-  }, [selectedRoomId, availableRooms, room])
+      return {
+        ...config,
+        room_id: '',
+        room_price: 0
+      }
+    }))
+  }, [availableRooms, room])
 
   // Synchronize calendar focus month when popover opens
   useEffect(() => {
@@ -226,37 +304,52 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
     }
   }, [showDatePicker, checkInDate])
 
-  // Computed Values
-  const currentSelectedRoom = (room && selectedRoomId === room.id)
-    ? room 
-    : (availableRooms.find(r => r.id === selectedRoomId) || null)
-
   const checkinDateTime = parse(`${checkInDate} ${checkInTime}`, 'yyyy-MM-dd HH:mm', new Date())
   const checkoutDateTime = parse(`${checkOutDate} ${checkOutTime}`, 'yyyy-MM-dd HH:mm', new Date())
   const nights = Math.max(1, differenceInCalendarDays(checkoutDateTime, checkinDateTime))
-  const extraBedTotal = extraBeds * (currentSelectedRoom?.extra_bed_price ?? 500) * nights
-  const defaultTotalAmount = (roomPrice * nights) + extraBedTotal
+
+  const calculateRoomTotal = (rConfig: SelectedRoomConfig) => {
+    const extraBedPrice = 500
+    const extraBedTotal = rConfig.extra_beds * extraBedPrice * nights
+    return (rConfig.room_price * nights) + extraBedTotal
+  }
+
+  const defaultTotalAmount = selectedRooms.reduce((acc, r) => acc + calculateRoomTotal(r), 0)
 
   // Sync state with calculated total, but only when base factors change
   useEffect(() => {
     setTotalAmount(defaultTotalAmount)
-  }, [roomPrice, nights, extraBeds, defaultTotalAmount])
+  }, [defaultTotalAmount])
 
   // Load existing guest documents
   useEffect(() => {
     if (selectedGuestId) {
       listGuestDocs(selectedGuestId)
-        .then(docs => setExistingDocs(docs))
-        .catch(err => console.error('Failed to load guest documents', err))
+        .then(docs => {
+          setExistingDocs(docs)
+          const photoDoc = docs.find(d => d.doc_type === 'guest_photo')
+          if (photoDoc) {
+            setGuestPhoto({ preview: photoDoc.public_url || '', file: null })
+          } else {
+            setGuestPhoto(null)
+          }
+        })
+        .catch(err => {
+          console.error('Failed to load guest documents', err)
+          setGuestPhoto(null)
+        })
     } else {
       setExistingDocs([])
+      setGuestPhoto(null)
     }
   }, [selectedGuestId])
 
-  const selectGuest = async (guest: { id: string; name: string; phone: string }) => {
+  const selectGuest = async (guest: { id: string; name: string; phone: string; address?: string | null; age?: number | null }) => {
     setSelectedGuestId(guest.id)
     setGuestName(guest.name)
     setGuestPhone(guest.phone)
+    setGuestAddress(guest.address || '')
+    setGuestAge(guest.age !== undefined && guest.age !== null ? String(guest.age) : '')
     setShowDropdown(false)
     setActiveSearchField(null)
 
@@ -280,36 +373,42 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
         file,
         preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : '',
       }))
-      setSelectedFiles(prev => [...prev, ...filesArr])
+      const updatedFilesList = [...selectedFiles, ...filesArr]
+      setSelectedFiles(updatedFilesList)
 
-      // Auto-extract name from the first uploaded file
-      const fileToExtract = e.target.files[0]
       setIsExtractingName(true)
-      const toastId = toast.loading(language === 'mr' ? 'ओळखपत्रातून नाव शोधत आहे...' : 'Extracting name from ID...')
+      const toastId = toast.loading(language === 'mr' ? 'ओळखपत्रातून माहिती शोधत आहे...' : 'Extracting details from ID...')
       try {
-        const name = await extractNameFromId(fileToExtract)
-        if (name && name.trim()) {
-          setGuestName(name.trim())
+        const filesToExtract = updatedFilesList.map(lf => lf.file)
+        const details = await extractNameFromId(filesToExtract)
+        if (details && details.name && details.name.trim()) {
+          setGuestName(details.name.trim())
+          if (details.address) {
+            setGuestAddress(details.address.trim())
+          }
+          if (details.age !== undefined && details.age !== null) {
+            setGuestAge(String(details.age))
+          }
           toast.success(
             language === 'mr' 
-              ? `नाव सापडले: ${name.trim()}` 
-              : `Extracted name: ${name.trim()}`,
+              ? `माहिती मिळाली!` 
+              : `Extracted details successfully`,
             { id: toastId }
           )
         } else {
           toast.error(
             language === 'mr'
-              ? 'नाव शोधता आले नाही. कृपया स्वतः टाईप करा.'
-              : 'Could not extract name. Please enter manually.',
+              ? 'माहिती शोधता आली नाही. कृपया स्वतः टाईप करा.'
+              : 'Could not extract guest details. Please enter manually.',
             { id: toastId }
           )
         }
       } catch (err) {
-        console.error('Failed to extract name', err)
+        console.error('Failed to extract details', err)
         toast.error(
           language === 'mr'
-            ? 'नाव शोधण्यात अडचण आली'
-            : 'Error extracting name',
+            ? 'माहिती शोधण्यात अडचण आली'
+            : 'Error extracting details',
           { id: toastId }
         )
       } finally {
@@ -330,7 +429,17 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
     })
   }
 
-  const saveToRecentGuests = (guest: { id: string; name: string; phone: string }) => {
+  const handleGuestPhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const file = e.target.files[0]
+      setGuestPhoto({
+        file,
+        preview: URL.createObjectURL(file)
+      })
+    }
+  }
+
+  const saveToRecentGuests = (guest: { id: string; name: string; phone: string; address?: string | null; age?: number | null }) => {
     const list = [guest, ...recentGuests.filter(g => g.phone !== guest.phone)].slice(0, 3)
     setRecentGuests(list)
     localStorage.setItem('recent_guests', JSON.stringify(list))
@@ -515,36 +624,38 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
       toast.error(language === 'mr' ? 'मोबाईल नंबर आवश्यक आहे' : 'Phone Number is required')
       return
     }
-    if (!selectedRoomId) {
-      toast.error(language === 'mr' ? 'या तारखांसाठी कोणतीही खोली उपलब्ध नाही' : 'No room is selected or available for these dates')
+
+    const invalidRoom = selectedRooms.some(r => !r.room_id)
+    if (invalidRoom) {
+      toast.error(language === 'mr' ? 'कृपया सर्व खोल्या निवडा' : 'Please select a room number for all rooms')
       return
     }
 
     setIsSubmitting(true)
 
     try {
-      // 1. Create booking payload
       const checkInISO = checkinDateTime.toISOString()
       const checkOutISO = checkoutDateTime.toISOString()
 
       const payload = {
-        room_id: selectedRoomId,
-        room_type: selectedRoomType,
+        rooms: selectedRooms.map(r => ({
+          room_id: r.room_id,
+          room_type: r.room_type,
+          adults: r.adults,
+          children: r.children,
+          extra_beds: r.extra_beds,
+          room_price: r.room_price,
+          notes: r.notes || undefined,
+        })),
         guest_id: selectedGuestId,
-        guest_name: selectedGuestId ? undefined : guestName,
-        guest_phone: selectedGuestId ? undefined : guestPhone,
+        guest_name: guestName,
+        guest_phone: guestPhone,
+        guest_address: guestAddress || undefined,
+        guest_age: guestAge ? Number(guestAge) : undefined,
         check_in: checkInISO,
         check_out: checkOutISO,
-        adults,
-        children,
-        extra_beds: extraBeds,
-        room_price: roomPrice,
         payment_mode: paymentMode,
         payment_status: paymentStatus,
-        // For partial payments (Cash/UPI with deposit < total), store the partial deposit amount
-        // For hold: use depositAmount if provided, else 500
-        // For paid: 0 (full payment, no deposit distinction needed)
-        // For unpaid/Pending: use depositAmount (advance)
         deposit_amount: paymentStatus === 'partial'
           ? (Number(depositAmount) || 0)
           : paymentMode === 'Pending'
@@ -557,33 +668,54 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
         total_amount: Number(totalAmount) || 0,
       }
 
-      const booking = await createBooking(payload)
+      const bookings = await createBookingsBatch(payload)
 
-      // Save to recent list
-      saveToRecentGuests({
-        id: booking.guest_id,
-        name: guestName,
-        phone: guestPhone,
-      })
+      if (bookings && bookings.length > 0) {
+        saveToRecentGuests({
+          id: bookings[0].guest_id,
+          name: guestName,
+          phone: guestPhone,
+        })
 
-      // 2. Upload documents if any
-      if (selectedFiles.length > 0) {
-        toast.loading(language === 'mr' ? 'ओळखपत्रे अपलोड होत आहेत...' : 'Uploading ID documents...', { id: 'upload' })
-        for (const localFile of selectedFiles) {
-          const { upload_url, document_id } = await getUploadUrl(
-            booking.id,
-            booking.guest_id,
-            localFile.file.name,
-            localFile.file.type
-          )
-          await uploadFileToR2(upload_url, localFile.file)
-          await confirmUpload(document_id)
+        // Upload documents if any (link to first booking in batch)
+        if (selectedFiles.length > 0) {
+          toast.loading(language === 'mr' ? 'ओळखपत्रे अपलोड होत आहेत...' : 'Uploading ID documents...', { id: 'upload' })
+          for (const localFile of selectedFiles) {
+            const { upload_url, document_id } = await getUploadUrl(
+              bookings[0].id,
+              bookings[0].guest_id,
+              localFile.file.name,
+              localFile.file.type
+            )
+            await uploadFileToR2(upload_url, localFile.file)
+            await confirmUpload(document_id)
+          }
+          toast.success(language === 'mr' ? 'ओळखपत्रे यशस्वीरित्या अपलोड झाली' : 'Documents uploaded successfully', { id: 'upload' })
         }
-        toast.success(language === 'mr' ? 'ओळखपत्रे यशस्वीरित्या अपलोड झाली' : 'Documents uploaded successfully', { id: 'upload' })
+
+        // Upload guest photo if any
+        if (guestPhoto && guestPhoto.file) {
+          toast.loading(language === 'mr' ? 'पाहुण्यांचा फोटो अपलोड होत आहे...' : 'Uploading guest photo...', { id: 'guest-photo-upload' })
+          try {
+            const { upload_url, document_id } = await getUploadUrl(
+              bookings[0].id,
+              bookings[0].guest_id,
+              guestPhoto.file.name || 'guest_photo.jpg',
+              guestPhoto.file.type || 'image/jpeg',
+              'guest_photo'
+            )
+            await uploadFileToR2(upload_url, guestPhoto.file)
+            await confirmUpload(document_id)
+            toast.success(language === 'mr' ? 'पाहुण्यांचा फोटो यशस्वीरित्या अपलोड झाला' : 'Guest photo uploaded successfully', { id: 'guest-photo-upload' })
+          } catch (photoErr) {
+            console.error('Failed to upload guest photo', photoErr)
+            toast.error(language === 'mr' ? 'पाहुण्यांचा फोटो अपलोड करण्यात अडचण आली' : 'Failed to upload guest photo', { id: 'guest-photo-upload' })
+          }
+        }
       }
 
       toast.success(paymentStatus === 'hold' 
-        ? (language === 'mr' ? 'खोली यशस्वीरित्या होल्ड केली गेली!' : 'Room blocked successfully!') 
+        ? (language === 'mr' ? 'खोल्या यशस्वीरित्या होल्ड केल्या गेल्या!' : 'Rooms blocked successfully!') 
         : (language === 'mr' ? 'चेक-इन यशस्वीरित्या पूर्ण झाले!' : 'Check-in completed successfully!'))
       onSuccess()
     } catch (err: any) {
@@ -603,18 +735,18 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
         {/* Header */}
         <div className="flex justify-between items-center p-6 pb-3 border-b border-slate-800 flex-shrink-0">
           <div>
-            <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
+            <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2 flex-wrap">
               <span className="bg-emerald-500/10 text-emerald-400 px-3 py-1 rounded-xl text-sm font-extrabold">
-                {language === 'mr' ? 'खोली' : 'Room'} {currentSelectedRoom?.number ?? '—'}
+                {language === 'mr' 
+                  ? `${selectedRooms.length} खोल्या निवडल्या` 
+                  : `${selectedRooms.length} Room(s) Selected`}
               </span>
               {language === 'mr' ? 'बुक आणि ब्लॉक' : 'Book & Block'}
             </h2>
             <p className="text-xs text-slate-500 mt-1">
-              {currentSelectedRoom 
-                ? (language === 'mr' 
-                    ? `${currentSelectedRoom.floor} रा मजला - चेक-इन साठी तयार` 
-                    : `Ready for check-in on Floor ${currentSelectedRoom.floor}`) 
-                : t('select_room_prompt')}
+              {language === 'mr' 
+                ? 'चेक-इन आणि होल्ड ची नोंद करा' 
+                : 'Process room blockings and guest check-ins'}
             </p>
           </div>
           <button
@@ -642,6 +774,7 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
                   type="file"
                   accept="image/*"
                   capture="environment"
+                  multiple
                   className="hidden"
                   onChange={handleFileChange}
                   disabled={isExtractingName}
@@ -653,6 +786,7 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
                 <input
                   type="file"
                   accept="image/*,application/pdf"
+                  multiple
                   className="hidden"
                   onChange={handleFileChange}
                   disabled={isExtractingName}
@@ -690,43 +824,72 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
             {/* Guest Name & Autocomplete */}
             <div className="relative flex flex-col gap-1.5">
               <label className="text-xs font-bold uppercase tracking-wider text-slate-400">{t('guest_name')}</label>
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                  <User className="h-4 w-4 text-slate-500" />
-                </span>
-                <input
-                  type="text"
-                  placeholder={language === 'mr' ? 'पाहुण्याचे नाव शोधा किंवा टाका' : 'Search or enter guest name'}
-                  value={guestName}
-                  onChange={(e) => {
-                    setGuestName(e.target.value)
-                    setSelectedGuestId(undefined) // clear selection if typed
-                    setActiveSearchField('name')
-                  }}
-                  onFocus={() => {
-                    if (guestName.length >= 2) {
+              <div className="flex gap-3">
+                <div className="relative flex-1">
+                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                    <User className="h-4 w-4 text-slate-500" />
+                  </span>
+                  <input
+                    type="text"
+                    placeholder={language === 'mr' ? 'पाहुण्याचे नाव शोधा किंवा टाका' : 'Search or enter guest name'}
+                    value={guestName}
+                    onChange={(e) => {
+                      setGuestName(e.target.value)
+                      setSelectedGuestId(undefined) // clear selection if typed
                       setActiveSearchField('name')
-                      setShowDropdown(true)
-                    }
-                  }}
-                  className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-sm"
-                />
-              </div>
-              {activeSearchField === 'name' && showDropdown && searchResults.length > 0 && (
-                <div className="absolute top-[72px] z-50 w-full bg-slate-950 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
-                  {searchResults.map((guest) => (
-                    <button
-                      key={guest.id}
-                      type="button"
-                      onClick={() => selectGuest(guest)}
-                      className="w-full px-4 py-3 text-left text-sm text-slate-300 hover:bg-slate-900 border-b border-slate-900 flex justify-between items-center transition"
-                    >
-                      <span className="font-semibold">{guest.name}</span>
-                      <span className="text-xs text-slate-500">{guest.phone}</span>
-                    </button>
-                  ))}
+                    }}
+                    onFocus={() => {
+                      if (guestName.length >= 2) {
+                        setActiveSearchField('name')
+                        setShowDropdown(true)
+                      }
+                    }}
+                    className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-sm"
+                  />
+                  {activeSearchField === 'name' && showDropdown && searchResults.length > 0 && (
+                    <div className="absolute top-[52px] z-50 w-full bg-slate-950 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
+                      {searchResults.map((guest) => (
+                        <button
+                          key={guest.id}
+                          type="button"
+                          onClick={() => selectGuest(guest)}
+                          className="w-full px-4 py-3 text-left text-sm text-slate-300 hover:bg-slate-900 border-b border-slate-900 flex justify-between items-center transition"
+                        >
+                          <span className="font-semibold">{guest.name}</span>
+                          <span className="text-xs text-slate-500">{guest.phone}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
+                
+                {/* Guest Photo camera box */}
+                <div className="relative flex-shrink-0 w-[46px] h-[46px]">
+                  <label className="w-full h-full flex items-center justify-center bg-slate-950 border border-slate-800 hover:border-emerald-500 rounded-2xl cursor-pointer overflow-hidden transition group">
+                    {guestPhoto ? (
+                      <img src={guestPhoto.preview} alt="Guest" className="w-full h-full object-cover" />
+                    ) : (
+                      <Camera className="h-5 w-5 text-slate-500 group-hover:text-emerald-400 transition" />
+                    )}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="hidden"
+                      onChange={handleGuestPhotoChange}
+                    />
+                  </label>
+                  {guestPhoto && (
+                    <button
+                      type="button"
+                      onClick={() => setGuestPhoto(null)}
+                      className="absolute -top-1.5 -right-1.5 w-5 h-5 flex items-center justify-center bg-rose-500 hover:bg-rose-600 text-white rounded-full shadow transition"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
 
             {/* Phone Number */}
@@ -770,6 +933,40 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
                 </div>
               )}
             </div>
+
+            {/* Address */}
+            <div className="relative flex flex-col gap-1.5">
+              <label className="text-xs font-bold uppercase tracking-wider text-slate-400">{language === 'mr' ? 'पत्ता' : 'Address'}</label>
+              <div className="relative">
+                <span className="absolute inset-y-0 left-0 pl-3.5 pt-3.5 flex items-start pointer-events-none">
+                  <MapPin className="h-4 w-4 text-slate-500" />
+                </span>
+                <textarea
+                  rows={2}
+                  placeholder={language === 'mr' ? 'पत्ता प्रविष्ट करा' : 'Enter address'}
+                  value={guestAddress}
+                  onChange={(e) => setGuestAddress(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-sm resize-none"
+                />
+              </div>
+            </div>
+
+            {/* Age */}
+            <div className="relative flex flex-col gap-1.5">
+              <label className="text-xs font-bold uppercase tracking-wider text-slate-400">{language === 'mr' ? 'वय' : 'Age'}</label>
+              <div className="relative">
+                <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                  <User className="h-4 w-4 text-slate-500" />
+                </span>
+                <input
+                  type="number"
+                  placeholder={language === 'mr' ? 'वय टाका' : 'Enter age'}
+                  value={guestAge}
+                  onChange={(e) => setGuestAge(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-sm"
+                />
+              </div>
+            </div>
           </div>
 
           {/* Existing Guest Documents */}
@@ -798,121 +995,171 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
             </div>
           )}
 
-          {/* Dynamic Room Selection: Type and Room Number Dropdowns */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="flex flex-col gap-1.5">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">{t('room_type')}</span>
-              <div className="relative">
-                <select
-                  value={selectedRoomType}
-                  onChange={(e) => setSelectedRoomType(e.target.value as any)}
-                  className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-sm font-semibold h-[46px] select-dark"
-                >
-                  <option value="AC Deluxe">AC Deluxe</option>
-                  <option value="Non AC Deluxe">Non AC Deluxe</option>
-                  <option value="AC Standard">AC Standard</option>
-                  <option value="Non AC Standard">Non AC Standard</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">{language === 'mr' ? 'खोली क्रमांक' : 'Room Number'}</span>
-              <div className="relative">
-                <select
-                  value={selectedRoomId}
-                  onChange={(e) => setSelectedRoomId(e.target.value)}
-                  disabled={isLoadingAvailableRooms}
-                  className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-sm font-semibold h-[46px] select-dark disabled:opacity-50"
-                >
-                  {isLoadingAvailableRooms ? (
-                    <option value="">{t('loading')}</option>
-                  ) : filteredRooms.length === 0 ? (
-                    <option value="">{language === 'mr' ? 'कोणतीही खोली उपलब्ध नाही' : 'No rooms available'}</option>
-                  ) : (
-                    filteredRooms.map(r => (
-                      <option key={r.id} value={r.id}>
-                        {r.number}
-                      </option>
-                    ))
-                  )}
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {/* Occupancy and Extra Beds Grid */}
-          <div className="grid grid-cols-2 gap-4">
-            {/* Steppers: Adults & Children */}
-            <div className="flex flex-col gap-1.5">
-              <div className="grid grid-cols-2 gap-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-400">{language === 'mr' ? 'प्रौढ' : 'Adults'}</span>
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-400">{language === 'mr' ? 'मुले' : 'Children'}</span>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="flex items-center justify-between bg-slate-950 border border-slate-800 rounded-2xl p-1">
-                  <button
-                    type="button"
-                    onClick={() => setAdults(prev => Math.max(1, prev - 1))}
-                    className="p-2 rounded-xl hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
-                  >
-                    <Minus className="h-3 w-3" />
-                  </button>
-                  <span className="text-sm font-bold text-slate-200">{adults}</span>
-                  <button
-                    type="button"
-                    onClick={() => setAdults(prev => prev + 1)}
-                    className="p-2 rounded-xl hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
-                  >
-                    <Plus className="h-3 w-3" />
-                  </button>
-                </div>
-                <div className="flex items-center justify-between bg-slate-950 border border-slate-800 rounded-2xl p-1">
-                  <button
-                    type="button"
-                    onClick={() => setChildren(prev => Math.max(0, prev - 1))}
-                    className="p-2 rounded-xl hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
-                  >
-                    <Minus className="h-3 w-3" />
-                  </button>
-                  <span className="text-sm font-bold text-slate-200">{children}</span>
-                  <button
-                    type="button"
-                    onClick={() => setChildren(prev => prev + 1)}
-                    className="p-2 rounded-xl hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
-                  >
-                    <Plus className="h-3 w-3" />
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Extra Beds Stepper */}
-            <div className="flex flex-col gap-1.5">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex justify-between">
-                <span>{language === 'mr' ? 'अतिरिक्त बेड' : 'Extra Beds'}</span>
-                <span className="text-[10px] text-slate-500 lowercase font-medium">
-                  +₹{currentSelectedRoom?.extra_bed_price ?? 500}{language === 'mr' ? '/रात्र' : '/night'}
-                </span>
+          {/* Dynamic Room Configuration List */}
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                {language === 'mr' ? 'खोल्यांची निवड' : 'Rooms Selected'} ({selectedRooms.length})
               </span>
-              <div className="flex items-center justify-between bg-slate-950 border border-slate-800 rounded-2xl p-1 h-[46px]">
-                <button
-                  type="button"
-                  onClick={() => setExtraBeds(prev => Math.max(0, prev - 1))}
-                  className="p-2 rounded-xl hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
-                >
-                  <Minus className="h-3 w-3" />
-                </button>
-                <span className="text-sm font-bold text-slate-200">{extraBeds}</span>
-                <button
-                  type="button"
-                  onClick={() => setExtraBeds(prev => prev + 1)}
-                  className="p-2 rounded-xl hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
-                >
-                  <Plus className="h-3 w-3" />
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={addRoomConfig}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-extrabold rounded-xl transition border border-emerald-500/20"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                {language === 'mr' ? 'खोली जोडा' : 'Add Room'}
+              </button>
             </div>
+
+            {selectedRooms.map((config, index) => {
+              const options = getRoomOptions(config.id)
+              return (
+                <div key={config.id} className="relative flex flex-col gap-3.5 p-4 bg-slate-950/20 rounded-2xl border border-slate-800/80">
+                  {selectedRooms.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeRoomConfig(config.id)}
+                      className="absolute top-3 right-3 text-rose-500/80 hover:text-rose-400 text-xs font-extrabold flex items-center gap-0.5 p-1 rounded hover:bg-rose-500/10 transition"
+                    >
+                      <Minus className="h-3 w-3" />
+                      {language === 'mr' ? 'काढा' : 'Remove'}
+                    </button>
+                  )}
+
+                  <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                    {language === 'mr' ? `खोली ${index + 1}` : `Room ${index + 1}`}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{t('room_type')}</span>
+                      <select
+                        value={config.room_type}
+                        onChange={(e) => updateRoomConfig(config.id, { room_type: e.target.value as any })}
+                        className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-sm font-semibold h-[46px] select-dark"
+                      >
+                        <option value="AC Deluxe">AC Deluxe</option>
+                        <option value="Non AC Deluxe">Non AC Deluxe</option>
+                        <option value="AC Standard">AC Standard</option>
+                        <option value="Non AC Standard">Non AC Standard</option>
+                      </select>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                        {language === 'mr' ? 'खोली क्रमांक' : 'Room Number'}
+                      </span>
+                      <SearchableRoomSelect
+                        value={config.room_id}
+                        options={options}
+                        isLoading={isLoadingAvailableRooms}
+                        onChange={(roomId) => updateRoomConfig(config.id, { room_id: roomId })}
+                        placeholder={language === 'mr' ? 'खोली निवडा' : 'Select room'}
+                        language={language}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Steppers & Price for this Room */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="flex flex-col gap-1.5">
+                      <div className="grid grid-cols-2 gap-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{language === 'mr' ? 'प्रौढ' : 'Adults'}</span>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{language === 'mr' ? 'मुले' : 'Children'}</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="flex items-center justify-between bg-slate-950 border border-slate-800 rounded-2xl p-1 h-[38px]">
+                          <button
+                            type="button"
+                            onClick={() => updateRoomConfig(config.id, { adults: Math.max(1, config.adults - 1) })}
+                            className="p-1.5 rounded-lg hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
+                          >
+                            <Minus className="h-2.5 w-2.5" />
+                          </button>
+                          <span className="text-xs font-bold text-slate-200">{config.adults}</span>
+                          <button
+                            type="button"
+                            onClick={() => updateRoomConfig(config.id, { adults: config.adults + 1 })}
+                            className="p-1.5 rounded-lg hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
+                          >
+                            <Plus className="h-2.5 w-2.5" />
+                          </button>
+                        </div>
+                        <div className="flex items-center justify-between bg-slate-950 border border-slate-800 rounded-2xl p-1 h-[38px]">
+                          <button
+                            type="button"
+                            onClick={() => updateRoomConfig(config.id, { children: Math.max(0, config.children - 1) })}
+                            className="p-1.5 rounded-lg hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
+                          >
+                            <Minus className="h-2.5 w-2.5" />
+                          </button>
+                          <span className="text-xs font-bold text-slate-200">{config.children}</span>
+                          <button
+                            type="button"
+                            onClick={() => updateRoomConfig(config.id, { children: config.children + 1 })}
+                            className="p-1.5 rounded-lg hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
+                          >
+                            <Plus className="h-2.5 w-2.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex justify-between">
+                        <span>{language === 'mr' ? 'अतिरिक्त बेड' : 'Extra Beds'}</span>
+                        <span className="text-[9px] text-slate-500 lowercase font-medium">
+                          +₹500{language === 'mr' ? '/रात्र' : '/night'}
+                        </span>
+                      </span>
+                      <div className="flex items-center justify-between bg-slate-950 border border-slate-800 rounded-2xl p-1 h-[38px]">
+                        <button
+                          type="button"
+                          onClick={() => updateRoomConfig(config.id, { extra_beds: Math.max(0, config.extra_beds - 1) })}
+                          className="p-1.5 rounded-lg hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
+                        >
+                          <Minus className="h-2.5 w-2.5" />
+                        </button>
+                        <span className="text-xs font-bold text-slate-200">{config.extra_beds}</span>
+                        <button
+                          type="button"
+                          onClick={() => updateRoomConfig(config.id, { extra_beds: config.extra_beds + 1 })}
+                          className="p-1.5 rounded-lg hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
+                        >
+                          <Plus className="h-2.5 w-2.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                        {language === 'mr' ? 'खोली भाडे (₹/रात्र)' : 'Room Price (₹/Night)'}
+                      </label>
+                      <input
+                        type="number"
+                        value={config.room_price}
+                        onChange={(e) => updateRoomConfig(config.id, { room_price: Number(e.target.value) })}
+                        className="w-full px-4 py-2 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-xs h-[38px]"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                        {language === 'mr' ? 'तपशील (खोली)' : 'Notes (Room)'}
+                      </label>
+                      <input
+                        type="text"
+                        placeholder={language === 'mr' ? 'उदा. शांत खोली' : 'e.g. Quiet room'}
+                        value={config.notes}
+                        onChange={(e) => updateRoomConfig(config.id, { notes: e.target.value })}
+                        className="w-full px-4 py-2 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-xs h-[38px]"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
           </div>
 
           {/* Dates: Check-in / Check-out Buttons Triggering Custom Calendar */}
@@ -969,32 +1216,20 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
             </span>
           </div>
 
-          {/* Room Price and Occupation */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-400">{language === 'mr' ? 'खोली भाडे (₹/रात्र)' : 'Room Price (₹/Night)'}</label>
+          {/* Occupation (Full Width) */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-bold uppercase tracking-wider text-slate-400">{language === 'mr' ? 'व्यवसाय' : 'Occupation'}</label>
+            <div className="relative">
+              <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                <Briefcase className="h-4 w-4 text-slate-500" />
+              </span>
               <input
-                type="number"
-                value={roomPrice}
-                onChange={(e) => setRoomPrice(Number(e.target.value))}
-                className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-sm h-[46px]"
+                type="text"
+                placeholder={language === 'mr' ? 'उदा. नोकरी/व्यवसाय' : 'e.g. Business'}
+                value={occupation}
+                onChange={(e) => setOccupation(e.target.value)}
+                className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-sm h-[46px]"
               />
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-400">{language === 'mr' ? 'व्यवसाय' : 'Occupation'}</label>
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                  <Briefcase className="h-4 w-4 text-slate-500" />
-                </span>
-                <input
-                  type="text"
-                  placeholder={language === 'mr' ? 'उदा. नोकरी/व्यवसाय' : 'e.g. Business'}
-                  value={occupation}
-                  onChange={(e) => setOccupation(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-sm h-[46px]"
-                />
-              </div>
             </div>
           </div>
 
@@ -1051,7 +1286,9 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
                 />
               </div>
               <span className="text-[10px] text-slate-600 font-medium mt-0.5">
-                {language === 'mr' ? `₹${roomPrice} × ${nights} रात्र${extraBeds > 0 ? ` + बेड ₹${extraBedTotal}` : ''}` : `₹${roomPrice} × ${nights}n${extraBeds > 0 ? ` + bed ₹${extraBedTotal}` : ''}`}
+                {language === 'mr' 
+                  ? `${selectedRooms.length} खोल्या × ${nights} रात्र` 
+                  : `${selectedRooms.length} room(s) × ${nights} night(s)`}
               </span>
             </div>
 
@@ -1175,13 +1412,13 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
               type="button"
               disabled={isSubmitting}
               onClick={() => {
+                const depositAmt = Number(depositAmount) || 0
+                const totalAmt = Number(totalAmount) || 0
+                const isPartial = depositAmt > 0 && depositAmt < totalAmt
+                
                 if (paymentMode === 'Pending') {
-                  handleSubmit('unpaid')
+                  handleSubmit(isPartial ? 'partial' : 'unpaid')
                 } else {
-                  // If a partial deposit was entered and it's less than the total, mark as partial
-                  const depositAmt = Number(depositAmount) || 0
-                  const totalAmt = Number(totalAmount) || 0
-                  const isPartial = depositAmt > 0 && depositAmt < totalAmt
                   handleSubmit(isPartial ? 'partial' : 'paid')
                 }
               }}
@@ -1196,5 +1433,92 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
       {renderDatePickerModal()}
     </div>,
     document.body
+  )
+}
+
+function SearchableRoomSelect({
+  value,
+  options,
+  onChange,
+  isLoading,
+  placeholder,
+  language
+}: {
+  value: string
+  options: Room[]
+  onChange: (id: string) => void
+  isLoading: boolean
+  placeholder: string
+  language: string
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [searchTerm, setSearchTerm] = useState('')
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  const selectedRoom = options.find(o => o.id === value)
+
+  useEffect(() => {
+    if (selectedRoom) {
+      setSearchTerm(selectedRoom.number)
+    } else {
+      setSearchTerm('')
+    }
+  }, [value, selectedRoom])
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false)
+        setSearchTerm(selectedRoom?.number ?? '')
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [selectedRoom])
+
+  const filteredOptions = options.filter(o => 
+    o.number.toLowerCase().includes(searchTerm.toLowerCase())
+  )
+
+  return (
+    <div className="relative w-full" ref={containerRef}>
+      <input
+        type="text"
+        placeholder={isLoading ? (language === 'mr' ? 'लोड होत आहे...' : 'Loading...') : placeholder}
+        value={searchTerm}
+        disabled={isLoading}
+        onFocus={() => setIsOpen(true)}
+        onChange={(e) => {
+          setSearchTerm(e.target.value)
+          setIsOpen(true)
+        }}
+        className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-sm font-semibold h-[46px] select-dark disabled:opacity-50"
+      />
+      {isOpen && (
+        <div className="absolute top-[50px] left-0 z-50 w-full max-h-48 overflow-y-auto bg-slate-950 border border-slate-800 rounded-2xl shadow-xl">
+          {isLoading ? (
+            <div className="px-4 py-3 text-xs text-slate-500">{language === 'mr' ? 'लोड होत आहे...' : 'Loading...'}</div>
+          ) : filteredOptions.length === 0 ? (
+            <div className="px-4 py-3 text-xs text-slate-500">{language === 'mr' ? 'कोणतीही खोली उपलब्ध नाही' : 'No rooms available'}</div>
+          ) : (
+            filteredOptions.map(r => (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => {
+                  onChange(r.id)
+                  setSearchTerm(r.number)
+                  setIsOpen(false)
+                }}
+                className="w-full px-4 py-2.5 text-left text-sm text-slate-300 hover:bg-slate-900 transition flex justify-between items-center"
+              >
+                <span className="font-bold">{r.number}</span>
+                <span className="text-[10px] text-slate-500">{r.room_type}</span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
   )
 }

@@ -16,9 +16,11 @@ import {
   CreditCard,
   Layers,
   LogOut,
-  LogIn
+  LogIn,
+  AlertCircle,
+  CheckCircle2
 } from 'lucide-react'
-import { getDailyReport, getMonthlyReport } from '../api/reports'
+import { getDailyReport, getMonthlyReport, getUnpaidDues } from '../api/reports'
 import { useLanguage } from '../context/LanguageContext'
 
 const MONTHS = [
@@ -89,6 +91,24 @@ export default function ReportsPage() {
   // Monthly year range
   const years = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i)
 
+  // Overall Unpaid Dues Query (for top KPI cards)
+  const { 
+    data: unpaidData, 
+    isLoading: unpaidLoading,
+    isError: unpaidError
+  } = useQuery({
+    queryKey: ['unpaidDues'],
+    queryFn: getUnpaidDues,
+  })
+
+  // Calculate totals
+  const totalPending = unpaidData
+    ? unpaidData.reduce((sum, item) => sum + (item.total_amount - item.paid_amount), 0)
+    : 0
+  const totalCollected = unpaidData
+    ? unpaidData.reduce((sum, item) => sum + item.paid_amount, 0)
+    : 0
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 pb-24 animate-fade-in">
       
@@ -128,6 +148,50 @@ export default function ReportsPage() {
             {t('monthly_report')}
           </button>
         </div>
+      </div>
+
+      {/* Overall Outstanding Dues KPI Cards */}
+      <div className="grid grid-cols-2 gap-4 mb-8">
+        {unpaidLoading ? (
+          <>
+            <div className="glass-panel p-5 rounded-2xl h-28 animate-pulse bg-slate-900/20 border-slate-800/40" />
+            <div className="glass-panel p-5 rounded-2xl h-28 animate-pulse bg-slate-900/20 border-slate-800/40" />
+          </>
+        ) : unpaidError || !unpaidData ? (
+          <div className="col-span-2 text-center text-rose-400 text-xs py-4 glass-panel rounded-2xl border-rose-500/10 bg-rose-500/5">
+            {language === 'mr' ? 'थकीत रकमांची माहिती लोड करता आली नाही' : 'Failed to load outstanding dues summary'}
+          </div>
+        ) : (
+          <>
+            <div className="glass-panel p-5 rounded-2xl flex flex-col justify-between bg-rose-500/5 border-rose-500/10">
+              <span className="text-[10px] uppercase font-bold tracking-wider text-rose-400 flex items-center gap-1.5">
+                <AlertCircle className="h-4 w-4" />
+                {language === 'mr' ? 'एकूण बाकी' : 'To Collect'}
+              </span>
+              <div className="mt-2">
+                <span className="text-2xl font-black text-slate-100">₹{totalPending.toLocaleString()}</span>
+                <span className="text-[10px] text-slate-500 block mt-1">
+                  {language === 'mr' 
+                    ? `${unpaidData.length} पाहुण्यांचे पेमेंट बाकी` 
+                    : `${unpaidData.length} guest${unpaidData.length !== 1 ? 's' : ''} pending`}
+                </span>
+              </div>
+            </div>
+
+            <div className="glass-panel p-5 rounded-2xl flex flex-col justify-between bg-emerald-500/5 border-emerald-500/10">
+              <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-400 flex items-center gap-1.5">
+                <CheckCircle2 className="h-4 w-4" />
+                {language === 'mr' ? 'एकूण जमा' : 'Received So Far'}
+              </span>
+              <div className="mt-2">
+                <span className="text-2xl font-black text-slate-100">₹{totalCollected.toLocaleString()}</span>
+                <span className="text-[10px] text-slate-500 block mt-1">
+                  {language === 'mr' ? 'अंशतः पेमेंट समाविष्ट' : 'partial payments included'}
+                </span>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {activeTab === 'daily' && (

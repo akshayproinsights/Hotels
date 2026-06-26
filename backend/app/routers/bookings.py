@@ -25,6 +25,32 @@ class BookingCreate(BaseModel):
     occupation: Optional[str] = None
     notes: Optional[str] = None
     total_amount: Optional[float] = None
+    guest_address: Optional[str] = None
+    guest_age: Optional[int] = None
+class RoomBookingInfo(BaseModel):
+    room_id: str
+    room_type: Literal['AC Deluxe', 'Non AC Deluxe', 'AC Standard', 'Non AC Standard']
+    adults: int = 1
+    children: int = 0
+    extra_beds: int = 0
+    room_price: float
+    notes: Optional[str] = None
+
+class BookingBatchCreate(BaseModel):
+    rooms: list[RoomBookingInfo]
+    guest_id: Optional[str] = None
+    guest_name: Optional[str] = None
+    guest_phone: Optional[str] = None
+    check_in: datetime
+    check_out: datetime
+    payment_mode: str                     # "Cash" | "UPI" | "Pending"
+    payment_status: str = "paid"          # "paid" | "unpaid" | "partial" | "hold"
+    deposit_amount: float = 0
+    occupation: Optional[str] = None
+    notes: Optional[str] = None
+    total_amount: Optional[float] = None
+    guest_address: Optional[str] = None
+    guest_age: Optional[int] = None
 
 class BookingUpdate(BaseModel):
     check_out: Optional[datetime] = None
@@ -39,19 +65,30 @@ class BookingUpdate(BaseModel):
 @router.post("")
 def create_booking(body: BookingCreate, user=Depends(get_current_user)):
     # 1. Resolve guest
+    guest_data = {}
+    if body.guest_name:
+        guest_data["name"] = body.guest_name
+    if body.guest_phone:
+        guest_data["phone"] = body.guest_phone
+    if body.guest_address is not None:
+        guest_data["address"] = body.guest_address
+    if body.guest_age is not None:
+        guest_data["age"] = body.guest_age
+
     if body.guest_id:
         guest_id = body.guest_id
-    elif body.guest_name and body.guest_phone:
+        if guest_data:
+            supabase.table("guests").update(guest_data).eq("id", guest_id).execute()
+    elif body.guest_phone:
         # Check if guest exists by phone
         existing = supabase.table("guests").select("id") \
             .eq("phone", body.guest_phone).execute()
         if existing.data:
             guest_id = existing.data[0]["id"]
+            if guest_data:
+                supabase.table("guests").update(guest_data).eq("id", guest_id).execute()
         else:
-            new_guest = supabase.table("guests").insert({
-                "name": body.guest_name,
-                "phone": body.guest_phone,
-            }).execute()
+            new_guest = supabase.table("guests").insert(guest_data).execute()
             guest_id = new_guest.data[0]["id"]
     else:
         raise HTTPException(status_code=422, detail="Provide guest_id OR guest_name+guest_phone")
@@ -65,6 +102,15 @@ def create_booking(body: BookingCreate, user=Depends(get_current_user)):
         total_amount = (body.room_price * nights) + extra_bed_total
     # For 'paid': full amount; for 'partial'/'hold'/'unpaid': only the deposit amount received
     paid_amount = total_amount if body.payment_status == "paid" else body.deposit_amount
+
+    actual_payment_status = body.payment_status
+    if body.payment_status != "hold":
+        if paid_amount >= total_amount:
+            actual_payment_status = "paid"
+        elif paid_amount > 0:
+            actual_payment_status = "partial"
+        else:
+            actual_payment_status = "unpaid"
 
     # 3. Insert booking (DB constraint will reject overlapping dates)
     try:
@@ -82,7 +128,7 @@ def create_booking(body: BookingCreate, user=Depends(get_current_user)):
             "total_amount":    total_amount,
             "paid_amount":     paid_amount,
             "payment_mode":    body.payment_mode,
-            "payment_status":  body.payment_status,
+            "payment_status":  actual_payment_status,
             "deposit_amount":  body.deposit_amount,
             "occupation":      body.occupation,
             "notes":           body.notes,
@@ -103,6 +149,115 @@ def create_booking(body: BookingCreate, user=Depends(get_current_user)):
     }).eq("id", guest_id).execute()
 
     return res.data[0]
+
+@router.post("/batch")
+def create_bookings_batch(body: BookingBatchCreate, user=Depends(get_current_user)):
+    if not body.rooms:
+        raise HTTPException(status_code=422, detail="At least one room must be selected")
+
+    # 1. Resolve guest
+    guest_data = {}
+    if body.guest_name:
+        guest_data["name"] = body.guest_name
+    if body.guest_phone:
+        guest_data["phone"] = body.guest_phone
+    if body.guest_address is not None:
+        guest_data["address"] = body.guest_address
+    if body.guest_age is not None:
+        guest_data["age"] = body.guest_age
+
+    if body.guest_id:
+        guest_id = body.guest_id
+        if guest_data:
+            supabase.table("guests").update(guest_data).eq("id", guest_id).execute()
+    elif body.guest_phone:
+        # Check if guest exists by phone
+        existing = supabase.table("guests").select("id") \
+            .eq("phone", body.guest_phone).execute()
+        if existing.data:
+            guest_id = existing.data[0]["id"]
+            if guest_data:
+                supabase.table("guests").update(guest_data).eq("id", guest_id).execute()
+        else:
+            new_guest = supabase.table("guests").insert(guest_data).execute()
+            guest_id = new_guest.data[0]["id"]
+    else:
+        raise HTTPException(status_code=422, detail="Provide guest_id OR guest_name+guest_phone")
+
+    # 2. Calculate totals and distribute deposit
+    nights = max(1, (body.check_out.date() - body.check_in.date()).days)
+    
+    room_totals = []
+    for r in body.rooms:
+        extra_bed_total = r.extra_beds * 500 * nights
+        room_total = (r.room_price * nights) + extra_bed_total
+        room_totals.append(room_total)
+        
+    remaining_deposit = body.deposit_amount
+    bookings_to_create = []
+    
+    for i, r in enumerate(body.rooms):
+        room_total = room_totals[i]
+        extra_bed_total = r.extra_beds * 500 * nights
+        
+        if body.payment_status == "paid":
+            room_paid = room_total
+            room_status = "paid"
+            room_dep = 0
+        elif body.payment_status == "hold":
+            room_dep = body.deposit_amount / len(body.rooms)
+            room_paid = room_dep
+            room_status = "hold"
+        else:
+            room_dep = min(remaining_deposit, room_total)
+            remaining_deposit -= room_dep
+            room_paid = room_dep
+            if room_paid >= room_total:
+                room_status = "paid"
+            elif room_paid > 0:
+                room_status = "partial"
+            else:
+                room_status = "unpaid"
+                
+        bookings_to_create.append({
+            "room_id":         r.room_id,
+            "room_type":       r.room_type,
+            "guest_id":        guest_id,
+            "check_in":        body.check_in.isoformat(),
+            "check_out":       body.check_out.isoformat(),
+            "adults":          r.adults,
+            "children":        r.children,
+            "extra_beds":      r.extra_beds,
+            "room_price":      r.room_price,
+            "extra_bed_total": extra_bed_total,
+            "total_amount":    room_total,
+            "paid_amount":     room_paid,
+            "payment_mode":    body.payment_mode,
+            "payment_status":  room_status,
+            "deposit_amount":  room_dep,
+            "occupation":      body.occupation,
+            "notes":           r.notes or body.notes,
+            "created_by":      user.get("sub"),
+        })
+
+    # 3. Insert bookings atomically
+    try:
+        res = supabase.table("bookings").insert(bookings_to_create).execute()
+    except Exception as e:
+        if "no_overlap" in str(e):
+            raise HTTPException(status_code=409, detail="One or more rooms are already booked for these dates")
+        raise
+
+    # 4. Update guest last_visit and total_visits
+    guest_res = supabase.table("guests").select("total_visits").eq("id", guest_id).execute()
+    current_visits = guest_res.data[0].get("total_visits", 0) if guest_res.data else 0
+
+    supabase.table("guests").update({
+        "last_visit": body.check_in.date().isoformat(),
+        "total_visits": current_visits + len(bookings_to_create),
+    }).eq("id", guest_id).execute()
+
+    return res.data
 
 @router.get("/{booking_id}/check-extension")
 def check_booking_extension(booking_id: str, check_out: datetime, user=Depends(get_current_user)):
@@ -150,6 +305,22 @@ def get_booking(booking_id: str, user=Depends(get_current_user)):
 @router.patch("/{booking_id}")
 def update_booking(booking_id: str, body: BookingUpdate, user=Depends(get_current_user)):
     updates = {k: v for k, v in body.dict().items() if v is not None}
+
+    # Enforce database consistency between paid_amount, total_amount, and payment_status
+    if "paid_amount" in updates or "total_amount" in updates or "payment_status" in updates:
+        curr_res = supabase.table("bookings").select("paid_amount, total_amount, payment_status").eq("id", booking_id).single().execute()
+        if curr_res.data:
+            curr = curr_res.data
+            p_amt = updates.get("paid_amount", curr["paid_amount"])
+            t_amt = updates.get("total_amount", curr["total_amount"])
+            p_status = updates.get("payment_status", curr["payment_status"])
+            if p_status != "hold":
+                if p_amt >= t_amt:
+                    updates["payment_status"] = "paid"
+                elif p_amt > 0:
+                    updates["payment_status"] = "partial"
+                else:
+                    updates["payment_status"] = "unpaid"
     if "check_out" in updates and updates["check_out"] is not None:
         updates["check_out"] = updates["check_out"].isoformat()
         

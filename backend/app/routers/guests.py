@@ -7,7 +7,7 @@ router = APIRouter()
 @router.get("/search")
 def search_guests(q: str = Query(None), user=Depends(get_current_user)):
     # Search by name OR phone (ilike = case-insensitive) if q is provided
-    query = supabase.table("guests").select("id,name,phone,last_visit,total_visits")
+    query = supabase.table("guests").select("id,name,phone,address,age,last_visit,total_visits")
     if q and len(q.strip()) >= 2:
         query = query.or_(f"name.ilike.%{q}%,phone.ilike.%{q}%")
     res = query.order("last_visit", desc=True).limit(50).execute()

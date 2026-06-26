@@ -4,12 +4,12 @@
 # Run after every `git push` to the server
 #
 # Usage:
-#   cd /var/www/santosh-palace && ./deploy.sh
+#   cd /root/Hotel_Santosh && ./deploy.sh
 # =============================================================================
 set -euo pipefail
 
-DEPLOY_DIR="/var/www/santosh-palace"
-LOG_DIR="/var/log/santosh-palace"
+DEPLOY_DIR="/root/Hotel_Santosh"
+LOG_DIR="/var/log/hotel-santosh"
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 
 echo "🚀 [$TIMESTAMP] Starting Santosh Palace deploy..."
@@ -30,7 +30,7 @@ pip install -r requirements.txt -q --no-warn-script-location
 deactivate
 
 echo "♻️  Restarting API process via PM2..."
-pm2 restart santosh-palace-api
+pm2 restart hotel-santosh-api
 
 # ── Frontend: install npm deps + build ────────────────────────────────────────
 echo "📦 Installing frontend dependencies..."
