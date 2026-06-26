@@ -1,8 +1,11 @@
-// Day detail bottom sheet panel component
-import { Link } from 'react-router-dom'
-import { X, Calendar as CalendarIcon, Loader2, ArrowRight, User, ShieldAlert } from 'lucide-react'
+import { useState } from 'react'
+import { createPortal } from 'react-dom'
+import { X, Calendar as CalendarIcon, Loader2, ShieldAlert } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { useInventory } from '../hooks/useInventory'
+import BlockRoomSheet from './BlockRoomSheet'
+import BookingDetailSheet from './BookingDetailSheet'
+import type { InventoryRoom } from '../types'
 
 interface DayDetailPanelProps {
   dateStr: string
@@ -10,41 +13,21 @@ interface DayDetailPanelProps {
 }
 
 export default function DayDetailPanel({ dateStr, onClose }: DayDetailPanelProps) {
-  const { data, isLoading, isError } = useInventory(dateStr)
+  const { data, isLoading, isError, refetch } = useInventory(dateStr)
+  const [selectedRoomForBooking, setSelectedRoomForBooking] = useState<InventoryRoom | null>(null)
+  const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null)
 
-  const formattedDate = format(parseISO(dateStr), 'EEEE, d MMMM yyyy')
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'vacant':
-        return (
-          <span className="text-[10px] uppercase tracking-wider font-extrabold px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-            Vacant
-          </span>
-        )
-      case 'hold':
-        return (
-          <span className="text-[10px] uppercase tracking-wider font-extrabold px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20">
-            Hold
-          </span>
-        )
-      case 'unpaid':
-        return (
-          <span className="text-[10px] uppercase tracking-wider font-extrabold px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/20">
-            Unpaid
-          </span>
-        )
-      case 'occupied':
-      default:
-        return (
-          <span className="text-[10px] uppercase tracking-wider font-extrabold px-2.5 py-1 rounded-lg bg-slate-500/10 text-slate-400 border border-slate-500/20">
-            Occupied
-          </span>
-        )
+  const handleRoomClick = (room: InventoryRoom) => {
+    if (room.room_status === 'vacant') {
+      setSelectedRoomForBooking(room)
+    } else if (room.booking) {
+      setSelectedBookingId(room.booking.id)
     }
   }
 
-  return (
+  const formattedDate = format(parseISO(dateStr), 'EEEE, d MMMM yyyy')
+
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm">
       {/* Backdrop click to dismiss */}
       <div className="absolute inset-0" onClick={onClose} />
@@ -56,10 +39,7 @@ export default function DayDetailPanel({ dateStr, onClose }: DayDetailPanelProps
         <div className="flex justify-between items-center pb-3 border-b border-slate-800">
           <div className="flex items-center gap-2.5">
             <CalendarIcon className="h-5 w-5 text-emerald-400" />
-            <div>
-              <h3 className="text-lg font-bold text-slate-100">{formattedDate}</h3>
-              <p className="text-xs text-slate-500">Availability Summary</p>
-            </div>
+            <h3 className="text-lg font-bold text-slate-100">{formattedDate}</h3>
           </div>
           <button
             onClick={onClose}
@@ -104,51 +84,69 @@ export default function DayDetailPanel({ dateStr, onClose }: DayDetailPanelProps
             </div>
 
             {/* Compact 2-column room grid */}
-            <div className="grid grid-cols-2 gap-2 max-h-[40vh] overflow-y-auto">
-              {data.rooms.map(room => (
-                <div
-                  key={room.id}
-                  className={`flex flex-col p-2.5 rounded-xl border gap-1 ${
-                    room.room_status === 'vacant'
-                      ? 'bg-emerald-500/5 border-emerald-500/20'
-                      : room.room_status === 'hold'
-                      ? 'bg-amber-500/5 border-amber-500/20'
-                      : room.room_status === 'unpaid'
-                      ? 'bg-rose-500/5 border-rose-500/20'
-                      : 'bg-slate-950/30 border-slate-800/60'
-                  }`}
-                >
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-extrabold text-slate-100">{room.number}</span>
-                    {getStatusBadge(room.room_status)}
-                  </div>
-                  <span className="text-[10px] text-slate-500 font-semibold">
-                    Fl {room.floor} · {room.room_type.replace('Non AC ', 'N/AC ').replace('AC ', 'AC ')}
-                  </span>
-                  {room.booking && (
-                    <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1 truncate">
-                      <User className="h-3 w-3 text-slate-500 flex-shrink-0" />
-                      <span className="truncate">{room.booking.guests?.name || 'Guest'}</span>
+            <div className="grid grid-cols-2 gap-2 max-h-[45vh] overflow-y-auto">
+              {data.rooms.map(room => {
+                const borderColor =
+                  room.room_status === 'vacant'  ? 'border-l-emerald-400' :
+                  room.room_status === 'hold'    ? 'border-l-amber-400'   :
+                  room.room_status === 'unpaid'  ? 'border-l-rose-400'    :
+                                                   'border-l-slate-500'
+                const statusLabel =
+                  room.room_status === 'vacant'  ? { text: 'Free',    color: 'text-emerald-400' } :
+                  room.room_status === 'hold'    ? { text: 'Hold',    color: 'text-amber-400'   } :
+                  room.room_status === 'unpaid'  ? { text: 'Unpaid',  color: 'text-rose-400'    } :
+                                                   { text: 'Occupied', color: 'text-slate-400'  }
+                return (
+                  <button
+                    key={room.id}
+                    type="button"
+                    onClick={() => handleRoomClick(room)}
+                    className={`flex flex-col justify-between p-3 rounded-xl border-l-4 bg-slate-950/40 border border-slate-800/60 hover:bg-slate-900/60 active:scale-[0.98] transition-all cursor-pointer min-h-[72px] text-left ${borderColor}`}
+                  >
+                    <div className="flex justify-between items-start w-full">
+                      <span className="text-base font-black text-slate-100 leading-none">{room.number}</span>
+                      <span className={`text-[10px] font-extrabold uppercase tracking-wide ${statusLabel.color}`}>
+                        {statusLabel.text}
+                      </span>
+                    </div>
+                    <span className="text-xs font-semibold text-slate-300 truncate mt-2">
+                      {room.booking?.guests?.name || 'Available'}
                     </span>
-                  )}
-                </div>
-              ))}
+                  </button>
+                )
+              })}
             </div>
-
-            {/* Go to full day action button */}
-            <Link
-              to={`/inventory?date=${dateStr}`}
-              onClick={onClose}
-              className="mt-2 py-3.5 px-4 bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-500 text-slate-950 text-sm font-black rounded-2xl transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/10 cursor-pointer"
-            >
-              View Full Day in Inventory
-              <ArrowRight className="h-4 w-4" />
-            </Link>
 
           </div>
         )}
 
       </div>
-    </div>
+      {/* Sheets Drawers */}
+      {selectedRoomForBooking && (
+        <BlockRoomSheet
+          room={selectedRoomForBooking}
+          initialDate={dateStr}
+          onClose={() => setSelectedRoomForBooking(null)}
+          onSuccess={() => {
+            setSelectedRoomForBooking(null)
+            refetch()
+          }}
+        />
+      )}
+
+      {selectedBookingId && (
+        <BookingDetailSheet
+          bookingId={selectedBookingId}
+          onClose={() => setSelectedBookingId(null)}
+          onSuccess={(action) => {
+            if (action === 'checkout') {
+              setSelectedBookingId(null)
+            }
+            refetch()
+          }}
+        />
+      )}
+    </div>,
+    document.body
   )
 }

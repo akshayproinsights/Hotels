@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { format } from 'date-fns'
-import { ChevronLeft, ChevronRight, RefreshCw, Calendar as CalendarIcon, Loader2, ShieldAlert } from 'lucide-react'
+import { ChevronLeft, ChevronRight, RefreshCw, Loader2, ShieldAlert } from 'lucide-react'
 import { useCalendar } from '../hooks/useCalendar'
 import CalendarGrid from '../components/CalendarGrid'
 import DayDetailPanel from '../components/DayDetailPanel'
@@ -53,39 +53,37 @@ export default function CalendarPage() {
   const totalRooms = todayData?.total_rooms ?? data?.total_rooms ?? 0
   const todayDayInfo = todayData?.days?.find(d => d.date === todayDateStr)
   const vacantToday = todayDayInfo ? todayDayInfo.vacant : 0
+  const occupiedToday = todayDayInfo ? todayDayInfo.occupied : 0
+  const todayDisplayStr = format(today, 'EEEE, d MMM')
 
   return (
-    <div className="flex flex-col gap-6 px-4 py-6 pb-24 animate-fade-in">
+    <div className="flex flex-col gap-4 px-4 py-4 pb-24 animate-fade-in">
       
-      {/* Premium Header Status Panel */}
-      <div className="glass-panel rounded-2xl p-5 bg-gradient-to-br from-indigo-500/5 to-emerald-500/5 border-slate-800/60 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
-            <span className="bg-emerald-500/10 text-emerald-400 p-2 rounded-xl">
-              <CalendarIcon className="h-5 w-5" />
-            </span>
-            Bookings Calendar
-          </h2>
-          <p className="text-xs text-slate-400 mt-1 font-medium">
-            Monthly vacancy view and occupancy levels
-          </p>
-        </div>
-
-        <div className="px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-2xl flex items-center gap-2">
-          <span className="text-sm font-black text-slate-200">{totalRooms || '—'}</span>
-          <span className="text-slate-600 font-bold">|</span>
-          <span className="text-sm font-black text-emerald-400">{totalRooms ? vacantToday : '—'} Vacant Today</span>
-        </div>
-      </div>
-
-      {/* Calendar Controller & Legend */}
-      <div className="flex flex-col gap-4">
-        {/* Navigation Bar */}
-        <div className="glass-panel rounded-2xl p-4 flex justify-between items-center bg-slate-900/40 border-slate-800/40">
+      {/* Calendar Controller & Legend Header */}
+      <div className="flex flex-col gap-3">
+        {/* Navigation & Status Bar */}
+        <div className="glass-panel rounded-2xl p-3 flex flex-wrap items-center justify-between gap-3 bg-slate-900/40 border-slate-800/40">
+          {/* Left Side: Month / Year Display & Refresh */}
           <div className="flex items-center gap-2">
+            <span className="text-base font-extrabold text-slate-200 tracking-tight">
+              {MONTH_NAMES[month - 1]} {year}
+            </span>
+            <button
+              onClick={() => refetch()}
+              disabled={isRefetching}
+              className="p-1.5 rounded-lg text-slate-500 hover:text-slate-300 transition"
+              title="Refresh calendar data"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isRefetching ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+
+          {/* Right Side: Navigation Buttons */}
+          <div className="flex items-center gap-1.5">
             <button
               onClick={handlePrevMonth}
-              className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
+              className="p-2 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
+              title="Previous Month"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
@@ -97,28 +95,46 @@ export default function CalendarPage() {
             </button>
             <button
               onClick={handleNextMonth}
-              className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
+              className="p-2 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
+              title="Next Month"
             >
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>
-
-          <div className="flex items-center gap-3">
-            <span className="text-base font-extrabold text-slate-200 tracking-tight">
-              {MONTH_NAMES[month - 1]} {year}
-            </span>
-            <button
-              onClick={() => refetch()}
-              disabled={isRefetching}
-              className="p-2 rounded-lg text-slate-500 hover:text-slate-300 transition"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${isRefetching ? 'animate-spin' : ''}`} />
-            </button>
-          </div>
         </div>
 
+        {/* Today Summary Bar */}
+        <button
+          onClick={() => setSelectedDateStr(todayDateStr)}
+          className="glass-panel w-full rounded-2xl p-3 px-4 bg-slate-900/60 border-slate-800/60 hover:bg-slate-900/80 active:scale-[0.99] transition duration-200 text-left flex items-center justify-between cursor-pointer"
+        >
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-500">
+              Today's Quick Summary
+            </span>
+            <span className="text-sm font-bold text-slate-200">
+              {todayDisplayStr}
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-emerald-400" />
+              <span className="text-xs font-extrabold text-emerald-400">
+                {totalRooms ? `${vacantToday} Vacant` : '—'}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-slate-300" />
+              <span className="text-xs font-extrabold text-slate-300">
+                {totalRooms ? `${occupiedToday} Occupied` : '—'}
+              </span>
+            </div>
+            <span className="text-slate-600 text-base leading-none">›</span>
+          </div>
+        </button>
+
         {/* Legend Row */}
-        <div className="flex flex-wrap items-center gap-4 px-1 text-xs text-slate-400 font-semibold">
+        <div className="flex flex-wrap items-center gap-4 px-1 text-[11px] text-slate-400 font-semibold">
           <div className="flex items-center gap-1.5">
             <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
             <span>5+ Vacant</span>

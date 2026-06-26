@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel, Field
 from typing import Optional, Literal
+from datetime import datetime
 from app.database import supabase
 from app.auth import get_current_user
 import logging
@@ -24,6 +25,40 @@ class RoomUpdate(BaseModel):
     base_price: Optional[float] = Field(default=None, gt=0)
     extra_bed_price: Optional[float] = Field(default=None, ge=0)
     is_active: Optional[bool] = None
+
+@router.get("/available")
+def get_available_rooms(
+    check_in: datetime = Query(...),
+    check_out: datetime = Query(...),
+    user=Depends(get_current_user)
+):
+    """
+    Get all active rooms available (not booked/blocked) for the given datetime range.
+    """
+    try:
+        # Check active bookings overlapping with check_in and check_out
+        overlapping = supabase.table("bookings") \
+            .select("room_id") \
+            .eq("status", "active") \
+            .lt("check_in", check_out.isoformat()) \
+            .gt("check_out", check_in.isoformat()) \
+            .execute()
+        
+        booked_room_ids = {b["room_id"] for b in overlapping.data}
+        
+        # Fetch all active rooms
+        rooms_res = supabase.table("rooms").select("*").eq("is_active", True).order("floor").order("number").execute()
+        
+        # Filter rooms not in booked_room_ids
+        available_rooms = [r for r in rooms_res.data if r["id"] not in booked_room_ids]
+        
+        return available_rooms
+    except Exception as e:
+        logging.error(f"Error fetching available rooms: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error retrieving available rooms"
+        )
 
 @router.get("")
 def list_rooms(user=Depends(get_current_user)):

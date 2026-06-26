@@ -34,6 +34,7 @@ export interface UnpaidDuesResponse {
   id: string
   booking_number: string
   check_in: string
+  check_out: string
   total_amount: number
   paid_amount: number
   deposit_amount: number

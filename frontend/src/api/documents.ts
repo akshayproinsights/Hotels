@@ -35,6 +35,11 @@ export async function listDocs(bookingId: string): Promise<Document[]> {
   return res.data
 }
 
+export async function listGuestDocs(guestId: string): Promise<Document[]> {
+  const res = await api.get<Document[]>(`/documents/guest/${guestId}`)
+  return res.data
+}
+
 export async function uploadFileToR2(uploadUrl: string, file: File): Promise<void> {
   // Use a clean axios instance to upload directly to R2 (without JWT Authorization header)
   await axios.put(uploadUrl, file, {
@@ -43,3 +48,15 @@ export async function uploadFileToR2(uploadUrl: string, file: File): Promise<voi
     },
   })
 }
+
+export async function extractNameFromId(file: File): Promise<string> {
+  const formData = new FormData()
+  formData.append('file', file)
+  const res = await api.post<{ name: string }>('/documents/extract-name', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  })
+  return res.data.name
+}
+

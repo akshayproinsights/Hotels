@@ -30,6 +30,7 @@ export interface Booking {
   id: string
   booking_number: string
   room_id: string
+  room_type: 'AC Deluxe' | 'Non AC Deluxe' | 'AC Standard' | 'Non AC Standard'
   guest_id: string
   check_in: string // ISO string
   check_out: string // ISO string
@@ -46,6 +47,7 @@ export interface Booking {
   occupation?: string | null
   notes?: string | null
   status: 'active' | 'checked_out' | 'cancelled'
+  actual_checkout_time?: string | null
   created_by?: string | null
   created_at: string
   updated_at: string
@@ -56,6 +58,7 @@ export interface Booking {
 
 export interface BookingCreate {
   room_id: string
+  room_type: 'AC Deluxe' | 'Non AC Deluxe' | 'AC Standard' | 'Non AC Standard'
   guest_id?: string
   guest_name?: string
   guest_phone?: string
@@ -66,10 +69,11 @@ export interface BookingCreate {
   extra_beds: number
   room_price: number
   payment_mode: 'Cash' | 'UPI' | 'Pending'
-  payment_status: 'paid' | 'unpaid' | 'hold'
+  payment_status: 'paid' | 'unpaid' | 'hold' | 'partial'
   deposit_amount: number
   occupation?: string
   notes?: string
+  total_amount?: number
 }
 
 export interface BookingUpdate {
@@ -79,6 +83,8 @@ export interface BookingUpdate {
   payment_status?: 'paid' | 'unpaid' | 'partial' | 'hold'
   status?: 'active' | 'checked_out' | 'cancelled'
   notes?: string
+  total_amount?: number
+  actual_checkout_time?: string | null
 }
 
 export interface Document {
@@ -97,6 +103,7 @@ export interface InventoryRoom extends Room {
   booking?: {
     id: string
     room_id: string
+    room_type: 'AC Deluxe' | 'Non AC Deluxe' | 'AC Standard' | 'Non AC Standard'
     guest_id: string
     check_in: string
     check_out: string

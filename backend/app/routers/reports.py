@@ -186,11 +186,12 @@ def get_daily_report(
 @router.get("/unpaid")
 def unpaid_dues(user=Depends(get_current_user)):
     res = supabase.table("bookings") \
-        .select("id,booking_number,check_in,total_amount,paid_amount,deposit_amount,payment_status,rooms(number),guests(name,phone)") \
+        .select("id,booking_number,check_in,check_out,total_amount,paid_amount,deposit_amount,payment_status,rooms(number),guests(name,phone)") \
         .neq("status", "cancelled") \
         .in_("payment_status", ["unpaid", "partial", "hold"]) \
         .order("check_in").execute()
     return res.data
+
 
 
 @router.get("/monthly")
@@ -272,7 +273,7 @@ def get_monthly_report(
             total_rent_revenue += room_rev
             total_extra_bed_revenue += extra_rev
 
-            rtype = b["rooms"]["room_type"] if b.get("rooms") else None
+            rtype = b.get("room_type") or (b["rooms"]["room_type"] if b.get("rooms") else None)
             if rtype in type_stats:
                 type_stats[rtype]["occupied_nights"] += overlap_nights
                 type_stats[rtype]["revenue"] += room_rev + extra_rev

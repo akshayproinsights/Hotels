@@ -12,7 +12,7 @@ app = FastAPI(
 # CORS Policy Config: Allows snapkhata.com and local Vite dev server
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://santosh.snapkhata.com", "http://localhost:5173"],
+    allow_origins=["https://santosh.snapkhata.com", "http://localhost:5173", "http://localhost:5174", "http://localhost:8002"],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],

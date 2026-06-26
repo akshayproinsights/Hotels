@@ -107,22 +107,26 @@ export default function CalendarGrid({ year, month, daysData, onDayClick }: Cale
             dotColor = 'bg-rose-400'
           }
 
+          const cellDate = new Date(year, month - 1, cell.dayNumber)
+          const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+          const isPast = cellDate < todayDateOnly
+
           return (
             <button
               key={`day-${cell.dayNumber}`}
               onClick={() => onDayClick(cell.dateStr)}
-              className={`aspect-square relative rounded-xl border flex flex-col items-center justify-between p-1.5 transition duration-200 ${statusClasses} ${
+              className={`min-h-[58px] relative rounded-xl border flex flex-col items-center justify-between py-2 px-1 transition duration-200 ${statusClasses} ${
                 cell.isToday ? 'ring-2 ring-emerald-400 ring-offset-2 ring-offset-slate-900' : ''
-              }`}
+              } ${isPast ? 'opacity-40 grayscale-[30%] bg-slate-950/20 hover:opacity-70 transition-opacity' : ''}`}
             >
               <span className={`text-xs font-bold ${cell.isToday ? 'text-slate-100' : 'text-slate-300'}`}>
                 {cell.dayNumber}
               </span>
-              <div className="flex flex-col items-center gap-0.5">
-                <span className="text-[9px] font-extrabold tracking-tight opacity-90">
-                  {vacantCount} V
+              <div className="flex items-center justify-center gap-1">
+                <span className={`h-1.5 w-1.5 rounded-full ${dotColor}`} />
+                <span className="text-[10px] font-extrabold tracking-tight opacity-90">
+                  {vacantCount}
                 </span>
-                <span className={`h-1 w-1 rounded-full ${dotColor}`} />
               </div>
             </button>
           )

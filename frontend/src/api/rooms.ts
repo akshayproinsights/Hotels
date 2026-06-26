@@ -27,3 +27,12 @@ export async function updateRoom(
   const res = await api.patch<Room>(`/rooms/${roomId}`, payload)
   return res.data
 }
+
+/** Fetch available rooms for check-in and check-out range */
+export async function listAvailableRooms(checkIn: string, checkOut: string): Promise<Room[]> {
+  const res = await api.get<Room[]>('/rooms/available', {
+    params: { check_in: checkIn, check_out: checkOut }
+  })
+  return res.data
+}
+

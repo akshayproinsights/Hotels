@@ -16,29 +16,29 @@ import {
   CreditCard,
   Layers,
   LogOut,
-  LogIn,
-  Clock,
-  ArrowRight
+  LogIn
 } from 'lucide-react'
-import { getDailyReport, getMonthlyReport, getUnpaidDues } from '../api/reports'
+import { getDailyReport, getMonthlyReport } from '../api/reports'
+import { useLanguage } from '../context/LanguageContext'
 
 const MONTHS = [
-  { value: 1, label: 'January' },
-  { value: 2, label: 'February' },
-  { value: 3, label: 'March' },
-  { value: 4, label: 'April' },
-  { value: 5, label: 'May' },
-  { value: 6, label: 'June' },
-  { value: 7, label: 'July' },
-  { value: 8, label: 'August' },
-  { value: 9, label: 'September' },
-  { value: 10, label: 'October' },
-  { value: 11, label: 'November' },
-  { value: 12, label: 'December' }
+  { value: 1, label_en: 'January', label_mr: 'जानेवारी' },
+  { value: 2, label_en: 'February', label_mr: 'फेब्रुवारी' },
+  { value: 3, label_en: 'March', label_mr: 'मार्च' },
+  { value: 4, label_en: 'April', label_mr: 'एप्रिल' },
+  { value: 5, label_en: 'May', label_mr: 'मे' },
+  { value: 6, label_en: 'June', label_mr: 'जून' },
+  { value: 7, label_en: 'July', label_mr: 'जुलै' },
+  { value: 8, label_en: 'August', label_mr: 'ऑगस्ट' },
+  { value: 9, label_en: 'September', label_mr: 'सप्टेंबर' },
+  { value: 10, label_en: 'October', label_mr: 'ऑक्टोबर' },
+  { value: 11, label_en: 'November', label_mr: 'नोव्हेंबर' },
+  { value: 12, label_en: 'December', label_mr: 'डिसेंबर' }
 ]
 
 export default function ReportsPage() {
-  const [activeTab, setActiveTab] = useState<'daily' | 'monthly' | 'unpaid'>('daily')
+  const [activeTab, setActiveTab] = useState<'daily' | 'monthly'>('daily')
+  const { language, t } = useLanguage()
 
   // Daily report states
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'))
@@ -73,19 +73,6 @@ export default function ReportsPage() {
     enabled: activeTab === 'monthly'
   })
 
-  // Unpaid Query
-  const { 
-    data: unpaidData, 
-    isLoading: unpaidLoading, 
-    isError: unpaidError, 
-    refetch: unpaidRefetch,
-    isRefetching: unpaidRefetching
-  } = useQuery({
-    queryKey: ['unpaidDues'],
-    queryFn: () => getUnpaidDues(),
-    enabled: activeTab === 'unpaid'
-  })
-
   // Daily Date navigation
   const handlePrevDay = () => {
     setSelectedDate(prev => format(subDays(parseISO(prev), 1), 'yyyy-MM-dd'))
@@ -109,9 +96,13 @@ export default function ReportsPage() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
         <div>
           <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-emerald-400 to-teal-200 bg-clip-text text-transparent">
-            Business Reports
+            {t('business_reports')}
           </h1>
-          <p className="text-slate-400 text-sm mt-1">Monitor collections, occupancy, and hotel revenue stats</p>
+          <p className="text-slate-400 text-sm mt-1">
+            {language === 'mr' 
+              ? 'हॉटेलमधील कमाई, खोल्यांचा वापर आणि इतर तपशील पहा' 
+              : 'Monitor collections, occupancy, and hotel revenue stats'}
+          </p>
         </div>
 
         {/* Tab switchers */}
@@ -124,7 +115,7 @@ export default function ReportsPage() {
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            Daily Collections
+            {t('daily_report')}
           </button>
           <button
             onClick={() => setActiveTab('monthly')}
@@ -134,17 +125,7 @@ export default function ReportsPage() {
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            Monthly Revenue
-          </button>
-          <button
-            onClick={() => setActiveTab('unpaid')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition ${
-              activeTab === 'unpaid'
-                ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/10'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            Unpaid Dues
+            {t('monthly_report')}
           </button>
         </div>
       </div>
@@ -165,7 +146,7 @@ export default function ReportsPage() {
                 onClick={handleToday}
                 className="px-4 py-2 bg-slate-950 border border-slate-800 rounded-xl hover:bg-slate-900 text-xs font-bold text-slate-300 transition"
               >
-                Today
+                {t('today')}
               </button>
 
               <button
@@ -197,14 +178,14 @@ export default function ReportsPage() {
           {dailyLoading ? (
             <div className="flex flex-col items-center justify-center py-20">
               <Loader2 className="h-10 w-10 text-emerald-400 animate-spin mb-4" />
-              <p className="text-slate-400 font-semibold text-sm">Loading daily collections...</p>
+              <p className="text-slate-400 font-semibold text-sm">{t('fetching_reports')}</p>
             </div>
           ) : dailyError || !dailyData ? (
             <div className="glass-panel rounded-2xl p-8 text-center text-red-400 flex flex-col items-center max-w-md mx-auto border-slate-800">
               <ShieldAlert className="h-12 w-12 mb-4" />
-              <p className="font-semibold">Error loading daily stats</p>
+              <p className="font-semibold">{language === 'mr' ? 'दैनिक अहवाल लोड करताना त्रुटी आली' : 'Error loading daily stats'}</p>
               <button onClick={() => dailyRefetch()} className="mt-4 px-4 py-2 bg-slate-800 text-slate-200 rounded-xl hover:bg-slate-700 transition">
-                Retry
+                {t('try_again')}
               </button>
             </div>
           ) : (
@@ -214,7 +195,7 @@ export default function ReportsPage() {
                 <div className="glass-panel p-5 rounded-2xl flex flex-col justify-between bg-emerald-500/5 border-emerald-500/10">
                   <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-400 flex items-center gap-1.5">
                     <LogIn className="h-4 w-4" />
-                    Check-ins Today
+                    {language === 'mr' ? 'आजचे चेक-इन' : 'Check-ins Today'}
                   </span>
                   <span className="text-2xl font-black text-slate-100 mt-2">{dailyData.check_ins_today}</span>
                 </div>
@@ -222,7 +203,7 @@ export default function ReportsPage() {
                 <div className="glass-panel p-5 rounded-2xl flex flex-col justify-between bg-slate-500/5 border-slate-800">
                   <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 flex items-center gap-1.5">
                     <LogOut className="h-4 w-4" />
-                    Check-outs Today
+                    {language === 'mr' ? 'आजचे चेक-आउट' : 'Check-outs Today'}
                   </span>
                   <span className="text-2xl font-black text-slate-100 mt-2">{dailyData.check_outs_today}</span>
                 </div>
@@ -230,12 +211,12 @@ export default function ReportsPage() {
                 <div className="glass-panel p-5 rounded-2xl flex flex-col justify-between bg-indigo-500/5 border-indigo-500/10">
                   <span className="text-[10px] uppercase font-bold tracking-wider text-indigo-400 flex items-center gap-1.5">
                     <Percent className="h-4 w-4" />
-                    Occupancy Rate
+                    {t('occupancy_rate')}
                   </span>
                   <div>
                     <span className="text-2xl font-black text-slate-100 block mt-2">{dailyData.occupancy.pct.toFixed(1)}%</span>
                     <span className="text-[9px] text-slate-500 font-bold block mt-1">
-                      {dailyData.occupancy.occupied} / {dailyData.occupancy.total_rooms} Rooms
+                      {dailyData.occupancy.occupied} / {dailyData.occupancy.total_rooms} {language === 'mr' ? 'खोल्या' : 'Rooms'}
                     </span>
                   </div>
                 </div>
@@ -243,7 +224,7 @@ export default function ReportsPage() {
                 <div className="glass-panel p-5 rounded-2xl flex flex-col justify-between bg-emerald-500/5 border-emerald-500/10">
                   <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-400 flex items-center gap-1.5">
                     <DollarSign className="h-4 w-4" />
-                    Total Collected
+                    {t('total_collected')}
                   </span>
                   <span className="text-2xl font-black text-slate-100 mt-2">₹{dailyData.total_collected.toLocaleString()}</span>
                 </div>
@@ -251,7 +232,7 @@ export default function ReportsPage() {
                 <div className="glass-panel p-5 rounded-2xl flex flex-col justify-between bg-slate-500/5 border-slate-800">
                   <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 flex items-center gap-1.5">
                     <CreditCard className="h-4 w-4" />
-                    Cash / UPI
+                    {language === 'mr' ? 'कॅश / युपीआय' : 'Cash / UPI'}
                   </span>
                   <span className="text-2xl font-black text-slate-100 mt-2">₹{dailyData.cash_collected.toLocaleString()} / ₹{dailyData.upi_collected.toLocaleString()}</span>
                 </div>
@@ -259,7 +240,7 @@ export default function ReportsPage() {
                 <div className="glass-panel p-5 rounded-2xl flex flex-col justify-between bg-rose-500/5 border-rose-500/10">
                   <span className="text-[10px] uppercase font-bold tracking-wider text-rose-400 flex items-center gap-1.5">
                     <UserMinus className="h-4 w-4" />
-                    Total Pending Dues
+                    {language === 'mr' ? 'एकूण थकीत रक्कम' : 'Total Pending Dues'}
                   </span>
                   <span className="text-2xl font-black text-slate-100 mt-2">₹{dailyData.pending_dues.toLocaleString()}</span>
                 </div>
@@ -268,24 +249,24 @@ export default function ReportsPage() {
               {/* Collections transaction table */}
               <div className="glass-panel rounded-2xl p-6 bg-slate-900/20 border-slate-800/40">
                 <h3 className="text-sm font-extrabold tracking-wider uppercase text-slate-400 mb-4">
-                  Collections Log
+                  {t('detailed_logs')}
                 </h3>
 
                 {dailyData.payments.length === 0 ? (
                   <div className="text-center py-12 text-slate-500 italic text-xs">
-                    No transactions recorded on this date.
+                    {t('no_reports_for_date')}
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs border-collapse">
                       <thead>
                         <tr className="border-b border-slate-800/60 text-slate-500 font-extrabold uppercase tracking-wider">
-                          <th className="pb-3 pr-4">Ref Number</th>
-                          <th className="pb-3 px-4">Guest</th>
-                          <th className="pb-3 px-4">Room</th>
-                          <th className="pb-3 px-4">Receipt Type</th>
-                          <th className="pb-3 px-4">Mode</th>
-                          <th className="pb-3 pl-4 text-right">Amount</th>
+                          <th className="pb-3 pr-4">{language === 'mr' ? 'संदर्भ क्रमांक' : 'Ref Number'}</th>
+                          <th className="pb-3 px-4">{language === 'mr' ? 'पाहुणे' : 'Guest'}</th>
+                          <th className="pb-3 px-4">{t('room')}</th>
+                          <th className="pb-3 px-4">{language === 'mr' ? 'पावती प्रकार' : 'Receipt Type'}</th>
+                          <th className="pb-3 px-4">{language === 'mr' ? 'पेमेंट मोड' : 'Mode'}</th>
+                          <th className="pb-3 pl-4 text-right">{t('amount')}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800/40 font-semibold text-slate-300">
@@ -295,7 +276,7 @@ export default function ReportsPage() {
                             <td className="py-3.5 px-4">{payment.guest_name}</td>
                             <td className="py-3.5 px-4">
                               <span className="bg-slate-800 border border-slate-700 px-2 py-0.5 rounded text-[11px] font-black text-slate-200">
-                                Room {payment.room_number}
+                                {language === 'mr' ? 'खोली' : 'Room'} {payment.room_number}
                               </span>
                             </td>
                             <td className="py-3.5 px-4">
@@ -304,7 +285,9 @@ export default function ReportsPage() {
                                   ? 'bg-emerald-500/10 text-emerald-400'
                                   : 'bg-amber-500/10 text-amber-400'
                               }`}>
-                                {payment.payment_type}
+                                {payment.payment_type === 'Final Settlement' 
+                                  ? (language === 'mr' ? 'अंतिम सेटलमेंट' : 'Final Settlement')
+                                  : (language === 'mr' ? 'अ‍ॅडव्हान्स पेमेंट' : payment.payment_type)}
                               </span>
                             </td>
                             <td className="py-3.5 px-4">
@@ -315,7 +298,9 @@ export default function ReportsPage() {
                                   ? 'bg-teal-500/10 text-teal-400 border border-teal-500/20'
                                   : 'bg-rose-500/10 text-rose-400'
                               }`}>
-                                {payment.payment_mode}
+                                {payment.payment_mode === 'Cash' 
+                                  ? (language === 'mr' ? 'कॅश' : 'Cash')
+                                  : payment.payment_mode}
                               </span>
                             </td>
                             <td className="py-3.5 pl-4 text-right text-slate-100 font-black">₹{payment.collected_amount.toLocaleString()}</td>
@@ -336,7 +321,9 @@ export default function ReportsPage() {
           {/* Monthly Controller */}
           <div className="glass-panel rounded-2xl p-4 flex flex-col sm:flex-row gap-4 justify-between items-center bg-slate-900/40 border-slate-800/40">
             <div className="flex items-center gap-3">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Select Month & Year</span>
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                {language === 'mr' ? 'महिना आणि वर्ष निवडा' : 'Select Month & Year'}
+              </span>
             </div>
 
             <div className="flex items-center gap-2">
@@ -346,7 +333,9 @@ export default function ReportsPage() {
                 className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
               >
                 {MONTHS.map(m => (
-                  <option key={m.value} value={m.value}>{m.label}</option>
+                  <option key={m.value} value={m.value}>
+                    {language === 'mr' ? m.label_mr : m.label_en}
+                  </option>
                 ))}
               </select>
 
@@ -373,14 +362,14 @@ export default function ReportsPage() {
           {monthlyLoading ? (
             <div className="flex flex-col items-center justify-center py-20">
               <Loader2 className="h-10 w-10 text-emerald-400 animate-spin mb-4" />
-              <p className="text-slate-400 font-semibold text-sm">Generating monthly reports...</p>
+              <p className="text-slate-400 font-semibold text-sm">{t('fetching_reports')}</p>
             </div>
           ) : monthlyError || !monthlyData ? (
             <div className="glass-panel rounded-2xl p-8 text-center text-red-400 flex flex-col items-center max-w-md mx-auto border-slate-800">
               <ShieldAlert className="h-12 w-12 mb-4" />
-              <p className="font-semibold">Error loading monthly stats</p>
+              <p className="font-semibold">{language === 'mr' ? 'मासिक अहवाल लोड करताना त्रुटी आली' : 'Error loading monthly stats'}</p>
               <button onClick={() => monthlyRefetch()} className="mt-4 px-4 py-2 bg-slate-800 text-slate-200 rounded-xl hover:bg-slate-700 transition">
-                Retry
+                {t('try_again')}
               </button>
             </div>
           ) : (
@@ -390,12 +379,14 @@ export default function ReportsPage() {
                 <div className="glass-panel p-5 rounded-2xl flex flex-col justify-between bg-emerald-500/5 border-emerald-500/10">
                   <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-400 flex items-center gap-1.5">
                     <TrendingUp className="h-4 w-4" />
-                    Total Revenue
+                    {language === 'mr' ? 'एकूण उत्पन्न' : 'Total Revenue'}
                   </span>
                   <div>
                     <span className="text-2xl font-black text-slate-100 block mt-2">₹{monthlyData.revenue.total.toLocaleString()}</span>
                     <span className="text-[9px] text-slate-500 font-bold block mt-1">
-                      Room: ₹{monthlyData.revenue.room.toLocaleString()} · Beds: ₹{monthlyData.revenue.extra_bed.toLocaleString()}
+                      {language === 'mr' 
+                        ? `खोली: ₹${monthlyData.revenue.room.toLocaleString()} · बेड: ₹${monthlyData.revenue.extra_bed.toLocaleString()}`
+                        : `Room: ₹${monthlyData.revenue.room.toLocaleString()} · Beds: ₹${monthlyData.revenue.extra_bed.toLocaleString()}`}
                     </span>
                   </div>
                 </div>
@@ -403,12 +394,12 @@ export default function ReportsPage() {
                 <div className="glass-panel p-5 rounded-2xl flex flex-col justify-between bg-slate-500/5 border-slate-800">
                   <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 flex items-center gap-1.5">
                     <Percent className="h-4 w-4" />
-                    Occupancy Rate
+                    {t('occupancy_rate')}
                   </span>
                   <div>
                     <span className="text-2xl font-black text-slate-100 block mt-2">{monthlyData.occupancy.rate.toFixed(1)}%</span>
                     <span className="text-[9px] text-slate-500 font-bold block mt-1">
-                      {monthlyData.occupancy.occupied_room_nights} / {monthlyData.occupancy.available_room_nights} Room-Nights
+                      {monthlyData.occupancy.occupied_room_nights} / {monthlyData.occupancy.available_room_nights} {language === 'mr' ? 'खोली-रात्री' : 'Room-Nights'}
                     </span>
                   </div>
                 </div>
@@ -416,7 +407,7 @@ export default function ReportsPage() {
                 <div className="glass-panel p-5 rounded-2xl flex flex-col justify-between bg-teal-500/5 border-teal-500/10">
                   <span className="text-[10px] uppercase font-bold tracking-wider text-teal-400 flex items-center gap-1.5">
                     <Activity className="h-4 w-4" />
-                    Average Daily Rate (ADR)
+                    {language === 'mr' ? 'सरासरी दैनिक दर (ADR)' : 'Average Daily Rate (ADR)'}
                   </span>
                   <span className="text-2xl font-black text-slate-100 mt-2">₹{Math.round(monthlyData.adr).toLocaleString()}</span>
                 </div>
@@ -433,7 +424,7 @@ export default function ReportsPage() {
               {/* Room type performance breakdown cards */}
               <div className="glass-panel rounded-2xl p-6 bg-slate-900/20 border-slate-800/40">
                 <h3 className="text-sm font-extrabold tracking-wider uppercase text-slate-400 mb-6">
-                  Performance by Room Type
+                  {language === 'mr' ? 'खोलीच्या प्रकारानुसार कामगिरी' : 'Performance by Room Type'}
                 </h3>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -445,7 +436,7 @@ export default function ReportsPage() {
                       <div className="flex justify-between items-start">
                         <span className="text-sm font-extrabold text-slate-200">{perf.room_type}</span>
                         <span className="bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded text-[10px] font-black">
-                          {perf.occupancy_rate.toFixed(1)}% Occ
+                          {perf.occupancy_rate.toFixed(1)}% {language === 'mr' ? 'वापर' : 'Occ'}
                         </span>
                       </div>
 
@@ -459,11 +450,17 @@ export default function ReportsPage() {
 
                       <div className="grid grid-cols-2 gap-2 text-xs pt-1">
                         <div>
-                          <span className="text-slate-500 font-bold block uppercase text-[9px] tracking-wide">Occupied</span>
-                          <span className="text-slate-300 font-black mt-0.5 block">{perf.occupied_nights} / {perf.available_nights} Nights</span>
+                          <span className="text-slate-500 font-bold block uppercase text-[9px] tracking-wide">
+                            {language === 'mr' ? 'वापरलेल्या' : 'Occupied'}
+                          </span>
+                          <span className="text-slate-300 font-black mt-0.5 block">
+                            {perf.occupied_nights} / {perf.available_nights} {language === 'mr' ? 'रात्री' : 'Nights'}
+                          </span>
                         </div>
                         <div className="text-right">
-                          <span className="text-slate-500 font-bold block uppercase text-[9px] tracking-wide">Revenue</span>
+                          <span className="text-slate-500 font-bold block uppercase text-[9px] tracking-wide">
+                            {language === 'mr' ? 'कमाई' : 'Revenue'}
+                          </span>
                           <span className="text-slate-100 font-black mt-0.5 block">₹{perf.revenue.toLocaleString()}</span>
                         </div>
                       </div>
@@ -471,87 +468,6 @@ export default function ReportsPage() {
                   ))}
                 </div>
               </div>
-            </div>
-          )}
-        </div>
-      )}
-      {activeTab === 'unpaid' && (
-        <div className="space-y-6">
-          <div className="glass-panel rounded-2xl p-4 flex justify-between items-center bg-slate-900/40 border-slate-800/40">
-            <h2 className="text-sm font-extrabold tracking-wider uppercase text-slate-400 flex items-center gap-2">
-              <Clock className="h-4.5 w-4.5 text-rose-400" />
-              Outstanding Payments
-            </h2>
-            <button
-              onClick={() => unpaidRefetch()}
-              disabled={unpaidRefetching}
-              className="p-2 rounded-lg text-slate-500 hover:text-slate-300 transition"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${unpaidRefetching ? 'animate-spin' : ''}`} />
-            </button>
-          </div>
-
-          {unpaidLoading ? (
-            <div className="flex flex-col items-center justify-center py-20">
-              <Loader2 className="h-10 w-10 text-emerald-400 animate-spin mb-4" />
-              <p className="text-slate-400 font-semibold text-sm">Loading pending dues...</p>
-            </div>
-          ) : unpaidError || !unpaidData ? (
-            <div className="glass-panel rounded-2xl p-8 text-center text-red-400 flex flex-col items-center max-w-md mx-auto border-slate-800">
-              <ShieldAlert className="h-12 w-12 mb-4" />
-              <p className="font-semibold">Error loading unpaid dues</p>
-              <button onClick={() => unpaidRefetch()} className="mt-4 px-4 py-2 bg-slate-800 text-slate-200 rounded-xl hover:bg-slate-700 transition">
-                Retry
-              </button>
-            </div>
-          ) : (
-            <div className="glass-panel rounded-2xl p-6 bg-slate-900/20 border-slate-800/40">
-              {unpaidData.length === 0 ? (
-                <div className="text-center py-12 text-slate-500 italic text-xs">
-                  All clear! No outstanding payments right now.
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {unpaidData.map((due) => (
-                    <div key={due.id} className="p-4 bg-slate-950/60 border border-slate-800/80 rounded-2xl flex flex-col gap-3">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <div className="text-slate-100 font-extrabold flex items-center gap-2">
-                            {due.guests.name}
-                            <span className="bg-slate-800 border border-slate-700 px-2 py-0.5 rounded text-[10px] text-slate-300">
-                              Room {due.rooms.number}
-                            </span>
-                          </div>
-                          <div className="text-xs text-slate-500 font-medium mt-1">{due.guests.phone}</div>
-                        </div>
-                        <span className={`px-2 py-1 rounded-lg text-[10px] font-extrabold uppercase ${
-                          due.payment_status === 'hold' ? 'bg-amber-500/10 text-amber-400' : 'bg-rose-500/10 text-rose-400'
-                        }`}>
-                          {due.payment_status}
-                        </span>
-                      </div>
-                      
-                      <div className="grid grid-cols-2 gap-2 bg-slate-900/50 p-3 rounded-xl border border-slate-800/40">
-                        <div>
-                          <span className="text-[9px] uppercase font-bold tracking-wide text-slate-500 block">Total Bill</span>
-                          <span className="text-sm font-bold text-slate-300 mt-0.5 block">₹{due.total_amount.toLocaleString()}</span>
-                        </div>
-                        <div className="text-right">
-                          <span className="text-[9px] uppercase font-bold tracking-wide text-rose-500 block">Pending Amount</span>
-                          <span className="text-sm font-black text-rose-400 mt-0.5 block">₹{(due.total_amount - due.paid_amount).toLocaleString()}</span>
-                        </div>
-                      </div>
-                      
-                      <div className="text-[10px] text-slate-500 flex justify-between items-center mt-1">
-                        <span>Check-in: {format(parseISO(due.check_in), 'dd MMM yyyy')}</span>
-                        <a href={`/inventory?date=${format(parseISO(due.check_in), 'yyyy-MM-dd')}`} className="text-emerald-400 font-bold hover:text-emerald-300 flex items-center gap-1 transition">
-                          View Booking <ArrowRight className="h-3 w-3" />
-                        </a>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
           )}
         </div>

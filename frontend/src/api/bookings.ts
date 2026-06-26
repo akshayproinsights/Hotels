@@ -18,3 +18,19 @@ export async function updateBooking(
   const res = await api.patch<Booking>(`/bookings/${bookingId}`, payload)
   return res.data
 }
+
+export interface CheckExtensionResponse {
+  available: boolean
+  reason: string
+}
+
+export async function checkBookingExtension(
+  bookingId: string,
+  checkOut: string
+): Promise<CheckExtensionResponse> {
+  const res = await api.get<CheckExtensionResponse>(
+    `/bookings/${bookingId}/check-extension`,
+    { params: { check_out: checkOut } }
+  )
+  return res.data
+}

@@ -3,17 +3,19 @@ import { useNavigate } from 'react-router-dom'
 import { Hotel, Mail, Lock, Loader2 } from 'lucide-react'
 import api from '../api/client'
 import toast from 'react-hot-toast'
+import { useLanguage } from '../context/LanguageContext'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+  const { language, setLanguage, t } = useLanguage()
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!email || !password) {
-      toast.error('Please fill in all fields')
+      toast.error(t('please_fill_fields'))
       return
     }
 
@@ -21,18 +23,51 @@ export default function LoginPage() {
     try {
       const res = await api.post('/auth/login', { email, password })
       localStorage.setItem('access_token', res.data.access_token)
-      toast.success(`Welcome back, ${res.data.user.name || 'Staff'}!`)
+      toast.success(t('welcome_back', { name: res.data.user.name || 'Staff' }))
       navigate('/')
     } catch (err: any) {
-      const message = err.response?.data?.detail || 'Invalid email or password'
-      toast.error(message)
+      const message = err.response?.data?.detail || t('invalid_credentials')
+      // Custom display message for standard error
+      if (message === 'Invalid credentials') {
+        toast.error(t('invalid_credentials'))
+      } else {
+        toast.error(message)
+      }
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12 sm:px-6 lg:px-8">
+    <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12 sm:px-6 lg:px-8 relative">
+      {/* Absolute Language Switcher */}
+      <div className="absolute top-4 right-4 z-20">
+        <div className="flex bg-slate-950 p-0.5 rounded-xl border border-slate-800 text-[10px] font-bold">
+          <button
+            onClick={() => setLanguage('en')}
+            type="button"
+            className={`px-2 py-1 rounded-lg transition-all ${
+              language === 'en'
+                ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            EN
+          </button>
+          <button
+            onClick={() => setLanguage('mr')}
+            type="button"
+            className={`px-2.5 py-1 rounded-lg transition-all ${
+              language === 'mr'
+                ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            मराठी
+          </button>
+        </div>
+      </div>
+
       {/* Background blur effects */}
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[350px] h-[350px] bg-emerald-500/10 rounded-full blur-[100px] pointer-events-none"></div>
 
@@ -42,10 +77,10 @@ export default function LoginPage() {
             <Hotel className="h-12 w-12 text-emerald-400" />
           </div>
           <h2 className="text-center text-4xl font-extrabold tracking-tight bg-gradient-to-r from-emerald-400 to-teal-200 bg-clip-text text-transparent">
-            Santosh Palace
+            {t('portal_title')}
           </h2>
           <p className="mt-2 text-center text-sm text-slate-400">
-            Hotel Room Management Portal
+            {t('portal_subtitle')}
           </p>
         </div>
 
@@ -53,7 +88,7 @@ export default function LoginPage() {
           <form className="space-y-6" onSubmit={handleLogin}>
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-                Email Address
+                {t('email_address')}
               </label>
               <div className="relative">
                 <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-500">
@@ -72,7 +107,7 @@ export default function LoginPage() {
 
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-                Password
+                {t('password')}
               </label>
               <div className="relative">
                 <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-500">
@@ -97,7 +132,7 @@ export default function LoginPage() {
               {loading ? (
                 <Loader2 className="animate-spin h-5 w-5 mr-2" />
               ) : null}
-              Sign In
+              {t('sign_in')}
             </button>
           </form>
         </div>
