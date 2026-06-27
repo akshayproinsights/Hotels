@@ -40,25 +40,11 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
   const [showRefDetails, setShowRefDetails] = useState(false)
   const [showCheckoutConfirm, setShowCheckoutConfirm] = useState(false)
 
-  // Freeze background scroll while this sheet is open.
-  // We use the position:fixed trick instead of overflow:hidden because
-  // overflow:hidden on <body> kills -webkit-overflow-scrolling inside
-  // fixed containers on iOS PWA standalone mode.
-  useEffect(() => {
-    const scrollY = window.scrollY
-    const prevPosition = document.body.style.position
-    const prevTop = document.body.style.top
-    const prevWidth = document.body.style.width
-    document.body.style.position = 'fixed'
-    document.body.style.top = `-${scrollY}px`
-    document.body.style.width = '100%'
-    return () => {
-      document.body.style.position = prevPosition
-      document.body.style.top = prevTop
-      document.body.style.width = prevWidth
-      window.scrollTo(0, scrollY)
-    }
-  }, [])
+  // NOTE: No body scroll lock needed.
+  // In PWA standalone mode the body is already non-scrollable (height = 100dvh).
+  // Any attempt to lock the body (overflow:hidden OR position:fixed) kills
+  // -webkit-overflow-scrolling inside fixed-position overlays on iOS — that is
+  // exactly what was preventing the sheet from scrolling.
 
 
   // Fetch full details of the booking
@@ -250,22 +236,22 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
   const amountInputCls = "bg-transparent outline-none text-2xl font-black text-right w-28 tabular-nums [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm">
-      {/* Clickable dismiss area — sits behind the sheet (z-order) so touches
-          on the dark backdrop close the drawer, but touches on the sheet itself
-          reach the scroll container without interference. */}
-      <div
-        className="absolute inset-0"
-        aria-hidden="true"
-        onClick={onClose}
-      />
-
+    // onClick on the outer overlay closes the sheet when tapping the dark backdrop.
+    // The sheet itself calls e.stopPropagation() so taps inside never bubble up here.
+    // This eliminates the need for an absolute inset-0 backdrop div that would
+    // intercept touch events destined for the inner scroll container on iOS.
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm"
+      onClick={onClose}
+    >
       {/* ── Main Drawer ──
-           h-[92dvh]: dvh = dynamic viewport height (accounts for mobile browser chrome).
-           relative + z-10: ensures the sheet sits above the dismiss backdrop.
-           overflow-hidden on container clips rounded corners cleanly.
+           h-[92dvh]: dynamic viewport height — accounts for mobile browser chrome.
+           stopPropagation prevents taps inside the sheet from triggering onClose.
       */}
-      <div className="glass-panel relative z-10 w-full max-w-lg h-[92dvh] flex flex-col rounded-t-3xl border-t border-slate-700/50 bg-slate-900/95 shadow-2xl animate-fade-in overflow-hidden">
+      <div
+        className="glass-panel relative w-full max-w-lg h-[92dvh] flex flex-col rounded-t-3xl border-t border-slate-700/50 bg-slate-900/95 shadow-2xl animate-fade-in overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
 
         {/* ── Header ── */}
         <div className="flex justify-between items-center px-5 py-4 border-b border-slate-800/80 flex-shrink-0">
@@ -297,13 +283,15 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
         </div>
 
         {/* ── SCROLLABLE BODY ──
-            overflow-y-scroll: force scroll track (not auto) so Safari/iOS always enables scrolling.
-            overscroll-contain: prevents scroll chaining to the frozen body on iOS PWA.
-            touch-action: pan-y: tells the browser this element accepts vertical swipe gestures — critical for iOS PWA.
-            min-h-0: flex-1 needs a definite height ceiling so overflow actually kicks in.
+            overflow-y-scroll  : force scroll always on (not 'auto') — required on iOS.
+            touch-action: pan-y : tells iOS the element accepts vertical swipe gestures.
+            -webkit-overflow-scrolling: touch : enables momentum scroll on iOS Safari/PWA.
+            min-h-0            : gives flex-1 a definite height so overflow kicks in.
+            NO overscroll-contain — that CSS property is unsupported on iOS WebKit and
+            breaks scroll initiation inside fixed-position containers.
         */}
         <div
-          className="flex-1 min-h-0 overflow-y-scroll overscroll-contain px-4 py-4 flex flex-col gap-4"
+          className="flex-1 min-h-0 overflow-y-scroll px-4 py-4 flex flex-col gap-4"
           style={{
             WebkitOverflowScrolling: 'touch',
             touchAction: 'pan-y',
