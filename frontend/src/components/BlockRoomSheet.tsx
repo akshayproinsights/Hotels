@@ -30,7 +30,7 @@ import { useLanguage } from '../context/LanguageContext'
 import { useVisualViewport } from '../hooks/useVisualViewport'
 import DocumentLightbox from './DocumentLightbox'
 import NumericKeypad from './NumericKeypad'
-import CalendarCard, { CalendarRangeBadge } from './CalendarCard'
+
 
 
 interface BlockRoomSheetProps {
@@ -58,16 +58,7 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
 
 
 
-  const renderDynamicCalendarBadge = (size: 'sm' | 'md' = 'md') => {
-    return (
-      <CalendarRangeBadge
-        checkInDate={checkInDate}
-        checkOutDate={checkOutDate}
-        size={size}
-        language={language}
-      />
-    );
-  }
+
   const [guestName, setGuestName] = useState('')
   const [selectedGuestId, setSelectedGuestId] = useState<string | undefined>(undefined)
   const [guestPhone, setGuestPhone] = useState('')
@@ -523,19 +514,6 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
               <h4 className="text-sm font-extrabold text-slate-200">{language === 'mr' ? 'तारीख निवडा' : 'Select Date Range'}</h4>
               <p className="text-[10px] text-slate-500 font-medium">{language === 'mr' ? 'चेक-इन आणि नंतर चेक-आउट तारीख निवडा' : 'Click check-in then check-out'}</p>
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                if (checkInDate && !checkOutDate) {
-                  const ci = parse(checkInDate, 'yyyy-MM-dd', new Date())
-                  setCheckOutDate(format(addDays(ci, 1), 'yyyy-MM-dd'))
-                }
-                setShowDatePicker(false)
-              }}
-              className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 rounded-xl transition"
-            >
-              {language === 'mr' ? 'पूर्ण' : 'Done'}
-            </button>
           </div>
 
           <div className="grid grid-cols-2 gap-2 bg-slate-950/60 p-3 rounded-2xl border border-slate-850">
@@ -626,11 +604,21 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
             </div>
           </div>
 
-          {tempNights > 0 && (
-            <div className="bg-emerald-500/10 border border-emerald-500/20 p-2.5 rounded-xl text-center text-xs font-bold text-emerald-400">
-              {language === 'mr' ? `मुक्काम कालावधी: ${tempNights} रात्र` : `Duration of Stay: ${tempNights} ${tempNights === 1 ? 'Night' : 'Nights'}`}
-            </div>
-          )}
+          <button
+            type="button"
+            onClick={() => {
+              if (checkInDate && !checkOutDate) {
+                const ci = parse(checkInDate, 'yyyy-MM-dd', new Date())
+                setCheckOutDate(format(addDays(ci, 1), 'yyyy-MM-dd'))
+              }
+              setShowDatePicker(false)
+            }}
+            className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 active:scale-[0.98] text-sm font-black text-slate-950 rounded-2xl transition duration-150 text-center shadow-lg shadow-emerald-500/20"
+          >
+            {language === 'mr' 
+              ? `पूर्ण (${tempNights || 1} रात्र)` 
+              : `Done (${tempNights || 1} ${(tempNights || 1) === 1 ? 'Night' : 'Nights'})`}
+          </button>
 
         </div>
       </div>
@@ -756,7 +744,7 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
       <div className="relative w-full flex flex-col bg-slate-900 shadow-2xl overflow-hidden" style={viewport ? { height: `${viewport.height}px` } : { height: '100dvh' }}>
 
         {/* Header */}
-        <div className="flex justify-between items-center p-6 pb-3 border-b border-slate-800 flex-shrink-0">
+        <div className="flex justify-between items-start p-6 pb-3 border-b border-slate-800 flex-shrink-0">
           <div>
             <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2 flex-wrap">
               <span className="bg-emerald-500/10 text-emerald-400 px-3 py-1 rounded-xl text-sm font-extrabold">
@@ -771,6 +759,28 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
                 ? 'चेक-इन आणि होल्ड ची नोंद करा' 
                 : 'Process room blockings and guest check-ins'}
             </p>
+
+            {/* Sticky Header Dates Summary (Airbnb / MMT style) */}
+            <div className="flex items-center gap-2 mt-2 px-3.5 py-2 bg-slate-950/60 rounded-xl border border-slate-700/60 w-fit">
+              <span className="text-sm font-black text-emerald-400 uppercase tracking-wide">
+                {formatBtnDate(checkInDate)}
+              </span>
+              <span className="text-sm text-slate-400 font-bold">→</span>
+              <span className="text-sm font-black text-amber-400 uppercase tracking-wide">
+                {formatBtnDate(checkOutDate)}
+              </span>
+              <span className="text-slate-600 font-medium text-sm">|</span>
+              <span className="text-sm text-slate-300 font-extrabold">
+                {nights} {language === 'mr' ? 'रात्र' : (nights === 1 ? 'Night' : 'Nights')}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowDatePicker(true)}
+                className="text-xs font-extrabold text-blue-400 hover:text-blue-300 ml-1 uppercase transition"
+              >
+                [{language === 'mr' ? 'बदला' : 'Change'}]
+              </button>
+            </div>
           </div>
           <button
             onClick={onClose}
@@ -783,239 +793,45 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
         {/* Form Body - Scrollable content area */}
         <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 flex flex-col gap-5">
 
-          {/* ID Capture / Upload section (Autofill) */}
-          <div className="flex flex-col gap-1.5 p-4 bg-slate-950/40 rounded-2xl border border-slate-800/80">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center justify-between">
-              <span>{language === 'mr' ? 'ओळखपत्र अपलोड करा' : 'ID Documentation'}</span>
-              {isExtractingName && <Loader2 className="h-4.5 w-4.5 animate-spin text-emerald-400" />}
-            </span>
-            <div className="grid grid-cols-2 gap-2 mt-1.5">
-              <label className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-950 border border-slate-800 border-dashed rounded-xl cursor-pointer hover:bg-slate-900 transition text-xs font-semibold text-slate-400">
-                <Camera className="h-4 w-4 text-slate-500" />
-                {language === 'mr' ? 'फोटो काढा' : 'Capture ID'}
-                <input
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  multiple
-                  className="hidden"
-                  onChange={handleFileChange}
-                  disabled={isExtractingName}
-                />
-              </label>
-              <label className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-950 border border-slate-800 border-dashed rounded-xl cursor-pointer hover:bg-slate-900 transition text-xs font-semibold text-slate-400">
-                <Upload className="h-4 w-4 text-slate-500" />
-                {language === 'mr' ? 'फाईल अपलोड' : 'Upload Doc'}
-                <input
-                  type="file"
-                  accept="image/*,application/pdf"
-                  multiple
-                  className="hidden"
-                  onChange={handleFileChange}
-                  disabled={isExtractingName}
-                />
-              </label>
-            </div>
-
-            {/* Selected File Thumbnails */}
-            {selectedFiles.length > 0 && (
-              <div className="flex flex-wrap gap-2 mt-2">
-                {selectedFiles.map((f, i) => (
-                  <div key={i} className="relative w-16 h-16 rounded-xl overflow-hidden border border-slate-800 bg-slate-950 group">
-                    {f.preview ? (
-                      <img src={f.preview} alt="ID Thumbnail" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-slate-500 font-extrabold text-[10px]">
-                        PDF
-                      </div>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => removeFile(i)}
-                      className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center text-red-400 transition text-xs font-bold"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          
-          {/* Guest Name & Phone container for shared click-outside reference */}
-          <div className="flex flex-col gap-5" ref={dropdownRef}>
-            {/* Guest Name & Autocomplete */}
-            <div className="relative flex flex-col gap-1.5">
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-400">{t('guest_name')}</label>
-              <div className="flex gap-3">
-                <div className="relative flex-1">
-                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                    <User className="h-4 w-4 text-slate-500" />
-                  </span>
-                  <input
-                    type="text"
-                    placeholder={language === 'mr' ? 'पाहुण्याचे नाव शोधा किंवा टाका' : 'Search or enter guest name'}
-                    value={guestName}
-                    onChange={(e) => {
-                      setGuestName(e.target.value)
-                      setSelectedGuestId(undefined) // clear selection if typed
-                      setActiveSearchField('name')
-                    }}
-                    onFocus={() => {
-                      if (guestName.length >= 2) {
-                        setActiveSearchField('name')
-                        setShowDropdown(true)
-                      }
-                    }}
-                    className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-sm"
-                  />
-                  {activeSearchField === 'name' && showDropdown && searchResults.length > 0 && (
-                    <div className="absolute top-[52px] z-50 w-full bg-slate-950 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
-                      {searchResults.map((guest) => (
-                        <button
-                          key={guest.id}
-                          type="button"
-                          onClick={() => selectGuest(guest)}
-                          className="w-full px-4 py-3 text-left text-sm text-slate-300 hover:bg-slate-900 border-b border-slate-900 flex justify-between items-center transition"
-                        >
-                          <span className="font-semibold">{guest.name}</span>
-                          <span className="text-xs text-slate-500">{guest.phone}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                
-                {/* Guest Photo camera box */}
-                <div className="relative flex-shrink-0 w-[46px] h-[46px]">
-                  <label className="w-full h-full flex items-center justify-center bg-slate-950 border border-slate-800 hover:border-emerald-500 rounded-2xl cursor-pointer overflow-hidden transition group">
-                    {guestPhoto ? (
-                      <img src={guestPhoto.preview} alt="Guest" className="w-full h-full object-cover" />
-                    ) : (
-                      <Camera className="h-5 w-5 text-slate-500 group-hover:text-emerald-400 transition" />
-                    )}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      className="hidden"
-                      onChange={handleGuestPhotoChange}
-                    />
-                  </label>
-                  {guestPhoto && (
-                    <button
-                      type="button"
-                      onClick={() => setGuestPhoto(null)}
-                      className="absolute -top-1.5 -right-1.5 w-5 h-5 flex items-center justify-center bg-rose-500 hover:bg-rose-600 text-white rounded-full shadow transition"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Phone Number */}
-            <div className="relative flex flex-col gap-1.5">
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-400">{t('mobile_number')}</label>
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                  <Phone className="h-4 w-4 text-slate-500" />
-                </span>
-                <input
-                  type="tel"
-                  placeholder={language === 'mr' ? '१०-अंकी मोबाईल नंबर' : '10-digit mobile number'}
-                  value={guestPhone}
-                  onChange={(e) => {
-                    setGuestPhone(e.target.value)
-                    setSelectedGuestId(undefined)
-                    setActiveSearchField('phone')
-                  }}
-                  onFocus={() => {
-                    if (guestPhone.length >= 2) {
-                      setActiveSearchField('phone')
-                      setShowDropdown(true)
-                    }
-                  }}
-                  className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-sm"
-                />
-              </div>
-              {activeSearchField === 'phone' && showDropdown && searchResults.length > 0 && (
-                <div className="absolute top-[72px] z-50 w-full bg-slate-950 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
-                  {searchResults.map((guest) => (
-                    <button
-                      key={guest.id}
-                      type="button"
-                      onClick={() => selectGuest(guest)}
-                      className="w-full px-4 py-3 text-left text-sm text-slate-300 hover:bg-slate-900 border-b border-slate-900 flex justify-between items-center transition"
-                    >
-                      <span className="font-semibold">{guest.name}</span>
-                      <span className="text-xs text-slate-500">{guest.phone}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Address */}
-            <div className="relative flex flex-col gap-1.5">
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-400">{language === 'mr' ? 'पत्ता' : 'Address'}</label>
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 pl-3.5 pt-3.5 flex items-start pointer-events-none">
-                  <MapPin className="h-4 w-4 text-slate-500" />
-                </span>
-                <textarea
-                  rows={2}
-                  placeholder={language === 'mr' ? 'पत्ता प्रविष्ट करा' : 'Enter address'}
-                  value={guestAddress}
-                  onChange={(e) => setGuestAddress(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-sm resize-none"
-                />
-              </div>
-            </div>
-
-            {/* Age */}
-            <div className="relative flex flex-col gap-1.5">
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-400">{language === 'mr' ? 'वय' : 'Age'}</label>
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                  <User className="h-4 w-4 text-slate-500" />
-                </span>
-                <input
-                  type="number"
-                  placeholder={language === 'mr' ? 'वय टाका' : 'Enter age'}
-                  value={guestAge}
-                  onChange={(e) => setGuestAge(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-sm"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Existing Guest Documents */}
-          {selectedGuestId && existingDocs.length > 0 && (
-            <div className="flex flex-col gap-1.5 p-3 bg-emerald-500/5 border border-emerald-500/10 rounded-2xl">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
-                {language === 'mr' ? 'सिस्टममध्ये उपलब्ध ओळखपत्रे' : 'Existing ID Proofs on File'}
+          {/* Times: Check-in / Check-out — dates are pinned in the header [Change] button */}
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                {language === 'mr' ? 'वेळ' : 'Arrival & Departure Times'}
               </span>
-              <div className="flex flex-wrap gap-2 mt-1">
-                {existingDocs.map((doc) => (
-                  <button
-                    key={doc.id}
-                    type="button"
-                    onClick={() => setSelectedDoc(doc)}
-                    className="relative w-12 h-12 rounded-xl overflow-hidden border border-slate-800 bg-slate-955 flex items-center justify-center hover:border-emerald-500 transition group"
-                  >
-                    {doc.file_name.toLowerCase().endsWith('.pdf') ? (
-                      <FileText className="h-5 w-5 text-slate-400" />
-                    ) : (
-                      <img src={doc.public_url} alt={doc.file_name} className="w-full h-full object-cover" />
-                    )}
-                  </button>
-                ))}
+              <button
+                type="button"
+                onClick={() => setShowDatePicker(true)}
+                className="text-[10px] font-extrabold text-blue-400 hover:text-blue-300 transition"
+              >
+                ✏️ {language === 'mr' ? 'तारखा बदला' : 'Edit Dates'}
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wide">
+                  {language === 'mr' ? 'चेक-इन वेळ' : 'Check-in Time'}
+                </span>
+                <input
+                  type="time"
+                  value={checkInTime}
+                  onChange={(e) => setCheckInTime(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-sm"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wide">
+                  {language === 'mr' ? 'चेक-आउट वेळ' : 'Check-out Time'}
+                </span>
+                <input
+                  type="time"
+                  value={checkOutTime}
+                  onChange={(e) => setCheckOutTime(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-sm"
+                />
               </div>
             </div>
-          )}
+          </div>
 
           {/* Dynamic Room Configuration List */}
           <div className="flex flex-col gap-4">
@@ -1184,64 +1000,238 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
             })}
           </div>
 
-          {/* Dates: Check-in / Check-out Buttons Triggering Custom Calendar */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="flex flex-col gap-1.5">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">{language === 'mr' ? 'चेक-इन तारीख' : 'Check-in'}</span>
-              <div className="flex flex-col gap-1">
-                <button
-                  type="button"
-                  onClick={() => setShowDatePicker(true)}
-                  className="w-full pl-3 pr-4 py-2 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 hover:border-emerald-500/50 flex items-center gap-2.5 transition min-h-[54px]"
-                >
-                  <CalendarCard dateStr={checkInDate} type="check-in" size="md" language={language} />
-                  <div className="flex flex-col items-start leading-tight">
-                    <span className="text-[10px] text-slate-500 font-semibold">{language === 'mr' ? 'तारीख' : 'Date'}</span>
-                    <span className="text-xs font-bold">{formatBtnDate(checkInDate)}</span>
-                  </div>
-                </button>
+          {/* ID Capture / Upload section (Autofill) */}
+          <div className="flex flex-col gap-1.5 p-4 bg-slate-950/40 rounded-2xl border border-slate-800/80">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center justify-between">
+              <span>{language === 'mr' ? 'ओळखपत्र अपलोड करा' : 'ID Documentation'}</span>
+              {isExtractingName && <Loader2 className="h-4.5 w-4.5 animate-spin text-emerald-400" />}
+            </span>
+            <div className="grid grid-cols-2 gap-2 mt-1.5">
+              <label className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-950 border border-slate-800 border-dashed rounded-xl cursor-pointer hover:bg-slate-900 transition text-xs font-semibold text-slate-400">
+                <Camera className="h-4 w-4 text-slate-500" />
+                {language === 'mr' ? 'फोटो काढा' : 'Capture ID'}
                 <input
-                  type="time"
-                  value={checkInTime}
-                  onChange={(e) => setCheckInTime(e.target.value)}
-                  className="w-full px-4 py-2 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-xs h-[36px]"
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  multiple
+                  className="hidden"
+                  onChange={handleFileChange}
+                  disabled={isExtractingName}
                 />
-              </div>
+              </label>
+              <label className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-950 border border-slate-800 border-dashed rounded-xl cursor-pointer hover:bg-slate-900 transition text-xs font-semibold text-slate-400">
+                <Upload className="h-4 w-4 text-slate-500" />
+                {language === 'mr' ? 'फाईल अपलोड' : 'Upload Doc'}
+                <input
+                  type="file"
+                  accept="image/*,application/pdf"
+                  multiple
+                  className="hidden"
+                  onChange={handleFileChange}
+                  disabled={isExtractingName}
+                />
+              </label>
             </div>
 
-            <div className="flex flex-col gap-1.5">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">{language === 'mr' ? 'चेक-आउट तारीख' : 'Check-out'}</span>
-              <div className="flex flex-col gap-1">
-                <button
-                  type="button"
-                  onClick={() => setShowDatePicker(true)}
-                  className="w-full pl-3 pr-4 py-2 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 hover:border-emerald-500/50 flex items-center gap-2.5 transition min-h-[54px]"
-                >
-                  <CalendarCard dateStr={checkOutDate} type="check-out" size="md" language={language} />
-                  <div className="flex flex-col items-start leading-tight">
-                    <span className="text-[10px] text-slate-500 font-semibold">{language === 'mr' ? 'तारीख' : 'Date'}</span>
-                    <span className="text-xs font-bold">{formatBtnDate(checkOutDate)}</span>
+            {/* Selected File Thumbnails */}
+            {selectedFiles.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {selectedFiles.map((f, i) => (
+                  <div key={i} className="relative w-16 h-16 rounded-xl overflow-hidden border border-slate-800 bg-slate-950 group">
+                    {f.preview ? (
+                      <img src={f.preview} alt="ID Thumbnail" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-slate-500 font-extrabold text-[10px]">
+                        PDF
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => removeFile(i)}
+                      className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center text-red-400 transition text-xs font-bold"
+                    >
+                      Delete
+                    </button>
                   </div>
-                </button>
-                <input
-                  type="time"
-                  value={checkOutTime}
-                  onChange={(e) => setCheckOutTime(e.target.value)}
-                  className="w-full px-4 py-2 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-xs h-[36px]"
-                />
+                ))}
               </div>
-            </div>
+            )}
           </div>
 
-          {/* Compute Night Label */}
-          <div className="flex justify-between items-center py-2.5 px-4 bg-emerald-500/10 rounded-2xl border border-emerald-500/20">
-            <span className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
-              <CalendarIcon className="h-4 w-4" />
-              {language === 'mr' ? 'मुक्काम कालावधी:' : 'Duration of Stay:'}
-            </span>
-            <span className="text-sm font-extrabold text-emerald-300">
-              {nights} {language === 'mr' ? 'रात्र' : (nights === 1 ? 'Night' : 'Nights')}
-            </span>
+          {/* Existing Guest Documents — grouped with ID Documentation */}
+          {selectedGuestId && existingDocs.length > 0 && (
+            <div className="flex flex-col gap-1.5 p-3 bg-emerald-500/5 border border-emerald-500/10 rounded-2xl">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+                {language === 'mr' ? 'सिस्टममध्ये उपलब्ध ओळखपत्रे' : 'Existing ID Proofs on File'}
+              </span>
+              <div className="flex flex-wrap gap-2 mt-1">
+                {existingDocs.map((doc) => (
+                  <button
+                    key={doc.id}
+                    type="button"
+                    onClick={() => setSelectedDoc(doc)}
+                    className="relative w-12 h-12 rounded-xl overflow-hidden border border-slate-800 bg-slate-955 flex items-center justify-center hover:border-emerald-500 transition group"
+                  >
+                    {doc.file_name.toLowerCase().endsWith('.pdf') ? (
+                      <FileText className="h-5 w-5 text-slate-400" />
+                    ) : (
+                      <img src={doc.public_url} alt={doc.file_name} className="w-full h-full object-cover" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Guest Name & Phone container for shared click-outside reference */}
+          <div className="flex flex-col gap-5" ref={dropdownRef}>
+            {/* Guest Name & Autocomplete */}
+            <div className="relative flex flex-col gap-1.5">
+              <label className="text-xs font-bold uppercase tracking-wider text-slate-400">{t('guest_name')}</label>
+              <div className="flex gap-3">
+                <div className="relative flex-1">
+                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                    <User className="h-4 w-4 text-slate-500" />
+                  </span>
+                  <input
+                    type="text"
+                    placeholder={language === 'mr' ? 'पाहुण्याचे नाव शोधा किंवा टाका' : 'Search or enter guest name'}
+                    value={guestName}
+                    onChange={(e) => {
+                      setGuestName(e.target.value)
+                      setSelectedGuestId(undefined) // clear selection if typed
+                      setActiveSearchField('name')
+                    }}
+                    onFocus={() => {
+                      if (guestName.length >= 2) {
+                        setActiveSearchField('name')
+                        setShowDropdown(true)
+                      }
+                    }}
+                    className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-sm"
+                  />
+                  {activeSearchField === 'name' && showDropdown && searchResults.length > 0 && (
+                    <div className="absolute top-[52px] z-50 w-full bg-slate-950 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
+                      {searchResults.map((guest) => (
+                        <button
+                          key={guest.id}
+                          type="button"
+                          onClick={() => selectGuest(guest)}
+                          className="w-full px-4 py-3 text-left text-sm text-slate-300 hover:bg-slate-900 border-b border-slate-900 flex justify-between items-center transition"
+                        >
+                          <span className="font-semibold">{guest.name}</span>
+                          <span className="text-xs text-slate-500">{guest.phone}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                
+                {/* Guest Photo camera box */}
+                <div className="relative flex-shrink-0 w-[46px] h-[46px]">
+                  <label className="w-full h-full flex items-center justify-center bg-slate-950 border border-slate-800 hover:border-emerald-500 rounded-2xl cursor-pointer overflow-hidden transition group">
+                    {guestPhoto ? (
+                      <img src={guestPhoto.preview} alt="Guest" className="w-full h-full object-cover" />
+                    ) : (
+                      <Camera className="h-5 w-5 text-slate-500 group-hover:text-emerald-400 transition" />
+                    )}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="hidden"
+                      onChange={handleGuestPhotoChange}
+                    />
+                  </label>
+                  {guestPhoto && (
+                    <button
+                      type="button"
+                      onClick={() => setGuestPhoto(null)}
+                      className="absolute -top-1.5 -right-1.5 w-5 h-5 flex items-center justify-center bg-rose-500 hover:bg-rose-600 text-white rounded-full shadow transition"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Phone Number */}
+            <div className="relative flex flex-col gap-1.5">
+              <label className="text-xs font-bold uppercase tracking-wider text-slate-400">{t('mobile_number')}</label>
+              <div className="relative">
+                <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                  <Phone className="h-4 w-4 text-slate-500" />
+                </span>
+                <input
+                  type="tel"
+                  placeholder={language === 'mr' ? '१०-अंकी मोबाईल नंबर' : '10-digit mobile number'}
+                  value={guestPhone}
+                  onChange={(e) => {
+                    setGuestPhone(e.target.value)
+                    setSelectedGuestId(undefined)
+                    setActiveSearchField('phone')
+                  }}
+                  onFocus={() => {
+                    if (guestPhone.length >= 2) {
+                      setActiveSearchField('phone')
+                      setShowDropdown(true)
+                    }
+                  }}
+                  className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-sm"
+                />
+              </div>
+              {activeSearchField === 'phone' && showDropdown && searchResults.length > 0 && (
+                <div className="absolute top-[72px] z-50 w-full bg-slate-950 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
+                  {searchResults.map((guest) => (
+                    <button
+                      key={guest.id}
+                      type="button"
+                      onClick={() => selectGuest(guest)}
+                      className="w-full px-4 py-3 text-left text-sm text-slate-300 hover:bg-slate-900 border-b border-slate-900 flex justify-between items-center transition"
+                    >
+                      <span className="font-semibold">{guest.name}</span>
+                      <span className="text-xs text-slate-500">{guest.phone}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Address */}
+            <div className="relative flex flex-col gap-1.5">
+              <label className="text-xs font-bold uppercase tracking-wider text-slate-400">{language === 'mr' ? 'पत्ता' : 'Address'}</label>
+              <div className="relative">
+                <span className="absolute inset-y-0 left-0 pl-3.5 pt-3.5 flex items-start pointer-events-none">
+                  <MapPin className="h-4 w-4 text-slate-500" />
+                </span>
+                <textarea
+                  rows={2}
+                  placeholder={language === 'mr' ? 'पत्ता प्रविष्ट करा' : 'Enter address'}
+                  value={guestAddress}
+                  onChange={(e) => setGuestAddress(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-sm resize-none"
+                />
+              </div>
+            </div>
+
+            {/* Age */}
+            <div className="relative flex flex-col gap-1.5">
+              <label className="text-xs font-bold uppercase tracking-wider text-slate-400">{language === 'mr' ? 'वय' : 'Age'}</label>
+              <div className="relative">
+                <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                  <User className="h-4 w-4 text-slate-500" />
+                </span>
+                <input
+                  type="number"
+                  placeholder={language === 'mr' ? 'वय टाका' : 'Enter age'}
+                  value={guestAge}
+                  onChange={(e) => setGuestAge(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-sm"
+                />
+              </div>
+            </div>
           </div>
 
           {/* Occupation (Full Width) */}
@@ -1503,10 +1493,11 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
                   onClick={() => handleSubmit('hold')}
                   className="w-full py-3 px-4 bg-slate-900 hover:bg-slate-800/80 active:bg-slate-900 border border-slate-700/60 hover:border-amber-500/30 text-slate-200 rounded-2xl transition disabled:opacity-50 flex items-center gap-3"
                 >
-                  {isSubmitting
-                    ? <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" />
-                    : renderDynamicCalendarBadge('sm')
-                  }
+                  {isSubmitting ? (
+                    <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" />
+                  ) : (
+                    <CalendarIcon className="h-4.5 w-4.5 text-slate-400 flex-shrink-0" />
+                  )}
                   <div className="flex flex-col items-start text-left gap-0.5">
                     <span className="text-sm font-black tracking-tight">
                       {language === 'mr' ? 'खोली राखून ठेवा (येतील नंतर)' : 'Book Room (Not Here Yet)'}
@@ -1565,22 +1556,16 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
                   type="button"
                   disabled={isSubmitting}
                   onClick={() => handleSubmit('hold')}
-                  className="w-full py-4 px-4 bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-500 text-slate-950 rounded-2xl transition disabled:opacity-50 flex items-center gap-3 shadow-lg shadow-emerald-500/20"
+                  className="w-full py-4 px-4 bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-500 text-slate-950 rounded-2xl transition disabled:opacity-50 flex items-center gap-3 shadow-lg shadow-emerald-500/20 justify-center"
                 >
-                  {isSubmitting
-                    ? <Loader2 className="h-5 w-5 animate-spin flex-shrink-0" />
-                    : renderDynamicCalendarBadge('md')
-                  }
-                  <div className="flex flex-col items-start text-left gap-0.5">
-                    <span className="text-base font-black tracking-tight">
-                      {language === 'mr' ? 'खोली बुक करा' : 'Book Room'}
-                    </span>
-                    <span className="text-[10px] text-emerald-900 font-semibold">
-                      {language === 'mr'
-                        ? `→ बुक / होल्ड: ${formatBtnDate(checkInDate)} ते ${formatBtnDate(checkOutDate)} (${nights} रात्र)`
-                        : `→ Reserves: ${formatBtnDate(checkInDate)} to ${formatBtnDate(checkOutDate)} (${nights} ${nights === 1 ? 'Night' : 'Nights'})`}
-                    </span>
-                  </div>
+                  {isSubmitting ? (
+                    <Loader2 className="h-5 w-5 animate-spin flex-shrink-0" />
+                  ) : (
+                    <CalendarIcon className="h-5 w-5 text-slate-950 flex-shrink-0" />
+                  )}
+                  <span className="text-base font-black tracking-tight">
+                    {language === 'mr' ? 'खोली बुक करा' : 'Book Room Now'}
+                  </span>
                 </button>
               </>
             )}

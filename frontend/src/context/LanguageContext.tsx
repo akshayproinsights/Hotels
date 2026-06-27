@@ -14,9 +14,7 @@ const translations: Record<Language, Record<string, string>> = {
     bookings: 'Bookings',
     rooms: 'Rooms',
     dues: 'Dues',
-    more: 'More',
-    reports_insights: 'Reports & Insights',
-    app_settings: 'App Settings',
+    app_settings: 'Settings',
     logout: 'Logout',
     pwa: 'PWA',
     offline_alert: 'You are offline. Showing cached information. Actions will sync when online.',
@@ -24,12 +22,12 @@ const translations: Record<Language, Record<string, string>> = {
     // Login Page
     portal_title: 'Santosh Palace',
     portal_subtitle: 'Hotel Room Management Portal',
-    email_address: 'Email Address',
+    email_address: 'Username',
     password: 'Password',
     sign_in: 'Sign In',
     please_fill_fields: 'Please fill in all fields',
     welcome_back: 'Welcome back, {name}!',
-    invalid_credentials: 'Invalid email or password',
+    invalid_credentials: 'Invalid username or password',
 
     // Calendar & Bookings dashboard
     search_guest: 'Search guest name...',
@@ -80,27 +78,7 @@ const translations: Record<Language, Record<string, string>> = {
     failed_load_inventory: 'Failed to load inventory',
     try_again: 'Try Again',
 
-    // Reports Page
-    business_reports: 'Business Reports',
-    daily_report: 'Daily Report',
-    monthly_report: 'Monthly Report',
-    today: 'Today',
-    select_month: 'Select Month',
-    select_year: 'Select Year',
-    revenue: 'Revenue',
-    occupancy_rate: 'Occupancy Rate',
-    total_checkins: 'Total Check-ins',
-    total_checkouts: 'Total Check-outs',
-    unpaid_dues: 'Unpaid Dues',
-    detailed_logs: 'Detailed Logs',
-    no_reports_for_date: 'No reports available for this date',
-    checkins: 'Check-ins',
-    checkouts: 'Check-outs',
-    fetching_reports: 'Fetching business reports...',
-    checkout_time: 'Checkout Time',
-    room_type: 'Room Type',
-    guest_name: 'Guest Name',
-    amount: 'Amount',
+
 
     // Settings Page
     rooms_management: 'Rooms Management',
@@ -164,9 +142,7 @@ const translations: Record<Language, Record<string, string>> = {
     bookings: 'बुकिंग',
     rooms: 'खोल्या',
     dues: 'बाकी रक्कम',
-    more: 'अधिक',
-    reports_insights: 'अहवाल आणि माहिती',
-    app_settings: 'ॲप सेटिंग्ज',
+    app_settings: 'सेटिंग्ज',
     logout: 'बाहेर पडा',
     pwa: 'PWA',
     offline_alert: 'आपण ऑफलाइन आहात. साठवलेली माहिती दाखवत आहे. ऑनलाईन आल्यावर सिंक होईल.',
@@ -174,12 +150,12 @@ const translations: Record<Language, Record<string, string>> = {
     // Login Page
     portal_title: 'संतोष पॅलेस',
     portal_subtitle: 'हॉटेल रूम व्यवस्थापन पोर्टल',
-    email_address: 'ईमेल पत्ता',
+    email_address: 'युझरनेम',
     password: 'पासवर्ड',
     sign_in: 'लॉग इन करा',
     please_fill_fields: 'कृपया सर्व फील्ड भरा',
     welcome_back: 'पुन्हा स्वागत आहे, {name}!',
-    invalid_credentials: 'चुकीचा ईमेल किंवा पासवर्ड',
+    invalid_credentials: 'चुकीचे युझरनेम किंवा पासवर्ड',
 
     // Calendar & Bookings dashboard
     search_guest: 'पाहुण्याचे नाव शोधा...',
@@ -230,27 +206,7 @@ const translations: Record<Language, Record<string, string>> = {
     failed_load_inventory: 'खोल्यांची स्थिती लोड करण्यात अक्षम',
     try_again: 'पुन्हा प्रयत्न करा',
 
-    // Reports Page
-    business_reports: 'व्यवसाय अहवाल',
-    daily_report: 'दैनिक अहवाल',
-    monthly_report: 'मासिक अहवाल',
-    today: 'आज',
-    select_month: 'महिना निवडा',
-    select_year: 'वर्ष निवडा',
-    revenue: 'एकूण कमाई (महसूल)',
-    occupancy_rate: 'खोली वापर दर (%)',
-    total_checkins: 'एकूण चेक-इन',
-    total_checkouts: 'एकूण चेक-आउट',
-    unpaid_dues: 'एकूण बाकी रक्कम',
-    detailed_logs: 'तपशीलवार नोंदणी',
-    no_reports_for_date: 'या तारखेसाठी कोणताही अहवाल उपलब्ध नाही',
-    checkins: 'चेक-इन',
-    checkouts: 'चेक-आउट',
-    fetching_reports: 'अहवाल मिळवत आहे...',
-    checkout_time: 'चेकआउट वेळ',
-    room_type: 'खोलीचा प्रकार',
-    guest_name: 'पाहुण्याचे नाव',
-    amount: 'रक्कम',
+
 
     // Settings Page
     rooms_management: 'खोली व्यवस्थापन',

@@ -14,7 +14,7 @@ import {
   ChevronRight,
   Wallet,
 } from 'lucide-react'
-import { getUnpaidDues } from '../api/reports'
+import { getUnpaidDues } from '../api/dues'
 import BookingDetailSheet from '../components/BookingDetailSheet'
 import { useLanguage } from '../context/LanguageContext'
 

@@ -8,6 +8,16 @@
     <meta name="theme-color" content="#16a34a" />
     <meta name="description" content="Hotel room management PWA for Santosh Palace" />
     <title>Santosh Palace</title>
+    <script>
+      // Clear cache and unregister old Service Workers on reload
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(registrations) {
+          for(let registration of registrations) {
+            registration.unregister();
+          }
+        });
+      }
+    </script>
   </head>
   <body class="bg-[#0f172a] text-[#f8fafc]">
     <div id="root"></div>

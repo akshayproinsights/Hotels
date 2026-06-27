@@ -7,8 +7,8 @@ import LoginPage from './pages/LoginPage'
 import SettingsPage from './pages/SettingsPage'
 import InventoryPage from './pages/InventoryPage'
 import CalendarPage from './pages/CalendarPage'
-import ReportsPage from './pages/ReportsPage'
 import UnpaidDuesPage from './pages/UnpaidDuesPage'
+
 import BottomNav from './components/BottomNav'
 import { useAuth } from './hooks/useAuth'
 import { useLanguage } from './context/LanguageContext'
@@ -53,7 +53,7 @@ function AppLayout() {
   }, [])
 
   return (
-    <div className="flex flex-col min-h-screen">
+    <div className="flex flex-col min-h-[100dvh]">
       {/* Top Header */}
       <header className="glass-panel sticky top-0 z-40 border-b border-slate-800/40 px-3 py-2 sm:px-4 sm:py-3 flex justify-between items-center">
         <div className="flex items-center gap-2">
@@ -119,7 +119,6 @@ function AppLayout() {
           <Route path="/" element={<CalendarPage />} />
           <Route path="/inventory" element={<InventoryPage />} />
           <Route path="/unpaid" element={<UnpaidDuesPage />} />
-          <Route path="/reports" element={<ReportsPage />} />
           {/* Catch-all redirects */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

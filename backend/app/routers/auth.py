@@ -8,7 +8,8 @@ router = APIRouter()
 
 # Input validation model
 class LoginRequest(BaseModel):
-    email: EmailStr
+    username: str | None = None
+    email: str | None = None
     password: str
 
 @router.post("/login")
@@ -17,8 +18,18 @@ def login(body: LoginRequest):
     Authenticates staff user via Supabase Auth and returns JWT token.
     """
     try:
+        login_email = body.username or body.email
+        if not login_email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username or email is required"
+            )
+
+        if "@" not in login_email:
+            login_email = f"{login_email}@snapkhata.com"
+
         res = supabase.auth.sign_in_with_password({
-            "email": body.email,
+            "email": login_email,
             "password": body.password
         })
         if not res.session:
@@ -39,7 +50,7 @@ def login(body: LoginRequest):
         logging.error(f"Login failure error: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password"
+            detail="Invalid username or password"
         )
 
 @router.post("/logout")

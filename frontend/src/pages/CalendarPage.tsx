@@ -6,7 +6,7 @@ import { useCalendar } from '../hooks/useCalendar'
 import CalendarGrid from '../components/CalendarGrid'
 import { useLanguage } from '../context/LanguageContext'
 import { useQueryClient, useQuery } from '@tanstack/react-query'
-import { getUnpaidDues } from '../api/reports'
+import { getUnpaidDues } from '../api/dues'
 
 const SHORT_MONTH_NAMES_EN = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
