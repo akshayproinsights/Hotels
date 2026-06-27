@@ -8,6 +8,7 @@ import toast from 'react-hot-toast'
 import { getBooking, updateBooking, checkBookingExtension } from '../api/bookings'
 import { getUploadUrl, uploadFileToR2, confirmUpload, listGuestDocs } from '../api/documents'
 import { useLanguage } from '../context/LanguageContext'
+import CalendarCard from './CalendarCard'
 
 const getDaysDiff = (startStr: string, endStr: string) => {
   if (!startStr || !endStr) return 1
@@ -388,7 +389,10 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
         </div>
 
         {/* Content Body - Scrollable */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-5">
+        <div
+          className="flex-1 overflow-y-auto overscroll-contain px-6 py-4 flex flex-col gap-5"
+          style={{ touchAction: 'pan-y', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
+        >
           {/* Guest Summary Card */}
           <div className="glass-panel p-4 rounded-2xl flex flex-col gap-3 bg-slate-955/40">
             {/* Row 1: Name + Status Badge */}
@@ -494,27 +498,52 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
 
           {/* Timestamps */}
           <div className="grid grid-cols-2 gap-4">
-            <div className="flex flex-col gap-1 p-3 bg-slate-955/60 border border-slate-800 rounded-2xl">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{language === 'mr' ? 'चेक-इन' : 'Check-in'}</span>
-              <span className="text-xs font-bold text-slate-200">{formatDateTime(booking.check_in)}</span>
+            <div className="flex items-center gap-3 p-3 bg-slate-955/60 border border-slate-800 rounded-2xl">
+              <CalendarCard dateStr={booking.check_in} type="check-in" size="md" language={language} />
+              <div className="flex flex-col leading-tight">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{language === 'mr' ? 'चेक-इन' : 'Check-in'}</span>
+                <span className="text-xs font-bold text-slate-200 mt-0.5">{formatDateTime(booking.check_in)}</span>
+              </div>
             </div>
-            <div className="flex flex-col gap-1 p-3 bg-slate-955/60 border border-slate-800 rounded-2xl">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{language === 'mr' ? 'चेक-आउट' : 'Check-out'}</span>
-              <span className="text-xs font-bold text-slate-200">{formatDateTime(booking.check_out)}</span>
+            <div className="flex items-center gap-3 p-3 bg-slate-955/60 border border-slate-800 rounded-2xl">
+              <CalendarCard dateStr={booking.check_out} type="check-out" size="md" language={language} />
+              <div className="flex flex-col leading-tight">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{language === 'mr' ? 'चेक-आउट' : 'Check-out'}</span>
+                <span className="text-xs font-bold text-slate-200 mt-0.5">{formatDateTime(booking.check_out)}</span>
+              </div>
             </div>
           </div>
 
-          {/* Pricing Ledger (Book & Block Style) */}
-          <div className="flex flex-col bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden">
-            {/* Row 1: Bill Summary (Left) & Payment Type (Right) */}
-            <div className="px-4 py-3 bg-slate-950 flex items-center justify-between border-b border-slate-900">
-              {/* Total Bill Input */}
-              <div className="flex flex-col">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {/* PAYMENT SUMMARY CARD — receipt-style, clear for all staff */}
+          {/* ═══════════════════════════════════════════════════════════ */}
+          <div className="flex flex-col rounded-2xl overflow-hidden border border-slate-700/60 bg-slate-950">
+
+            {/* ── Card Header ── */}
+            <div className="px-4 pt-3.5 pb-2 bg-slate-900/60 border-b border-slate-800/60 flex items-center justify-between">
+              <span className="text-[10px] font-black uppercase tracking-[0.15em] text-slate-400">
+                {language === 'mr' ? '💰 पेमेंट सारांश' : '💰 Payment Summary'}
+              </span>
+              <span className="text-[10px] text-slate-500 font-medium">
+                {language === 'mr' 
+                  ? `₹${booking.room_price} × ${nights} रात्र${booking.extra_beds > 0 ? ` + बेड ₹${extraBedTotal}` : ''}` 
+                  : `₹${booking.room_price} × ${nights} night${nights !== 1 ? 's' : ''}${booking.extra_beds > 0 ? ` + bed ₹${extraBedTotal}` : ''}`}
+              </span>
+            </div>
+
+            {/* ── Row 1: Total Bill ── */}
+            <div className="px-4 py-3 flex items-center justify-between border-b border-slate-800/40">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
                   {language === 'mr' ? 'एकूण बिल' : 'Total Bill'}
                 </span>
-                <div className="flex items-baseline gap-1 mt-0.5">
-                  <span className="text-base font-black text-slate-400">₹</span>
+                <span className="text-[10px] text-slate-600 font-medium">
+                  {language === 'mr' ? '(टॅप करून बदला)' : '(tap to edit)'}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex items-baseline gap-0.5 group">
+                  <span className="text-lg font-black text-slate-400">₹</span>
                   <input
                     type="text"
                     inputMode="numeric"
@@ -536,65 +565,34 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                         e.currentTarget.blur()
                       }
                     }}
-                    className="bg-transparent border-none outline-none text-2xl font-black text-slate-100 w-24 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    className="bg-transparent border-none outline-none text-2xl font-black text-slate-100 text-right w-28 border-b-2 border-transparent focus:border-emerald-500/60 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   />
-                  {editingTotal !== booking.total_amount && (
-                    <button
-                      onClick={handleSaveTotalAmount}
-                      className="ml-1 px-1.5 py-0.5 bg-emerald-500 hover:bg-emerald-400 text-[10px] font-black text-slate-955 rounded transition"
-                    >
-                      {language === 'mr' ? 'जतन करा' : 'Save'}
-                    </button>
-                  )}
+                  <span className="text-slate-500 text-base ml-1 select-none">✏️</span>
                 </div>
-                <span className="text-[10px] text-slate-500 font-medium mt-0.5">
-                  {language === 'mr' 
-                    ? `₹${booking.room_price} × ${nights} रात्र${booking.extra_beds > 0 ? ` + बेड ₹${extraBedTotal}` : ''}` 
-                    : `₹${booking.room_price} × ${nights}n${booking.extra_beds > 0 ? ` + bed ₹${extraBedTotal}` : ''}`}
-                </span>
-              </div>
-
-              {/* Payment Method Pills */}
-              <div className="flex flex-col items-end gap-1.5">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                  {language === 'mr' ? 'पेमेंट कसे?' : 'How paying?'}
-                </span>
-                <div className="flex gap-1.5">
-                  {(['Cash', 'UPI', 'Pending'] as const).map((mode) => (
-                    <button
-                      key={mode}
-                      type="button"
-                      onClick={() => handleSavePaymentMode(mode)}
-                      className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-black transition-all duration-200 ${
-                        booking.payment_mode === mode
-                          ? mode === 'Cash'
-                            ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40'
-                            : mode === 'UPI'
-                            ? 'bg-blue-500/15 text-blue-400 border-blue-500/40'
-                            : 'bg-amber-500/15 text-amber-400 border-amber-500/40'
-                          : 'bg-slate-900 border-slate-700/60 text-slate-500 hover:text-slate-300'
-                      }`}
-                    >
-                      {mode === 'Cash' ? '💵' : mode === 'UPI' ? '📱' : '⏳'}&nbsp;
-                      {mode === 'Cash' ? (language === 'mr' ? 'कॅश' : 'Cash') : mode === 'UPI' ? 'UPI' : (language === 'mr' ? 'बाकी' : 'Pending')}
-                    </button>
-                  ))}
-                </div>
+                {editingTotal !== booking.total_amount && (
+                  <button
+                    onClick={handleSaveTotalAmount}
+                    className="px-2.5 py-1 bg-emerald-500 hover:bg-emerald-400 text-[10px] font-black text-slate-950 rounded-lg transition shadow-sm shadow-emerald-500/20"
+                  >
+                    {language === 'mr' ? 'जतन' : 'Save'}
+                  </button>
+                )}
               </div>
             </div>
 
-            {/* Row 2: Collected Now Input + Live Split Bar */}
-            <div className="px-4 py-3 flex items-center gap-3">
-              <div className="flex-1 flex flex-col gap-1">
-                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                  {language === 'mr' ? 'आता मिळाले (₹)' : 'Collected Now (₹)'}
-                </label>
-                <div className={`flex items-center gap-2 rounded-xl px-3 py-2 border transition ${
-                  booking.payment_mode === 'Pending'
-                    ? 'bg-slate-900 border-amber-500/30 focus-within:border-amber-400/60'
-                    : 'bg-slate-900 border-emerald-500/20 focus-within:border-emerald-400/40'
-                }`}>
-                  <span className={`text-sm font-black ${booking.payment_mode === 'Pending' ? 'text-amber-400' : 'text-emerald-400'}`}>₹</span>
+            {/* ── Row 2: Amount Paid ── */}
+            <div className="px-4 py-3 flex items-center justify-between border-b border-slate-800/40">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-500/80">
+                  {language === 'mr' ? 'जमा केलेली रक्कम' : 'Amount Paid'}
+                </span>
+                <span className="text-[10px] text-slate-600 font-medium">
+                  {language === 'mr' ? '(टॅप करून बदला)' : '(tap to edit)'}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex items-baseline gap-0.5">
+                  <span className="text-lg font-black text-emerald-400">₹</span>
                   <input
                     type="text"
                     inputMode="numeric"
@@ -616,73 +614,104 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                         e.currentTarget.blur()
                       }
                     }}
-                    className="flex-1 bg-transparent border-none outline-none text-base font-black text-slate-100 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    className="bg-transparent border-none outline-none text-2xl font-black text-emerald-300 text-right w-28 border-b-2 border-transparent focus:border-emerald-500/60 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   />
-                  {String(editingPaid) !== String(booking.paid_amount) && (
-                    <button
-                      onClick={handleSavePaidAmount}
-                      className="ml-1 px-1.5 py-0.5 bg-emerald-500 hover:bg-emerald-400 text-[10px] font-black text-slate-955 rounded transition"
-                    >
-                      {language === 'mr' ? 'जतन करा' : 'Save'}
-                    </button>
-                  )}
+                  <span className="text-slate-500 text-base ml-1 select-none">✏️</span>
                 </div>
+                {String(editingPaid) !== String(booking.paid_amount) && (
+                  <button
+                    onClick={handleSavePaidAmount}
+                    className="px-2.5 py-1 bg-emerald-500 hover:bg-emerald-400 text-[10px] font-black text-slate-950 rounded-lg transition shadow-sm shadow-emerald-500/20"
+                  >
+                    {language === 'mr' ? 'जतन' : 'Save'}
+                  </button>
+                )}
               </div>
+            </div>
 
-              {/* Live paid/due split */}
-              {(() => {
-                const total = liveTotal
-                const paid = livePaid
-                const due = Math.max(0, total - paid)
-                const pct = total > 0 ? Math.min(100, (paid / total) * 100) : 0
-                return (
-                  <div className="flex flex-col items-end gap-1 min-w-[84px]">
-                    <div className="flex items-center gap-1">
-                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>
-                      <span className="text-[10px] font-bold text-emerald-400">
-                        {language === 'mr' ? 'भरले' : 'Paid'} ₹{paid}
-                      </span>
-                    </div>
-                    <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-emerald-400 transition-all duration-300"
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                    {due > 0 ? (
-                      <div className="flex items-center gap-1">
-                        <div className="w-1.5 h-1.5 rounded-full bg-rose-400"></div>
-                        <span className="text-[10px] font-black text-rose-400">
-                          {language === 'mr' ? 'बाकी' : 'Due'} ₹{due}
-                        </span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-1">
-                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>
-                        <span className="text-[10px] font-bold text-emerald-400">
-                          {language === 'mr' ? 'पूर्ण भरले' : 'Paid'}
-                        </span>
-                      </div>
-                    )}
+            {/* ── Progress Bar ── */}
+            {(() => {
+              const pct = liveTotal > 0 ? Math.min(100, (livePaid / liveTotal) * 100) : 0
+              return (
+                <div className="px-4 py-2 bg-slate-950/60">
+                  <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${pct >= 100 ? 'bg-emerald-400' : pct > 0 ? 'bg-amber-400' : 'bg-slate-700'}`}
+                      style={{ width: `${pct}%` }}
+                    />
                   </div>
-                )
-              })()}
-            </div>
-          </div>
+                  <div className="flex justify-between mt-1">
+                    <span className="text-[9px] text-slate-600 font-medium">₹0</span>
+                    <span className={`text-[9px] font-bold ${pct >= 100 ? 'text-emerald-400' : 'text-slate-500'}`}>
+                      {Math.round(pct)}% {language === 'mr' ? 'भरले' : 'paid'}
+                    </span>
+                    <span className="text-[9px] text-slate-600 font-medium">₹{liveTotal}</span>
+                  </div>
+                </div>
+              )
+            })()}
 
-          {/* Pending Balance Alert Banner — very visible for non-technical staff */}
-          {livePendingAmount > 0 && (
-            <div className="flex items-start gap-3 p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-2xl">
-              <div className="mt-0.5 h-5 w-5 flex-shrink-0 rounded-full bg-amber-500/20 flex items-center justify-center">
-                <span className="text-amber-400 text-xs font-black">!</span>
+            {/* ── Row 3: Balance Due (THE MOST IMPORTANT ROW) ── */}
+            {livePendingAmount > 0 ? (
+              <div className="px-4 py-4 flex items-center justify-between bg-rose-500/8 border-t border-rose-500/25">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-rose-400">
+                    {language === 'mr' ? '⚠️ बाकी रक्कम (आता जमा करा)' : '⚠️ Balance Due'}
+                  </span>
+                  <span className="text-[10px] text-rose-400/70 font-medium">
+                    {language === 'mr' ? 'पाहुण्यांकडून घ्यायची आहे' : 'Collect from guest'}
+                  </span>
+                </div>
+                <span className="text-3xl font-black text-rose-400 tabular-nums">
+                  ₹{livePendingAmount.toLocaleString('en-IN')}
+                </span>
               </div>
-              <div className="flex-1">
-                <p className="text-xs font-extrabold text-amber-400">
-                  {language === 'mr' ? `पेमेंट प्रलंबित आहे — ₹${livePendingAmount} बाकी` : `Payment Pending — ₹${livePendingAmount} Due`}
-                </p>
+            ) : (
+              <div className="px-4 py-4 flex items-center justify-between bg-emerald-500/8 border-t border-emerald-500/25">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400">
+                    {language === 'mr' ? '✅ पूर्ण भरले' : '✅ Fully Settled'}
+                  </span>
+                  <span className="text-[10px] text-emerald-400/70 font-medium">
+                    {language === 'mr' ? 'कोणतीही रक्कम बाकी नाही' : 'No balance due'}
+                  </span>
+                </div>
+                <span className="text-3xl font-black text-emerald-400">
+                  ₹0
+                </span>
+              </div>
+            )}
+
+            {/* ── Payment Method Row ── */}
+            <div className="px-4 py-3 bg-slate-900/40 border-t border-slate-800/60 flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                {language === 'mr' ? 'पेमेंट पद्धत:' : 'Payment method:'}
+              </span>
+              <div className="flex gap-1.5">
+                {(['Cash', 'UPI', 'Pending'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => handleSavePaymentMode(mode)}
+                    className={`px-3 py-1.5 rounded-xl border text-[10px] font-black transition-all duration-200 ${
+                      booking.payment_mode === mode
+                        ? mode === 'Cash'
+                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-sm shadow-emerald-500/10'
+                          : mode === 'UPI'
+                          ? 'bg-blue-500/20 text-blue-300 border-blue-500/50 shadow-sm shadow-blue-500/10'
+                          : 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm shadow-amber-500/10'
+                        : 'bg-slate-900/80 border-slate-700/50 text-slate-500 hover:text-slate-300 hover:border-slate-600'
+                    }`}
+                  >
+                    {mode === 'Cash' ? '💵 ' : mode === 'UPI' ? '📱 ' : '⏳ '}
+                    {mode === 'Cash' ? (language === 'mr' ? 'कॅश' : 'Cash') : mode === 'UPI' ? 'UPI' : (language === 'mr' ? 'बाकी' : 'Pending')}
+                  </button>
+                ))}
               </div>
             </div>
-          )}
+
+          </div>
+          {/* ═══════════════════════════════════════════════════════════ */}
 
           {/* Notes */}
           {booking.notes && (

@@ -7,9 +7,19 @@ interface DocumentLightboxProps {
   docUrl: string
   fileName: string
   onClose: () => void
+  guestName?: string
+  roomNumber?: string
+  docType?: string
 }
 
-export default function DocumentLightbox({ docUrl, fileName, onClose }: DocumentLightboxProps) {
+export default function DocumentLightbox({ 
+  docUrl, 
+  fileName, 
+  onClose,
+  guestName,
+  roomNumber,
+  docType
+}: DocumentLightboxProps) {
   const [zoom, setZoom] = useState(1)
   const [rotation, setRotation] = useState(0)
 
@@ -47,11 +57,21 @@ export default function DocumentLightbox({ docUrl, fileName, onClose }: Document
     }
   }
 
+  const formatDocType = (type?: string, fallbackName?: string) => {
+    if (!type) return fallbackName || ''
+    if (type === 'guest_photo') return 'Guest Photo'
+    if (type === 'id_proof') return 'ID Proof'
+    return type
+      .split('_')
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ')
+  }
+
   const isPdf = fileName.toLowerCase().endsWith('.pdf')
 
   return createPortal(
     <div 
-      className="fixed inset-0 z-50 flex flex-col items-center justify-between bg-slate-950/90 backdrop-blur-md p-4 animate-fade-in"
+      className="fixed inset-0 z-50 flex flex-col items-center justify-between bg-slate-955/95 backdrop-blur-md p-4 animate-fade-in"
       onClick={onClose}
     >
       {/* Top Header Bar */}
@@ -60,12 +80,23 @@ export default function DocumentLightbox({ docUrl, fileName, onClose }: Document
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex flex-col gap-0.5">
-          <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Viewing Document</span>
-          <span className="text-sm font-extrabold text-slate-100 truncate max-w-[200px] sm:max-w-md">{fileName}</span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-extrabold text-slate-100">
+              {guestName || 'Guest Document'}
+            </span>
+            {roomNumber && (
+              <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 px-2 py-0.5 rounded-lg text-[10px] font-extrabold">
+                Room {roomNumber}
+              </span>
+            )}
+          </div>
+          <span className="text-xs font-semibold text-slate-400 truncate max-w-[200px] sm:max-w-md">
+            {formatDocType(docType, fileName)}
+          </span>
         </div>
         <button
           onClick={onClose}
-          className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition"
+          className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition shrink-0"
         >
           <X className="h-5 w-5" />
         </button>

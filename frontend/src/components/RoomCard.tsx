@@ -1,4 +1,5 @@
 import type { InventoryRoom } from '../types'
+import { useLanguage } from '../context/LanguageContext'
 
 interface RoomCardProps {
   room: InventoryRoom
@@ -6,27 +7,29 @@ interface RoomCardProps {
 }
 
 export default function RoomCard({ room, onClick }: RoomCardProps) {
+  const { language } = useLanguage()
+
   const getStatusStyles = () => {
     switch (room.room_status) {
       case 'vacant':
         return {
           border: 'border-slate-800/80 hover:border-emerald-500/30 border-l-4 border-l-emerald-400',
           bg: 'bg-emerald-500/[0.02]',
-          badgeText: 'Free',
+          badgeText: language === 'mr' ? 'रिकामी' : 'Free',
           badgeColor: 'text-emerald-400',
         }
       case 'hold':
         return {
           border: 'border-slate-800/80 hover:border-amber-500/30 border-l-4 border-l-amber-400',
           bg: 'bg-amber-500/[0.02]',
-          badgeText: 'Hold',
+          badgeText: language === 'mr' ? 'बुक / होल्ड' : 'Booked',
           badgeColor: 'text-amber-400',
         }
       case 'unpaid':
         return {
           border: 'border-slate-800/80 hover:border-rose-500/30 border-l-4 border-l-rose-400',
           bg: 'bg-rose-500/[0.02]',
-          badgeText: 'Unpaid',
+          badgeText: language === 'mr' ? 'चेक-इन (बाकी)' : 'Checked In (Dues)',
           badgeColor: 'text-rose-400',
         }
       case 'occupied':
@@ -34,7 +37,7 @@ export default function RoomCard({ room, onClick }: RoomCardProps) {
         return {
           border: 'border-slate-800/80 hover:border-slate-400/30 border-l-4 border-l-slate-550',
           bg: 'bg-slate-500/[0.02]',
-          badgeText: 'Occupied',
+          badgeText: language === 'mr' ? 'चेक-इन' : 'Checked In',
           badgeColor: 'text-slate-400',
         }
     }
@@ -59,11 +62,11 @@ export default function RoomCard({ room, onClick }: RoomCardProps) {
       <div className="w-full mt-1.5 sm:mt-2">
         {room.booking?.guests?.name ? (
           <span className="text-[11px] sm:text-xs font-semibold text-slate-300 truncate block">
-            👤 {room.booking.guests.name}
+            {room.room_status === 'hold' ? '📅' : '👤'} {room.booking.guests.name}
           </span>
         ) : (
           <span className="text-[11px] sm:text-xs font-semibold text-slate-500 block">
-            Available
+            {language === 'mr' ? 'उपलब्ध' : 'Available'}
           </span>
         )}
       </div>

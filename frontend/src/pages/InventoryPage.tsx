@@ -19,6 +19,36 @@ export default function InventoryPage() {
   const [viewMode, setViewMode] = useState<'grid' | 'map'>('grid')
   const { language, t } = useLanguage()
 
+  // Touch gesture state for swipe-to-navigate days
+  const [touchStart, setTouchStart] = useState<number | null>(null)
+  const [touchEnd, setTouchEnd] = useState<number | null>(null)
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    // If modal/drawer sheet is open, do not trigger swipe date change
+    if (selectedRoomForBooking || selectedBookingId) return
+    setTouchEnd(null)
+    setTouchStart(e.targetTouches[0].clientX)
+  }
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (selectedRoomForBooking || selectedBookingId) return
+    setTouchEnd(e.targetTouches[0].clientX)
+  }
+
+  const handleTouchEnd = () => {
+    if (selectedRoomForBooking || selectedBookingId || !touchStart || !touchEnd) return
+    const distance = touchStart - touchEnd
+    const minSwipeDistance = 75 // Minimum pixel movement required
+
+    // Swipe Left (finger moves right to left): Go to next day
+    // Swipe Right (finger moves left to right): Go to previous day
+    if (distance > minSwipeDistance) {
+      handleNextDay()
+    } else if (distance < -minSwipeDistance) {
+      handlePrevDay()
+    }
+  }
+
   // Synchronize state if URL parameter changes
   const urlDate = searchParams.get('date')
   useEffect(() => {
@@ -114,58 +144,72 @@ export default function InventoryPage() {
   const formattedDateCompact = formatSelectedDate(selectedDate, true)
 
   return (
-    <div className="flex flex-col gap-4 px-3 py-4 pb-24 animate-fade-in sm:px-4 sm:py-6">
+    <div
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      className="flex flex-col gap-4 px-3 py-4 pb-24 animate-fade-in sm:px-4 sm:py-6"
+    >
       
       {/* Date Navigation Bar */}
-      <div className="glass-panel rounded-2xl p-2 sm:p-4 flex flex-row gap-2 justify-between items-center bg-slate-900/40">
-        <div className="flex items-center gap-1.5 sm:gap-3">
+      <div className="glass-panel rounded-2xl p-2.5 sm:p-4 flex flex-col gap-3.5 sm:flex-row sm:justify-between sm:items-center bg-slate-900/40">
+        {/* Primary Date Switcher */}
+        <div className="flex items-center justify-between sm:justify-start gap-3 w-full sm:w-auto">
           <button
             onClick={handlePrevDay}
-            className="p-2 sm:p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
+            className="flex items-center justify-center w-12 h-12 rounded-xl bg-slate-950 border border-slate-850 hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition active:scale-95 flex-shrink-0"
+            title={language === 'mr' ? 'पूर्वीचा दिवस' : 'Previous Day'}
           >
-            <ChevronLeft className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            <ChevronLeft className="h-6 w-6" />
           </button>
           
-          <button
-            onClick={handleToday}
-            className="px-2.5 py-2 sm:px-4 sm:py-2 bg-slate-950 border border-slate-800 rounded-xl hover:bg-slate-900 text-[10px] sm:text-xs font-bold text-slate-300 transition"
-          >
-            {t('today')}
-          </button>
+          <div className="flex items-center gap-2 flex-1 justify-center sm:flex-initial">
+            <button
+              onClick={() => navigate(`/?date=${selectedDate}`)}
+              className="flex items-center gap-2 hover:bg-slate-850/60 bg-slate-950/40 border border-slate-850 px-3 py-2.5 rounded-xl transition active:scale-95 text-left"
+              title={language === 'mr' ? 'तारीख बदलण्यासाठी कॅलेंडरवर जा' : 'Go to calendar to change date'}
+            >
+              <CalendarIcon className="h-4.5 w-4.5 text-emerald-400 flex-shrink-0" />
+              <span className="text-xs sm:text-sm font-extrabold text-slate-200 tracking-tight whitespace-nowrap">
+                <span className="inline sm:hidden">{formattedDateCompact}</span>
+                <span className="hidden sm:inline">{formattedDate}</span>
+              </span>
+            </button>
+
+            <button
+              onClick={handleToday}
+              className="px-3 py-2.5 bg-slate-950 border border-slate-850 rounded-xl hover:bg-slate-900 text-xs font-black text-emerald-400 active:scale-95 transition"
+            >
+              {t('today')}
+            </button>
+          </div>
 
           <button
             onClick={handleNextDay}
-            className="p-2 sm:p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
+            className="flex items-center justify-center w-14 h-12 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-md shadow-emerald-500/10 hover:shadow-emerald-500/20 transition active:scale-95 flex-shrink-0"
+            title={language === 'mr' ? 'पुढील दिवस' : 'Next Day'}
           >
-            <ChevronRight className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            <ChevronRight className="h-7 w-7 stroke-[3]" />
           </button>
         </div>
 
-        <div className="flex items-center gap-1.5 sm:gap-2">
-          <button
-            onClick={() => navigate(`/?date=${selectedDate}`)}
-            className="flex items-center gap-1.5 sm:gap-2 hover:bg-slate-800/30 px-2 py-1.5 rounded-xl transition active:scale-95 text-left border border-transparent hover:border-slate-850"
-            title={language === 'mr' ? 'तारीख बदलण्यासाठी कॅलेंडरवर जा' : 'Go to calendar to change date'}
-          >
-            <CalendarIcon className="h-4 w-4 sm:h-4.5 sm:w-4.5 text-emerald-400 flex-shrink-0" />
-            <span className="text-xs sm:text-sm font-extrabold text-slate-200 tracking-tight whitespace-nowrap">
-              <span className="inline sm:hidden">{formattedDateCompact}</span>
-              <span className="hidden sm:inline">{formattedDate}</span>
-            </span>
-          </button>
+        {/* Secondary Controls (Refresh & Layout Toggles) */}
+        <div className="flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto border-t border-slate-850/40 pt-3 sm:pt-0 sm:border-t-0">
           <button
             onClick={() => refetch()}
             disabled={isRefetching}
-            className="p-1 sm:p-2 rounded-lg text-slate-500 hover:text-slate-300 transition"
+            className="flex items-center gap-1.5 px-3 py-2 bg-slate-950/40 border border-slate-850 hover:bg-slate-900 text-slate-400 rounded-xl transition disabled:opacity-50 active:scale-95 text-xs font-bold"
+            title={language === 'mr' ? 'अपडेट करा' : 'Refresh inventory'}
           >
-            <RefreshCw className={`h-3 w-3 sm:h-3.5 sm:w-3.5 ${isRefetching ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`h-3.5 w-3.5 text-slate-400 ${isRefetching ? 'animate-spin' : ''}`} />
+            <span>{language === 'mr' ? 'रीफ्रेश' : 'Refresh'}</span>
           </button>
 
           {/* Toggle Layout Segmented Controller */}
           <div className="flex bg-slate-950/60 p-0.5 sm:p-1 border border-slate-800 rounded-xl flex-shrink-0">
             <button
               onClick={() => setViewMode('grid')}
-              className={`p-1 sm:p-1.5 rounded-lg text-xs font-bold transition-all duration-200 ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all duration-200 ${
                 viewMode === 'grid'
                   ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/10'
                   : 'text-slate-500 hover:text-slate-300'
@@ -173,10 +217,11 @@ export default function InventoryPage() {
               title={language === 'mr' ? 'ग्रिड कार्ड व्ह्यू' : 'Grid Card View'}
             >
               <LayoutGrid className="h-3.5 w-3.5" />
+              <span className="text-[10px] uppercase tracking-wider">{language === 'mr' ? 'ग्रिड' : 'Grid'}</span>
             </button>
             <button
               onClick={() => setViewMode('map')}
-              className={`p-1 sm:p-1.5 rounded-lg text-xs font-bold transition-all duration-200 ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all duration-200 ${
                 viewMode === 'map'
                   ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/10'
                   : 'text-slate-500 hover:text-slate-300'
@@ -184,6 +229,7 @@ export default function InventoryPage() {
               title={language === 'mr' ? 'मजला आराखडा मॅप व्ह्यू' : 'Floor Plan Map View'}
             >
               <Map className="h-3.5 w-3.5" />
+              <span className="text-[10px] uppercase tracking-wider">{language === 'mr' ? 'नकाशा' : 'Map'}</span>
             </button>
           </div>
         </div>
@@ -223,6 +269,57 @@ export default function InventoryPage() {
           <span className="text-xs sm:text-2xl font-black text-slate-100 mt-0.5 sm:mt-2">{data.summary.unpaid}</span>
         </div>
       </div>
+
+      {/* Arriving Today Banner — shows reserved guests whose check-in date is today */}
+      {(() => {
+        const todayStr = format(new Date(), 'yyyy-MM-dd')
+        const isViewingToday = selectedDate === todayStr
+        if (!isViewingToday) return null
+        const arrivingToday = data.rooms.filter(room =>
+          room.room_status === 'hold' &&
+          room.booking?.check_in &&
+          room.booking.check_in.startsWith(todayStr)
+        )
+        if (arrivingToday.length === 0) return null
+        return (
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-base">🛬</span>
+              <h3 className="text-sm font-extrabold text-amber-400 uppercase tracking-wider">
+                {language === 'mr'
+                  ? `आज येणारे पाहुणे — ${arrivingToday.length} खोल्या`
+                  : `Arriving Today — ${arrivingToday.length} Room${arrivingToday.length > 1 ? 's' : ''}`}
+              </h3>
+            </div>
+            <div className="flex flex-col gap-2">
+              {arrivingToday.map(room => (
+                <button
+                  key={room.id}
+                  onClick={() => handleRoomClick(room)}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/15 hover:border-amber-500/50 transition active:scale-[0.99] text-left"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center flex-shrink-0">
+                    <span className="text-sm font-black text-amber-400">{room.number}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-black text-slate-200 truncate">
+                      {room.booking?.guests?.name || (language === 'mr' ? 'अज्ञात पाहुणे' : 'Unknown Guest')}
+                    </p>
+                    <p className="text-[10px] text-slate-500 font-semibold truncate">
+                      {room.room_type} · {language === 'mr' ? 'आज चेक-इन' : 'Check-in Today'}
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                    <span className="text-[9px] uppercase tracking-wider font-extrabold text-amber-400 bg-amber-500/15 px-2 py-0.5 rounded-full">
+                      {language === 'mr' ? 'ताडण करा' : 'Tap to Check In'}
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Floors Room Layout */}
       <div className="flex flex-col gap-8">
@@ -368,7 +465,7 @@ function MiniRoomBox({ room, onClick }: MiniRoomBoxProps) {
     switch (room.room_status) {
       case 'vacant': return language === 'mr' ? 'रिकामी' : 'Free'
       case 'hold': return language === 'mr' ? 'होल्ड' : 'Hold'
-      case 'unpaid': return language === 'mr' ? 'बाकी पेमेंट' : 'Dues Pending'
+      case 'unpaid': return language === 'mr' ? 'बाकी – जमा करा' : 'Dues – Collect'
       case 'occupied': return language === 'mr' ? 'भरलेली' : 'Occupied'
     }
   }

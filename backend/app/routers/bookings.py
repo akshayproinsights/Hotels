@@ -27,6 +27,8 @@ class BookingCreate(BaseModel):
     total_amount: Optional[float] = None
     guest_address: Optional[str] = None
     guest_age: Optional[int] = None
+    is_checked_in: Optional[bool] = None
+
 class RoomBookingInfo(BaseModel):
     room_id: str
     room_type: Literal['AC Deluxe', 'Non AC Deluxe', 'AC Standard', 'Non AC Standard']
@@ -51,6 +53,7 @@ class BookingBatchCreate(BaseModel):
     total_amount: Optional[float] = None
     guest_address: Optional[str] = None
     guest_age: Optional[int] = None
+    is_checked_in: Optional[bool] = None
 
 class BookingUpdate(BaseModel):
     check_out: Optional[datetime] = None
@@ -61,6 +64,7 @@ class BookingUpdate(BaseModel):
     notes: Optional[str] = None
     total_amount: Optional[float] = None
     actual_checkout_time: Optional[datetime] = None
+    is_checked_in: Optional[bool] = None
 
 @router.post("")
 def create_booking(body: BookingCreate, user=Depends(get_current_user)):
@@ -112,6 +116,8 @@ def create_booking(body: BookingCreate, user=Depends(get_current_user)):
         else:
             actual_payment_status = "unpaid"
 
+    is_checked_in = body.is_checked_in if body.is_checked_in is not None else (actual_payment_status != "hold")
+
     # 3. Insert booking (DB constraint will reject overlapping dates)
     try:
         res = supabase.table("bookings").insert({
@@ -133,6 +139,7 @@ def create_booking(body: BookingCreate, user=Depends(get_current_user)):
             "occupation":      body.occupation,
             "notes":           body.notes,
             "created_by":      user.get("sub"),
+            "is_checked_in":   is_checked_in,
         }).execute()
     except Exception as e:
         if "no_overlap" in str(e):
@@ -238,6 +245,7 @@ def create_bookings_batch(body: BookingBatchCreate, user=Depends(get_current_use
             "occupation":      body.occupation,
             "notes":           r.notes or body.notes,
             "created_by":      user.get("sub"),
+            "is_checked_in":   body.is_checked_in if body.is_checked_in is not None else (room_status != "hold"),
         })
 
     # 3. Insert bookings atomically

@@ -27,6 +27,10 @@ import { createBookingsBatch } from '../api/bookings'
 import { getUploadUrl, uploadFileToR2, confirmUpload, listGuestDocs, extractNameFromId } from '../api/documents'
 import { listAvailableRooms } from '../api/rooms'
 import { useLanguage } from '../context/LanguageContext'
+import { useVisualViewport } from '../hooks/useVisualViewport'
+import DocumentLightbox from './DocumentLightbox'
+import NumericKeypad from './NumericKeypad'
+import CalendarCard, { CalendarRangeBadge } from './CalendarCard'
 
 
 interface BlockRoomSheetProps {
@@ -43,12 +47,26 @@ interface LocalFile {
 
 export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }: BlockRoomSheetProps) {
   const { language, t } = useLanguage()
+  const viewport = useVisualViewport()
   const monthsMr = ['जानेवारी', 'फेब्रुवारी', 'मार्च', 'एप्रिल', 'मे', 'जून', 'जुलै', 'ऑगस्ट', 'सप्टेंबर', 'ऑक्टोबर', 'नोव्हेंबर', 'डिसेंबर']
   const formatBtnDate = (dStr: string) => {
     if (!dStr) return language === 'mr' ? 'तारीख निवडा' : 'Select date';
     const d = parse(dStr, 'yyyy-MM-dd', new Date());
     if (language !== 'mr') return format(d, 'dd-MMM-yyyy');
     return `${d.getDate()} ${monthsMr[d.getMonth()]} ${d.getFullYear()}`;
+  }
+
+
+
+  const renderDynamicCalendarBadge = (size: 'sm' | 'md' = 'md') => {
+    return (
+      <CalendarRangeBadge
+        checkInDate={checkInDate}
+        checkOutDate={checkOutDate}
+        size={size}
+        language={language}
+      />
+    );
   }
   const [guestName, setGuestName] = useState('')
   const [selectedGuestId, setSelectedGuestId] = useState<string | undefined>(undefined)
@@ -59,6 +77,7 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
   const [showDropdown, setShowDropdown] = useState(false)
   const [activeSearchField, setActiveSearchField] = useState<'name' | 'phone' | null>(null)
   const [recentGuests, setRecentGuests] = useState<{ id: string; name: string; phone: string; address?: string | null; age?: number | null }[]>([])
+  const [selectedDoc, setSelectedDoc] = useState<Document | null>(null)
   
   // Dynamic Room interface and states
   interface SelectedRoomConfig {
@@ -186,6 +205,7 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
   // Form submission state
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isExtractingName, setIsExtractingName] = useState(false)
+  const [activeKeypad, setActiveKeypad] = useState<'total' | 'deposit' | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   // Custom Date Picker states
@@ -307,6 +327,8 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
   const checkinDateTime = parse(`${checkInDate} ${checkInTime}`, 'yyyy-MM-dd HH:mm', new Date())
   const checkoutDateTime = parse(`${checkOutDate} ${checkOutTime}`, 'yyyy-MM-dd HH:mm', new Date())
   const nights = Math.max(1, differenceInCalendarDays(checkoutDateTime, checkinDateTime))
+  // Check In Now button is only shown when check-in date is TODAY (walk-in or same-day arrival)
+  const isCheckingInToday = checkInDate === format(new Date(), 'yyyy-MM-dd')
 
   const calculateRoomTotal = (rConfig: SelectedRoomConfig) => {
     const extraBedPrice = 500
@@ -666,6 +688,7 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
         occupation: occupation || undefined,
         notes: notes || undefined,
         total_amount: Number(totalAmount) || 0,
+        is_checked_in: paymentStatus !== 'hold',
       }
 
       const bookings = await createBookingsBatch(payload)
@@ -728,9 +751,9 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/95 backdrop-blur-sm animate-fade-in" style={{ height: '100dvh' }}>
+    <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/95 backdrop-blur-sm animate-fade-in" style={viewport ? { height: `${viewport.height}px`, top: `${viewport.offsetTop}px`, bottom: 'auto' } : { height: '100dvh' }}>
       {/* Main Full-Screen Form */}
-      <div className="relative w-full flex flex-col bg-slate-900 shadow-2xl overflow-hidden" style={{ height: '100dvh' }}>
+      <div className="relative w-full flex flex-col bg-slate-900 shadow-2xl overflow-hidden" style={viewport ? { height: `${viewport.height}px` } : { height: '100dvh' }}>
 
         {/* Header */}
         <div className="flex justify-between items-center p-6 pb-3 border-b border-slate-800 flex-shrink-0">
@@ -977,19 +1000,18 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
               </span>
               <div className="flex flex-wrap gap-2 mt-1">
                 {existingDocs.map((doc) => (
-                  <a
+                  <button
                     key={doc.id}
-                    href={doc.public_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="relative w-12 h-12 rounded-xl overflow-hidden border border-slate-800 bg-slate-950 flex items-center justify-center hover:border-emerald-500 transition group"
+                    type="button"
+                    onClick={() => setSelectedDoc(doc)}
+                    className="relative w-12 h-12 rounded-xl overflow-hidden border border-slate-800 bg-slate-955 flex items-center justify-center hover:border-emerald-500 transition group"
                   >
                     {doc.file_name.toLowerCase().endsWith('.pdf') ? (
                       <FileText className="h-5 w-5 text-slate-400" />
                     ) : (
                       <img src={doc.public_url} alt={doc.file_name} className="w-full h-full object-cover" />
                     )}
-                  </a>
+                  </button>
                 ))}
               </div>
             </div>
@@ -1170,10 +1192,13 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
                 <button
                   type="button"
                   onClick={() => setShowDatePicker(true)}
-                  className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 hover:border-emerald-500/50 text-xs flex items-center justify-between transition h-[42px]"
+                  className="w-full pl-3 pr-4 py-2 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 hover:border-emerald-500/50 flex items-center gap-2.5 transition min-h-[54px]"
                 >
-                  <span>{formatBtnDate(checkInDate)}</span>
-                  <CalendarIcon className="h-3.5 w-3.5 text-slate-500" />
+                  <CalendarCard dateStr={checkInDate} type="check-in" size="md" language={language} />
+                  <div className="flex flex-col items-start leading-tight">
+                    <span className="text-[10px] text-slate-500 font-semibold">{language === 'mr' ? 'तारीख' : 'Date'}</span>
+                    <span className="text-xs font-bold">{formatBtnDate(checkInDate)}</span>
+                  </div>
                 </button>
                 <input
                   type="time"
@@ -1190,10 +1215,13 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
                 <button
                   type="button"
                   onClick={() => setShowDatePicker(true)}
-                  className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 hover:border-emerald-500/50 text-xs flex items-center justify-between transition h-[42px]"
+                  className="w-full pl-3 pr-4 py-2 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 hover:border-emerald-500/50 flex items-center gap-2.5 transition min-h-[54px]"
                 >
-                  <span>{formatBtnDate(checkOutDate)}</span>
-                  <CalendarIcon className="h-3.5 w-3.5 text-slate-500" />
+                  <CalendarCard dateStr={checkOutDate} type="check-out" size="md" language={language} />
+                  <div className="flex flex-col items-start leading-tight">
+                    <span className="text-[10px] text-slate-500 font-semibold">{language === 'mr' ? 'तारीख' : 'Date'}</span>
+                    <span className="text-xs font-bold">{formatBtnDate(checkOutDate)}</span>
+                  </div>
                 </button>
                 <input
                   type="time"
@@ -1257,8 +1285,88 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
 
         </div> {/* End of scrollable body */}
 
-        {/* ——— Unified Payment Card (fixed bottom) ——— */}
-        <div className="border-t border-slate-800 bg-slate-950 flex-shrink-0 flex flex-col">
+        {/* ——— Keyboard-aware Payment Footer ——— */}
+        {/* When keyboard is open: collapses to a slim summary pill (Airbnb/Swiggy style)  */}
+        {/* When keyboard is closed: full detailed payment card                            */}
+        {(() => {
+          const total = Number(totalAmount) || 0
+          const paid = paymentMode !== 'Pending' && Number(depositAmount) === 0
+            ? total
+            : Math.min(Number(depositAmount) || 0, total)
+          const due = Math.max(0, total - paid)
+
+          // Detect keyboard open: visual viewport height is significantly less than screen height
+          const screenH = typeof window !== 'undefined' ? window.screen.height : 900
+          const keyboardOpen = viewport ? viewport.height < screenH * 0.65 : false
+
+          const modeColor = paymentMode === 'Cash'
+            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+            : paymentMode === 'UPI'
+            ? 'bg-blue-500/20 text-blue-400 border-blue-500/40'
+            : 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+
+          const modeEmoji = paymentMode === 'Cash' ? '💵' : paymentMode === 'UPI' ? '📱' : '⏳'
+          const modeLabel = paymentMode === 'Cash'
+            ? (language === 'mr' ? 'कॅश' : 'Cash')
+            : paymentMode === 'UPI' ? 'UPI'
+            : (language === 'mr' ? 'बाकी' : 'Pending')
+
+          // Primary CTA action
+          const handlePrimaryCTA = () => {
+            const depositAmt = Number(depositAmount) || 0
+            const totalAmt = Number(totalAmount) || 0
+            const isPartial = depositAmt > 0 && depositAmt < totalAmt
+            if (isCheckingInToday) {
+              if (paymentMode === 'Pending') {
+                handleSubmit(isPartial ? 'partial' : 'unpaid')
+              } else {
+                handleSubmit(isPartial ? 'partial' : 'paid')
+              }
+            } else {
+              handleSubmit('hold')
+            }
+          }
+
+          return (
+        <div className={`border-t border-slate-800 bg-slate-950 flex-shrink-0 flex flex-col transition-all duration-300 ${keyboardOpen ? 'overflow-hidden' : ''}`}>
+
+          {/* ─── COLLAPSED: slim summary pill (visible when keyboard is open) ─── */}
+          <div className={`transition-all duration-300 ease-in-out overflow-hidden ${keyboardOpen ? 'max-h-20 opacity-100' : 'max-h-0 opacity-0 pointer-events-none'}`}>
+            <div className="flex items-center gap-2 px-3 py-2.5">
+              {/* Amount + mode */}
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <div className="flex items-baseline gap-0.5">
+                  <span className="text-xs font-bold text-slate-500">₹</span>
+                  <span className="text-xl font-black text-slate-100 leading-none">{totalAmount || '0'}</span>
+                </div>
+                <span className={`px-2 py-0.5 rounded-lg border text-[10px] font-black flex-shrink-0 ${modeColor}`}>
+                  {modeEmoji} {modeLabel}
+                </span>
+                {due > 0 ? (
+                  <span className="text-[10px] font-bold text-rose-400 flex-shrink-0">Due ₹{due}</span>
+                ) : paid > 0 ? (
+                  <span className="text-[10px] font-bold text-emerald-400 flex-shrink-0">✓ Paid</span>
+                ) : null}
+              </div>
+
+              {/* Compact primary CTA */}
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={handlePrimaryCTA}
+                className="flex-shrink-0 h-10 px-4 rounded-xl bg-emerald-500 text-slate-950 font-black text-sm transition active:scale-95 disabled:opacity-50 flex items-center gap-1.5 shadow-lg shadow-emerald-500/25"
+              >
+                {isSubmitting
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : <span>{isCheckingInToday ? (language === 'mr' ? 'चेक-इन' : 'Check In') : (language === 'mr' ? 'बुक करा' : 'Book')}</span>
+                }
+                <span>›</span>
+              </button>
+            </div>
+          </div>
+
+          {/* ─── EXPANDED: full payment card (visible when keyboard is closed) ─── */}
+          <div className={`transition-all duration-300 ease-in-out overflow-hidden ${keyboardOpen ? 'max-h-0 opacity-0 pointer-events-none' : 'max-h-[500px] opacity-100'}`}>
 
           {/* Row 1: Total Bill + Payment Method Pills */}
           <div className="flex items-start justify-between px-4 pt-4 pb-3 border-b border-slate-800/60">
@@ -1266,25 +1374,16 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
               <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
                 {language === 'mr' ? 'एकूण बिल' : 'Total Bill'}
               </span>
-              <div className="flex items-baseline gap-1 mt-0.5">
+              <button
+                type="button"
+                onClick={() => setActiveKeypad('total')}
+                className="flex items-baseline gap-1 mt-0.5 group"
+              >
                 <span className="text-base font-black text-slate-400">₹</span>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  value={totalAmount}
-                  onChange={(e) => {
-                    const val = e.target.value
-                    if (val === '') {
-                      setTotalAmount('')
-                    } else {
-                      const cleaned = val.replace(/^0+/, '')
-                      setTotalAmount(cleaned === '' ? '0' : cleaned)
-                    }
-                  }}
-                  className="bg-transparent border-none outline-none text-2xl font-black text-slate-100 w-24 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                />
-              </div>
+                <span className="text-2xl font-black text-slate-100 min-w-[3rem] text-left border-b-2 border-dashed border-slate-700 group-hover:border-amber-500/50 transition-colors pb-0.5">
+                  {totalAmount || '0'}
+                </span>
+              </button>
               <span className="text-[10px] text-slate-600 font-medium mt-0.5">
                 {language === 'mr' 
                   ? `${selectedRooms.length} खोल्या × ${nights} रात्र` 
@@ -1330,39 +1429,33 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
               <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
                 {language === 'mr' ? 'आता मिळाले (₹)' : 'Collected Now (₹)'}
               </label>
-              <div className={`flex items-center gap-2 rounded-xl px-3 py-2 border transition ${
-                paymentMode === 'Pending'
-                  ? 'bg-slate-900 border-amber-500/30 focus-within:border-amber-400/60'
-                  : 'bg-slate-900 border-emerald-500/20 focus-within:border-emerald-400/40'
-              }`}>
+              <button
+                type="button"
+                onClick={() => setActiveKeypad('deposit')}
+                className={`w-full flex items-center gap-2 rounded-xl px-3 py-2.5 border transition active:scale-[0.98] ${
+                  activeKeypad === 'deposit'
+                    ? paymentMode === 'Pending'
+                      ? 'bg-amber-500/10 border-amber-400/60 ring-2 ring-amber-500/20'
+                      : 'bg-emerald-500/10 border-emerald-400/60 ring-2 ring-emerald-500/20'
+                    : paymentMode === 'Pending'
+                    ? 'bg-slate-900 border-amber-500/30'
+                    : 'bg-slate-900 border-emerald-500/20'
+                }`}
+              >
                 <span className={`text-sm font-black ${paymentMode === 'Pending' ? 'text-amber-400' : 'text-emerald-400'}`}>₹</span>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  placeholder={paymentMode !== 'Pending' ? String(totalAmount || 0) : '0'}
-                  value={depositAmount === 0 ? '' : depositAmount}
-                  onChange={(e) => {
-                    const val = e.target.value
-                    if (val === '') {
-                      setDepositAmount(0)
-                    } else {
-                      const cleaned = val.replace(/^0+/, '')
-                      setDepositAmount(cleaned === '' ? 0 : cleaned)
-                    }
-                  }}
-                  className="flex-1 bg-transparent border-none outline-none text-base font-black text-slate-100 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                />
-              </div>
+                <span className="flex-1 text-left text-base font-black text-slate-100">
+                  {depositAmount === 0 || depositAmount === '' ? (
+                    <span className="text-slate-500 font-medium text-sm">
+                      {paymentMode !== 'Pending' ? String(totalAmount || 0) : (language === 'mr' ? 'टॅप करा...' : 'Tap to enter...')}
+                    </span>
+                  ) : depositAmount}
+                </span>
+                <span className="text-[10px] text-slate-600 font-bold">{language === 'mr' ? 'टॅप' : 'TAP'}</span>
+              </button>
             </div>
 
             {/* Live paid/due split */}
             {(() => {
-              const total = Number(totalAmount) || 0
-              const paid = paymentMode !== 'Pending' && Number(depositAmount) === 0
-                ? total
-                : Math.min(Number(depositAmount) || 0, total)
-              const due = Math.max(0, total - paid)
               const pct = total > 0 ? Math.min(100, (paid / total) * 100) : 0
               return (
                 <div className="flex flex-col items-end gap-1 min-w-[84px]">
@@ -1397,40 +1490,147 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
             })()}
           </div>
 
-          {/* Row 3: Action Buttons */}
-          <div className="grid grid-cols-2 gap-3 px-4 pb-4">
-            <button
-              type="button"
-              disabled={isSubmitting}
-              onClick={() => handleSubmit('hold')}
-              className="py-3.5 px-4 bg-slate-800 hover:bg-slate-750 active:bg-slate-800 text-slate-200 text-sm font-bold rounded-2xl transition disabled:opacity-50 flex items-center justify-center gap-2 border border-slate-700/60"
-            >
-              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              {language === 'mr' ? 'खोली होल्ड करा' : 'Block Room (Hold)'}
-            </button>
-            <button
-              type="button"
-              disabled={isSubmitting}
-              onClick={() => {
-                const depositAmt = Number(depositAmount) || 0
-                const totalAmt = Number(totalAmount) || 0
-                const isPartial = depositAmt > 0 && depositAmt < totalAmt
-                
-                if (paymentMode === 'Pending') {
-                  handleSubmit(isPartial ? 'partial' : 'unpaid')
-                } else {
-                  handleSubmit(isPartial ? 'partial' : 'paid')
-                }
-              }}
-              className="py-3.5 px-4 bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-500 text-slate-950 text-sm font-black rounded-2xl transition disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/10"
-            >
-              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              {language === 'mr' ? 'चेक-इन करा' : 'Block & Check In'}
-            </button>
+          {/* Row 3: Action Buttons — smart layout based on check-in date */}
+          <div className="px-4 pb-4 flex flex-col gap-2.5">
+
+            {isCheckingInToday ? (
+              /* ── TODAY: Two buttons — guest might be here OR just reserving ── */
+              <>
+                {/* Secondary: Reserve only (guest booked today but not here yet) */}
+                <button
+                  type="button"
+                  disabled={isSubmitting}
+                  onClick={() => handleSubmit('hold')}
+                  className="w-full py-3 px-4 bg-slate-900 hover:bg-slate-800/80 active:bg-slate-900 border border-slate-700/60 hover:border-amber-500/30 text-slate-200 rounded-2xl transition disabled:opacity-50 flex items-center gap-3"
+                >
+                  {isSubmitting
+                    ? <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" />
+                    : renderDynamicCalendarBadge('sm')
+                  }
+                  <div className="flex flex-col items-start text-left gap-0.5">
+                    <span className="text-sm font-black tracking-tight">
+                      {language === 'mr' ? 'खोली राखून ठेवा (येतील नंतर)' : 'Book Room (Not Here Yet)'}
+                    </span>
+                    <span className="text-[10px] text-amber-400/90 font-semibold">
+                      {language === 'mr'
+                        ? `→ होल्ड: ${formatBtnDate(checkInDate)} ते ${formatBtnDate(checkOutDate)} (${nights} रात्र)`
+                        : `→ Hold: ${formatBtnDate(checkInDate)} to ${formatBtnDate(checkOutDate)} (${nights} ${nights === 1 ? 'Night' : 'Nights'})`}
+                    </span>
+                  </div>
+                </button>
+
+                {/* Primary: Block & Check In (guest is standing at the counter) */}
+                <button
+                  type="button"
+                  disabled={isSubmitting}
+                  onClick={() => {
+                    const depositAmt = Number(depositAmount) || 0
+                    const totalAmt = Number(totalAmount) || 0
+                    const isPartial = depositAmt > 0 && depositAmt < totalAmt
+                    if (paymentMode === 'Pending') {
+                      handleSubmit(isPartial ? 'partial' : 'unpaid')
+                    } else {
+                      handleSubmit(isPartial ? 'partial' : 'paid')
+                    }
+                  }}
+                  className="w-full py-3.5 px-4 bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-500 text-slate-950 rounded-2xl transition disabled:opacity-50 flex items-center gap-3 shadow-lg shadow-emerald-500/20"
+                >
+                  {isSubmitting
+                    ? <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" />
+                    : <span className="text-xl flex-shrink-0">✅</span>
+                  }
+                  <div className="flex flex-col items-start text-left gap-0.5">
+                    <span className="text-sm font-black tracking-tight">
+                      {language === 'mr' ? 'ब्लॉक & चेक-इन करा' : 'Block & Check In'}
+                    </span>
+                    <span className="text-[10px] text-emerald-900 font-semibold">
+                      {language === 'mr'
+                        ? `→ चेक-इन: ${formatBtnDate(checkInDate)} ते ${formatBtnDate(checkOutDate)} (${nights} रात्र)`
+                        : `→ Check In: ${formatBtnDate(checkInDate)} to ${formatBtnDate(checkOutDate)} (${nights} ${nights === 1 ? 'Night' : 'Nights'})`}
+                    </span>
+                  </div>
+                </button>
+              </>
+            ) : (
+              /* ── FUTURE DATE: Single "Book Room" button — only one thing to do ── */
+              <>
+                <div className="flex items-center gap-2 px-1 pb-0.5">
+                  <span className="text-[10px] text-slate-500 font-semibold">
+                    {language === 'mr'
+                      ? '⏳ पाहुणे नंतर येणार आहेत — खोली होल्ड होईल'
+                      : '⏳ Guest arrives later — room will be reserved until then'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  disabled={isSubmitting}
+                  onClick={() => handleSubmit('hold')}
+                  className="w-full py-4 px-4 bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-500 text-slate-950 rounded-2xl transition disabled:opacity-50 flex items-center gap-3 shadow-lg shadow-emerald-500/20"
+                >
+                  {isSubmitting
+                    ? <Loader2 className="h-5 w-5 animate-spin flex-shrink-0" />
+                    : renderDynamicCalendarBadge('md')
+                  }
+                  <div className="flex flex-col items-start text-left gap-0.5">
+                    <span className="text-base font-black tracking-tight">
+                      {language === 'mr' ? 'खोली बुक करा' : 'Book Room'}
+                    </span>
+                    <span className="text-[10px] text-emerald-900 font-semibold">
+                      {language === 'mr'
+                        ? `→ बुक / होल्ड: ${formatBtnDate(checkInDate)} ते ${formatBtnDate(checkOutDate)} (${nights} रात्र)`
+                        : `→ Reserves: ${formatBtnDate(checkInDate)} to ${formatBtnDate(checkOutDate)} (${nights} ${nights === 1 ? 'Night' : 'Nights'})`}
+                    </span>
+                  </div>
+                </button>
+              </>
+            )}
+
           </div>
+          </div>{/* end expanded panel */}
         </div>
+          )
+        })()}
       </div>
       {renderDatePickerModal()}
+      {selectedDoc && (
+        <DocumentLightbox
+          docUrl={selectedDoc.public_url || ''}
+          fileName={selectedDoc.file_name}
+          guestName={guestName || undefined}
+          roomNumber={
+            selectedRooms
+              .map(config => {
+                const matchedRoom = availableRooms.find(r => r.id === config.room_id) || (room?.id === config.room_id ? room : null)
+                return matchedRoom ? matchedRoom.number : ''
+              })
+              .filter(Boolean)
+              .join(', ') || room?.number || undefined
+          }
+          docType={selectedDoc.doc_type}
+          onClose={() => setSelectedDoc(null)}
+        />
+      )}
+      {activeKeypad !== null && (
+        <NumericKeypad
+          value={activeKeypad === 'total' ? totalAmount : depositAmount}
+          onChange={(val) => {
+            if (activeKeypad === 'total') {
+              setTotalAmount(val === '' ? '' : val.replace(/^0+/, '') || '0')
+            } else {
+              setDepositAmount(val === '' ? 0 : (val.replace(/^0+/, '') || 0))
+            }
+          }}
+          onClose={() => setActiveKeypad(null)}
+          label={
+            activeKeypad === 'total'
+              ? (language === 'mr' ? 'एकूण बिल' : 'Total Bill')
+              : (language === 'mr' ? 'आता मिळाले' : 'Collected Now')
+          }
+          totalAmount={activeKeypad === 'deposit' ? (Number(totalAmount) || 0) : undefined}
+          paymentMode={paymentMode}
+          language={language}
+        />
+      )}
     </div>,
     document.body
   )

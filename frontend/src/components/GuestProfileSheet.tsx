@@ -9,6 +9,7 @@ import { Guest, Document } from '../types'
 import { getGuestBookings } from '../api/guests'
 import { listGuestDocs, getUploadUrl, uploadFileToR2, confirmUpload } from '../api/documents'
 import DocumentLightbox from './DocumentLightbox'
+import { useVisualViewport } from '../hooks/useVisualViewport'
 
 interface GuestProfileSheetProps {
   guest: Guest
@@ -16,8 +17,17 @@ interface GuestProfileSheetProps {
 }
 
 export default function GuestProfileSheet({ guest, onClose }: GuestProfileSheetProps) {
+  const viewport = useVisualViewport()
   const [selectedDoc, setSelectedDoc] = useState<Document | null>(null)
   const [isUploading, setIsUploading] = useState(false)
+
+  React.useEffect(() => {
+    const originalOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = originalOverflow
+    }
+  }, [])
 
   // Query guest stay history
   const { data: bookings = [], isLoading: isLoadingBookings } = useQuery({
@@ -109,12 +119,12 @@ export default function GuestProfileSheet({ guest, onClose }: GuestProfileSheetP
   }, 0)
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm">
-      {/* Off-click dismiss zone */}
-      <div className="absolute inset-0" onClick={onClose} />
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm" style={viewport ? { height: `${viewport.height}px`, top: `${viewport.offsetTop}px`, bottom: 'auto' } : undefined}>
+      {/* Off-click dismiss zone - disabled from closing to prevent accidental dismissals on mobile / keyboard shifts */}
+      <div className="absolute inset-0 cursor-default" onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} />
 
       {/* Main Drawer Form */}
-      <div className="glass-panel relative w-full max-w-lg max-h-[92vh] overflow-y-auto rounded-t-3xl border-t border-slate-700/50 bg-slate-900/95 shadow-2xl p-6 flex flex-col gap-6 animate-fade-in">
+      <div className="glass-panel relative w-full max-w-lg overflow-y-auto overscroll-contain rounded-t-3xl border-t border-slate-700/50 bg-slate-900/95 shadow-2xl p-6 flex flex-col gap-6 animate-fade-in" style={viewport ? { maxHeight: `${viewport.height * 0.92}px` } : { maxHeight: '92vh' }}>
         
         {/* Header */}
         <div className="flex justify-between items-center pb-3 border-b border-slate-800">
@@ -127,7 +137,12 @@ export default function GuestProfileSheet({ guest, onClose }: GuestProfileSheetP
             <p className="text-xs text-slate-500 mt-1">Customer Record ID: {guest.id.substring(0, 8)}...</p>
           </div>
           <button
-            onClick={onClose}
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onClose();
+            }}
             className="p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-slate-200 transition"
           >
             <X className="h-5 w-5" />
@@ -141,15 +156,36 @@ export default function GuestProfileSheet({ guest, onClose }: GuestProfileSheetP
           <div className="glass-panel p-4 rounded-2xl flex flex-col gap-3 bg-slate-950/40 border-slate-800/40">
             <div className="flex justify-between items-start gap-4">
               <div className="flex gap-3">
-                {guestDocs.find(d => d.doc_type === 'guest_photo') ? (
-                  <div className="relative group w-12 h-12 flex-shrink-0">
-                    <img
-                      src={guestDocs.find(d => d.doc_type === 'guest_photo')?.public_url}
-                      alt="Guest Photo"
-                      className="w-full h-full rounded-xl object-cover border border-slate-700 cursor-pointer hover:border-emerald-500 transition"
-                    />
-                    <label className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 rounded-xl flex items-center justify-center cursor-pointer transition">
-                      <Camera className="h-4.5 w-4.5 text-slate-300" />
+                {(() => {
+                  const photoDoc = guestDocs.find(d => d.doc_type === 'guest_photo');
+                  return photoDoc ? (
+                    <div className="relative w-12 h-12 flex-shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedDoc(photoDoc)}
+                        className="w-full h-full rounded-xl overflow-hidden border border-slate-700 hover:border-emerald-500 transition focus:outline-none"
+                        title="View Photo"
+                      >
+                        <img
+                          src={photoDoc.public_url}
+                          alt="Guest Photo"
+                          className="w-full h-full object-cover"
+                        />
+                      </button>
+                      <label className="absolute -bottom-1 -right-1 p-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 rounded-lg cursor-pointer transition shadow-lg flex items-center justify-center">
+                        <Camera className="h-3.5 w-3.5" />
+                        <input
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          className="hidden"
+                          onChange={handleGuestPhotoUpload}
+                        />
+                      </label>
+                    </div>
+                  ) : (
+                    <label className="w-12 h-12 rounded-xl bg-slate-955 border border-slate-800 hover:border-emerald-500 flex items-center justify-center flex-shrink-0 text-slate-500 cursor-pointer transition group">
+                      <Camera className="h-5 w-5 group-hover:text-emerald-400 transition" />
                       <input
                         type="file"
                         accept="image/*"
@@ -158,19 +194,8 @@ export default function GuestProfileSheet({ guest, onClose }: GuestProfileSheetP
                         onChange={handleGuestPhotoUpload}
                       />
                     </label>
-                  </div>
-                ) : (
-                  <label className="w-12 h-12 rounded-xl bg-slate-950 border border-slate-800 hover:border-emerald-500 flex items-center justify-center flex-shrink-0 text-slate-500 cursor-pointer transition group">
-                    <Camera className="h-5 w-5 group-hover:text-emerald-400 transition" />
-                    <input
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      className="hidden"
-                      onChange={handleGuestPhotoUpload}
-                    />
-                  </label>
-                )}
+                  );
+                })()}
                 <div>
                   <h3 className="text-lg font-black text-slate-100 flex items-center gap-2">
                     {guest.name}
@@ -393,6 +418,12 @@ export default function GuestProfileSheet({ guest, onClose }: GuestProfileSheetP
         <DocumentLightbox
           docUrl={selectedDoc.public_url || ''}
           fileName={selectedDoc.file_name}
+          guestName={guest.name}
+          roomNumber={
+            bookings.find(b => b.id === selectedDoc.booking_id)?.rooms?.number ||
+            bookings[0]?.rooms?.number
+          }
+          docType={selectedDoc.doc_type}
           onClose={() => setSelectedDoc(null)}
         />
       )}

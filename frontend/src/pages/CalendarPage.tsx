@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
-import { format, parseISO } from 'date-fns'
+import { format, parseISO, isToday, isBefore } from 'date-fns'
 import { ChevronDown, RefreshCw, Loader2, ShieldAlert } from 'lucide-react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useCalendar } from '../hooks/useCalendar'
 import CalendarGrid from '../components/CalendarGrid'
 import { useLanguage } from '../context/LanguageContext'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQueryClient, useQuery } from '@tanstack/react-query'
+import { getUnpaidDues } from '../api/reports'
 
 const SHORT_MONTH_NAMES_EN = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -135,7 +136,22 @@ export default function CalendarPage() {
     getInitialMonths(urlDate)
   )
   const [selectedDateStr, setSelectedDateStr] = useState<string | null>(urlDate)
-  const [isSummaryExpanded, setIsSummaryExpanded] = useState(false)
+  const [isSummaryExpanded, setIsSummaryExpanded] = useState(true)
+  // Fetch unpaid dues for the dashboard shortcut
+  const { data: unpaidData } = useQuery({
+    queryKey: ['unpaidDues'],
+    queryFn: getUnpaidDues,
+  })
+
+  // Filter urgent dues (checkout today or overdue)
+  const todayDateObj = new Date()
+  todayDateObj.setHours(0, 0, 0, 0)
+  const urgentDues = unpaidData
+    ? unpaidData.filter((due) => {
+        const coDate = parseISO(due.check_out)
+        return isBefore(coDate, todayDateObj) || isToday(coDate)
+      })
+    : []
 
   // Synchronize state if URL parameter changes
   useEffect(() => {
@@ -194,6 +210,7 @@ export default function CalendarPage() {
 
   const handleRefreshAll = () => {
     queryClient.invalidateQueries({ queryKey: ['calendar'] })
+    queryClient.invalidateQueries({ queryKey: ['unpaidDues'] })
   }
 
   // Calculate stats
@@ -261,41 +278,48 @@ export default function CalendarPage() {
 
         {/* Collapsed Badge Row */}
         {!isSummaryExpanded && (
-          <div className="flex items-center gap-2 z-10 animate-fade-in">
+          <div className="flex items-center gap-2 z-10 animate-fade-in mt-2">
             {/* Free Badge */}
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-extrabold">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-extrabold">
+              <span className="h-2 w-2 rounded-full bg-emerald-400" />
               <span>{totalRooms ? vacantTarget : '—'} {language === 'mr' ? 'रिकाम्या' : 'Free'}</span>
             </div>
 
             {/* Occupied Badge */}
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-500/10 border border-slate-800 text-slate-300 text-[10px] font-extrabold">
-              <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-500/10 border border-slate-800 text-slate-300 text-xs font-extrabold">
+              <span className="h-2 w-2 rounded-full bg-slate-400" />
               <span>{totalRooms ? occupiedTarget : '—'} {language === 'mr' ? 'बुक' : 'Booked'}</span>
             </div>
 
-            {/* Pending Badge */}
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-extrabold">
-              <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-              <span>{totalRooms ? pendingTarget : '—'} {language === 'mr' ? 'बाकी' : 'Pending'}</span>
+            {/* Unpaid Badge */}
+            <div 
+              onClick={(e) => {
+                e.stopPropagation()
+                navigate('/unpaid')
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-extrabold cursor-pointer hover:bg-amber-500/20 active:scale-95 transition"
+            >
+              <span className="h-2 w-2 rounded-full bg-amber-400" />
+              <span>{totalRooms ? pendingTarget : '—'} {language === 'mr' ? 'बाकी' : 'Unpaid'}</span>
+              <span className="opacity-60 ml-0.5">→</span>
             </div>
           </div>
         )}
 
         {/* Expanded View */}
         {isSummaryExpanded && (
-          <div className="flex flex-col gap-3.5 z-10 animate-fade-in mt-1 w-full">
-            {/* Metrics Grid */}
-            <div className="grid grid-cols-3 gap-3">
+          <div className="flex flex-col gap-2.5 z-10 animate-fade-in mt-1 w-full">
+            {/* Metrics Grid — 3 clean KPIs like Little Hotelier / Cloudbeds */}
+            <div className="grid grid-cols-3 gap-2.5">
               {/* Free Card */}
               <div 
                 onClick={(e) => {
                   e.stopPropagation()
                   navigate(`/inventory?date=${targetDateStr}`)
                 }}
-                className="glass-panel p-3.5 rounded-2xl bg-emerald-500/[0.04] border-emerald-500/15 flex flex-col items-center justify-center text-center shadow-inner group/card hover:bg-emerald-500/[0.08] transition duration-200"
+                className="glass-panel p-3 rounded-2xl bg-emerald-500/[0.04] border-emerald-500/15 flex flex-col items-center justify-center text-center shadow-inner hover:bg-emerald-500/[0.08] active:scale-95 transition duration-200 cursor-pointer"
               >
-                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 mb-1">
+                <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-400 mb-1">
                   {language === 'mr' ? 'रिकाम्या' : 'Free'}
                 </span>
                 <span className="text-3xl font-black text-emerald-400 tracking-tight">
@@ -309,9 +333,9 @@ export default function CalendarPage() {
                   e.stopPropagation()
                   navigate(`/inventory?date=${targetDateStr}`)
                 }}
-                className="glass-panel p-3.5 rounded-2xl bg-slate-500/[0.04] border-slate-800 flex flex-col items-center justify-center text-center shadow-inner group/card hover:bg-slate-500/[0.08] transition duration-200"
+                className="glass-panel p-3 rounded-2xl bg-slate-500/[0.04] border-slate-800 flex flex-col items-center justify-center text-center shadow-inner hover:bg-slate-500/[0.08] active:scale-95 transition duration-200 cursor-pointer"
               >
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-1">
                   {language === 'mr' ? 'बुक' : 'Booked'}
                 </span>
                 <span className="text-3xl font-black text-slate-200 tracking-tight">
@@ -319,56 +343,41 @@ export default function CalendarPage() {
                 </span>
               </div>
 
-              {/* Pending Card */}
+              {/* Due Today Card — pulsing dot when urgent, no separate banner needed */}
               <div 
                 onClick={(e) => {
                   e.stopPropagation()
-                  navigate(`/inventory?date=${targetDateStr}`)
+                  navigate('/unpaid')
                 }}
-                className="glass-panel p-3.5 rounded-2xl bg-amber-500/[0.04] border-amber-500/15 flex flex-col items-center justify-center text-center shadow-inner group/card hover:bg-amber-500/[0.08] transition duration-200"
+                className="glass-panel p-3 rounded-2xl bg-amber-500/[0.04] border-amber-500/15 flex flex-col items-center justify-center text-center shadow-inner hover:bg-amber-500/[0.08] active:scale-95 transition duration-200 cursor-pointer relative overflow-hidden"
               >
-                <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 mb-1">
-                  {language === 'mr' ? 'बाकी पेमेंट' : 'Pending'}
+                {/* Pulsing urgency dot — top-right corner, only when dues exist */}
+                {urgentDues.length > 0 && (
+                  <span className="absolute top-2 right-2">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-400"></span>
+                    </span>
+                  </span>
+                )}
+                <span className="text-[9px] font-bold uppercase tracking-wider text-amber-400 mb-1">
+                  {language === 'mr' ? 'आज देणे' : 'Due Today'}
                 </span>
                 <span className="text-3xl font-black text-amber-400 tracking-tight">
-                  {totalRooms ? pendingTarget : '—'}
+                  {urgentDues.length}
                 </span>
-              </div>
-            </div>
-
-            {/* Action Hint */}
-            <div 
-              onClick={(e) => {
-                e.stopPropagation()
-                navigate(`/inventory?date=${targetDateStr}`)
-              }}
-              className="text-center text-[10px] font-bold text-slate-500 flex items-center justify-center gap-1 group-hover:text-slate-400 transition"
-            >
-              <span>{language === 'mr' ? 'खोल्यांची यादी पाहण्यासाठी टॅप करा' : 'Tap to view room details'}</span>
-              <span className="group-hover:translate-x-0.5 transition-transform">→</span>
-            </div>
-
-            {/* Divider */}
-            <hr className="border-slate-800/40 my-1" />
-
-            {/* Legend (Integrated inside Expanded Summary) */}
-            <div className="flex items-center justify-around text-[9px] text-slate-400 font-bold px-1 py-0.5">
-              <div className="flex items-center gap-1.5">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                <span>{language === 'mr' ? '५+ उपलब्ध' : '5+ Free'}</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-                <span>{language === 'mr' ? '१–४ उपलब्ध' : '1–4 Free'}</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
-                <span>{language === 'mr' ? '० उपलब्ध (पूर्ण)' : '0 Free (Full)'}</span>
+                {urgentDues.length > 0 && (
+                  <span className="text-[8px] text-amber-400/60 font-bold mt-0.5">
+                    {language === 'mr' ? 'जमा करा →' : 'Collect →'}
+                  </span>
+                )}
               </div>
             </div>
           </div>
         )}
       </div>
+
+
 
       {/* Main Grid View List */}
       <div className="flex flex-col gap-4">

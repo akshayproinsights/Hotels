@@ -55,6 +55,7 @@ export interface Booking {
   rooms?: Room
   guests?: Guest
   documents?: Document[]
+  is_checked_in: boolean
 }
 
 export interface BookingCreate {
@@ -77,6 +78,7 @@ export interface BookingCreate {
   total_amount?: number
   guest_address?: string
   guest_age?: number
+  is_checked_in?: boolean
 }
 
 export interface RoomBookingInfo {
@@ -104,6 +106,7 @@ export interface BookingBatchCreate {
   occupation?: string
   notes?: string
   total_amount?: number
+  is_checked_in?: boolean
 }
 
 export interface BookingUpdate {
@@ -115,6 +118,7 @@ export interface BookingUpdate {
   notes?: string
   total_amount?: number
   actual_checkout_time?: string | null
+  is_checked_in?: boolean
 }
 
 export interface Document {
@@ -140,6 +144,7 @@ export interface InventoryRoom extends Room {
     payment_status: 'paid' | 'unpaid' | 'partial' | 'hold'
     total_amount: number
     paid_amount: number
+    is_checked_in: boolean
     guests?: {
       name: string
       phone: string

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { X, Calendar as CalendarIcon, Loader2, ShieldAlert } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
@@ -17,6 +17,14 @@ export default function DayDetailPanel({ dateStr, onClose }: DayDetailPanelProps
   const [selectedRoomForBooking, setSelectedRoomForBooking] = useState<InventoryRoom | null>(null)
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null)
 
+  useEffect(() => {
+    const originalOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = originalOverflow
+    }
+  }, [])
+
   const handleRoomClick = (room: InventoryRoom) => {
     if (room.room_status === 'vacant') {
       setSelectedRoomForBooking(room)
@@ -29,11 +37,11 @@ export default function DayDetailPanel({ dateStr, onClose }: DayDetailPanelProps
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm">
-      {/* Backdrop click to dismiss */}
-      <div className="absolute inset-0" onClick={onClose} />
+      {/* Off-click dismiss zone - disabled from closing to prevent accidental dismissals on mobile / keyboard shifts */}
+      <div className="absolute inset-0 cursor-default" onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} />
 
       {/* Slide up sheet */}
-      <div className="glass-panel relative w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-t-3xl border-t border-slate-700/50 bg-slate-900/95 shadow-2xl p-6 flex flex-col gap-5 animate-fade-in">
+      <div className="glass-panel relative w-full max-w-lg max-h-[85vh] overflow-y-auto overscroll-contain rounded-t-3xl border-t border-slate-700/50 bg-slate-900/95 shadow-2xl p-6 flex flex-col gap-5 animate-fade-in">
         
         {/* Header */}
         <div className="flex justify-between items-center pb-3 border-b border-slate-800">
@@ -42,7 +50,12 @@ export default function DayDetailPanel({ dateStr, onClose }: DayDetailPanelProps
             <h3 className="text-lg font-bold text-slate-100">{formattedDate}</h3>
           </div>
           <button
-            onClick={onClose}
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onClose();
+            }}
             className="p-2 rounded-xl bg-slate-850 text-slate-400 hover:text-slate-200 transition"
           >
             <X className="h-4.5 w-4.5" />

@@ -16,7 +16,7 @@ def get_inventory(query_date: date = Query(alias="date", default=date.today()),
     # Fetch all bookings active on this date
     date_str = query_date.isoformat()
     bookings_res = supabase.table("bookings") \
-        .select("id,room_id,room_type,guest_id,check_in,check_out,payment_status,total_amount,paid_amount,guests(name,phone)") \
+        .select("id,room_id,room_type,guest_id,check_in,check_out,payment_status,total_amount,paid_amount,is_checked_in,guests(name,phone)") \
         .eq("status", "active") \
         .lte("check_in", f"{date_str}T23:59:59+05:30") \
         .gt("check_out",  f"{date_str}T00:00:00+05:30") \
@@ -33,13 +33,16 @@ def get_inventory(query_date: date = Query(alias="date", default=date.today()),
         if booking is None:
             room_status = "vacant"
             summary["vacant"] += 1
-        elif booking["payment_status"] == "hold":
+        elif not booking.get("is_checked_in", False):
+            # Booked but not checked in yet (reservation / expected arrival / hold)
             room_status = "hold"
             summary["hold"] += 1
         elif booking["payment_status"] in ("unpaid", "partial"):
+            # Checked in but has unpaid balance
             room_status = "unpaid"
             summary["unpaid"] += 1
         else:
+            # Checked in and fully paid
             room_status = "occupied"
             summary["occupied"] += 1
 

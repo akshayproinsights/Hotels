@@ -84,16 +84,128 @@ export default function UnpaidDuesPage() {
     }
   }
 
+  const todayDateObj = new Date()
+  todayDateObj.setHours(0, 0, 0, 0)
+
+  const urgentDues = sortedData.filter(due => {
+    const coDate = parseISO(due.check_out)
+    return isBefore(coDate, todayDateObj) || isToday(coDate)
+  })
+
+  const futureDues = sortedData.filter(due => {
+    const coDate = parseISO(due.check_out)
+    return !isBefore(coDate, todayDateObj) && !isToday(coDate)
+  })
+
+  const renderDueCard = (due: typeof sortedData[0]) => {
+    const pending = due.total_amount - due.paid_amount
+    const isFullyUnpaid = due.paid_amount === 0
+    const paidPct = Math.round((due.paid_amount / due.total_amount) * 100)
+    const effectiveStatus = (due.payment_status === 'unpaid' && due.paid_amount > 0) ? 'partial' : due.payment_status
+    const statusInfo = getStatusLabel(effectiveStatus)
+    const urgency = getCheckoutUrgency(due.check_out)
+
+    return (
+      <div
+        key={due.id}
+        onClick={() => handleCardClick(due.id)}
+        className="p-4 bg-slate-950/70 border border-slate-800/80 rounded-2xl flex flex-col gap-3 cursor-pointer hover:border-emerald-500/40 hover:bg-slate-900/50 transition duration-200 group active:scale-[0.99]"
+      >
+        {/* Row 1: Guest name + Room + Status badge */}
+        <div className="flex justify-between items-start gap-2">
+          <div className="flex flex-col gap-0.5 min-w-0">
+            <div className="text-slate-100 font-extrabold text-base group-hover:text-emerald-400 transition flex items-center gap-2 flex-wrap">
+              <span className="truncate">{due.guests.name}</span>
+              <span className="bg-slate-800 border border-slate-700 px-2 py-0.5 rounded-md text-[10px] text-slate-300 font-bold shrink-0">
+                {language === 'mr' ? 'खोली' : 'Room'} {due.rooms.number}
+              </span>
+            </div>
+
+            {/* Tap-to-call phone */}
+            <a
+              href={`tel:${due.guests.phone}`}
+              onClick={(e) => e.stopPropagation()}
+              className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-emerald-400 font-medium mt-0.5 transition w-fit"
+            >
+              <Phone className="h-3 w-3 shrink-0" />
+              {due.guests.phone}
+            </a>
+          </div>
+
+          {/* Status Badge */}
+          <span className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold border shrink-0 ${statusInfo.color}`}>
+            {statusInfo.label}
+          </span>
+        </div>
+
+        {/* Row 2: Progress Bar */}
+        <div className="flex flex-col gap-1.5">
+          <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${
+                isFullyUnpaid
+                  ? 'w-0'
+                  : paidPct >= 80
+                  ? 'bg-emerald-500'
+                  : 'bg-amber-400'
+              }`}
+              style={{ width: `${paidPct}%` }}
+            />
+          </div>
+          <div className="flex justify-between items-center text-[11px]">
+            <span className="text-slate-500">
+              {language === 'mr' ? 'जमा:' : 'Received:'} <span className="text-slate-300 font-bold">₹{due.paid_amount.toLocaleString()}</span>
+              <span className="text-slate-600 mx-1">{language === 'mr' ? 'पैकी' : 'of'}</span>
+              <span className="text-slate-400 font-bold">₹{due.total_amount.toLocaleString()}</span>
+            </span>
+            <span className={`font-black ${isFullyUnpaid ? 'text-rose-400' : 'text-amber-300'}`}>
+              {language === 'mr' ? 'बाकी:' : 'Due:'} ₹{pending.toLocaleString()}
+            </span>
+          </div>
+        </div>
+
+        {/* Row 3: Checkout urgency + Collect button */}
+        <div className="flex justify-between items-center">
+          {/* Checkout urgency pill */}
+          <span className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${urgency.bg} ${urgency.color}`}>
+            {urgency.icon === 'overdue'
+              ? <XCircle className="h-3 w-3" />
+              : urgency.icon === 'today' || urgency.icon === 'soon'
+              ? <Clock3 className="h-3 w-3" />
+              : <CalendarClock className="h-3 w-3" />
+            }
+            {urgency.label}
+          </span>
+
+          {/* Collect Payment shortcut */}
+          <button
+            onClick={(e) => { e.stopPropagation(); handleCardClick(due.id) }}
+            className="flex items-center gap-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 text-[11px] font-extrabold px-3 py-1.5 rounded-xl transition active:scale-95"
+          >
+            <Wallet className="h-3.5 w-3.5" />
+            {language === 'mr' ? 'पेमेंट गोळा करा' : 'Collect'}
+            <ChevronRight className="h-3 w-3 opacity-60" />
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-6 pb-28 animate-fade-in">
       
       {/* Header */}
       <div className="flex justify-between items-center mb-6 gap-4">
         <div>
-          <h1 className="text-2xl font-extrabold tracking-tight text-slate-100">
-            💰 {t('pending_payments')}
+          <h1 className="text-2xl font-extrabold tracking-tight text-slate-100 flex items-center gap-2 flex-wrap">
+            <span>💰 {language === 'mr' ? 'बाकी रक्कम गोळा करा' : 'Dues to Collect'}</span>
+            {sortedData.length > 0 && (
+              <span className="inline-flex items-center gap-1 bg-amber-500/15 border border-amber-500/25 text-amber-400 text-sm font-black px-2.5 py-0.5 rounded-xl animate-fade-in">
+                {sortedData.length} {language === 'mr' ? 'खाते' : sortedData.length === 1 ? 'Guest' : 'Guests'}
+              </span>
+            )}
           </h1>
-          <p className="text-xs text-slate-500 mt-0.5">{t('tap_guest_card')}</p>
+          <p className="text-xs text-slate-500 mt-0.5">{language === 'mr' ? 'पेमेंट गोळा करण्यासाठी कार्डवर टॅप करा' : 'Tap any card to open and collect payment'}</p>
         </div>
 
         <button
@@ -134,100 +246,38 @@ export default function UnpaidDuesPage() {
               <p className="text-slate-500 text-xs">{t('no_pending_payments')}</p>
             </div>
           ) : (
-            <div className="flex flex-col gap-3">
-              {sortedData.map((due) => {
-                const pending = due.total_amount - due.paid_amount
-                const isFullyUnpaid = due.paid_amount === 0
-                const paidPct = Math.round((due.paid_amount / due.total_amount) * 100)
-                const effectiveStatus = (due.payment_status === 'unpaid' && due.paid_amount > 0) ? 'partial' : due.payment_status
-                const statusInfo = getStatusLabel(effectiveStatus)
-                const urgency = getCheckoutUrgency(due.check_out)
-
-                return (
-                  <div
-                    key={due.id}
-                    onClick={() => handleCardClick(due.id)}
-                    className="p-4 bg-slate-950/70 border border-slate-800/80 rounded-2xl flex flex-col gap-3 cursor-pointer hover:border-emerald-500/40 hover:bg-slate-900/50 transition duration-200 group active:scale-[0.99]"
-                  >
-                    {/* Row 1: Guest name + Room + Status badge */}
-                    <div className="flex justify-between items-start gap-2">
-                      <div className="flex flex-col gap-0.5 min-w-0">
-                        <div className="text-slate-100 font-extrabold text-base group-hover:text-emerald-400 transition flex items-center gap-2 flex-wrap">
-                          <span className="truncate">{due.guests.name}</span>
-                          <span className="bg-slate-800 border border-slate-700 px-2 py-0.5 rounded-md text-[10px] text-slate-300 font-bold shrink-0">
-                            {language === 'mr' ? 'खोली' : 'Room'} {due.rooms.number}
-                          </span>
-                        </div>
-
-                        {/* Tap-to-call phone */}
-                        <a
-                          href={`tel:${due.guests.phone}`}
-                          onClick={(e) => e.stopPropagation()}
-                          className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-emerald-400 font-medium mt-0.5 transition w-fit"
-                        >
-                          <Phone className="h-3 w-3 shrink-0" />
-                          {due.guests.phone}
-                        </a>
-                      </div>
-
-                      {/* Status Badge */}
-                      <span className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold border shrink-0 ${statusInfo.color}`}>
-                        {statusInfo.label}
-                      </span>
-                    </div>
-
-                    {/* Row 2: Progress Bar */}
-                    <div className="flex flex-col gap-1.5">
-                      <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all duration-500 ${
-                            isFullyUnpaid
-                              ? 'w-0'
-                              : paidPct >= 80
-                              ? 'bg-emerald-500'
-                              : 'bg-amber-400'
-                          }`}
-                          style={{ width: `${paidPct}%` }}
-                        />
-                      </div>
-                      <div className="flex justify-between items-center text-[11px]">
-                        <span className="text-slate-500">
-                          {language === 'mr' ? 'जमा:' : 'Received:'} <span className="text-slate-300 font-bold">₹{due.paid_amount.toLocaleString()}</span>
-                          <span className="text-slate-600 mx-1">{language === 'mr' ? 'पैकी' : 'of'}</span>
-                          <span className="text-slate-400 font-bold">₹{due.total_amount.toLocaleString()}</span>
-                        </span>
-                        <span className={`font-black ${isFullyUnpaid ? 'text-rose-400' : 'text-amber-300'}`}>
-                          {language === 'mr' ? 'बाकी:' : 'Due:'} ₹{pending.toLocaleString()}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Row 3: Checkout urgency + Collect button */}
-                    <div className="flex justify-between items-center">
-                      {/* Checkout urgency pill */}
-                      <span className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${urgency.bg} ${urgency.color}`}>
-                        {urgency.icon === 'overdue'
-                          ? <XCircle className="h-3 w-3" />
-                          : urgency.icon === 'today' || urgency.icon === 'soon'
-                          ? <Clock3 className="h-3 w-3" />
-                          : <CalendarClock className="h-3 w-3" />
-                        }
-                        {urgency.label}
-                      </span>
-
-                      {/* Collect Payment shortcut */}
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleCardClick(due.id) }}
-                        className="flex items-center gap-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 text-[11px] font-extrabold px-3 py-1.5 rounded-xl transition active:scale-95"
-                      >
-                        <Wallet className="h-3.5 w-3.5" />
-                        {language === 'mr' ? 'पेमेंट गोळा करा' : 'Collect'}
-                        <ChevronRight className="h-3 w-3 opacity-60" />
-                      </button>
-                    </div>
+            <div className="flex flex-col gap-6">
+              
+              {/* Group 1: Urgent Dues (Checkout Today & Overdue) */}
+              {urgentDues.length > 0 && (
+                <div className="flex flex-col gap-3.5">
+                  <div className="flex items-center gap-2 border-b border-slate-800/60 pb-2">
+                    <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
+                    <h2 className="text-xs font-black uppercase tracking-wider text-amber-400">
+                      {language === 'mr' ? 'आज आणि मागील थकीत रक्कम' : 'Collect Today & Overdue'} ({urgentDues.length})
+                    </h2>
                   </div>
-                )
-              })}
+                  <div className="flex flex-col gap-3">
+                    {urgentDues.map((due) => renderDueCard(due))}
+                  </div>
+                </div>
+              )}
+
+              {/* Group 2: Future Dues */}
+              {futureDues.length > 0 && (
+                <div className="flex flex-col gap-3.5">
+                  <div className="flex items-center gap-2 border-b border-slate-800/60 pb-2">
+                    <span className="h-2 w-2 rounded-full bg-slate-600" />
+                    <h2 className="text-xs font-black uppercase tracking-wider text-slate-400">
+                      {language === 'mr' ? 'भविष्यातील थकबाकी' : 'Future Dues'} ({futureDues.length})
+                    </h2>
+                  </div>
+                  <div className="flex flex-col gap-3">
+                    {futureDues.map((due) => renderDueCard(due))}
+                  </div>
+                </div>
+              )}
+
             </div>
           )}
 
