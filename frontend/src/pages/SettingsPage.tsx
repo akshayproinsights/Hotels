@@ -1,29 +1,33 @@
 import React, { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit3, X, Save, AlertCircle, RefreshCw, Hotel, Users, Search, User, Phone, Calendar, Loader2 } from 'lucide-react'
+import { Plus, Edit3, X, Save, AlertCircle, RefreshCw, Hotel, Users, Search, User, Phone, Calendar, Loader2, Sun, Moon, Palette, Check } from 'lucide-react'
 import api from '../api/client'
 import { Room, Guest } from '../types'
 import toast from 'react-hot-toast'
 import { searchGuests } from '../api/guests'
 import GuestProfileSheet from '../components/GuestProfileSheet'
+import NumericKeypad from '../components/NumericKeypad'
 import { format, parseISO } from 'date-fns'
 import { useLanguage } from '../context/LanguageContext'
+import { useTheme } from '../context/ThemeContext'
 
 export default function SettingsPage() {
   const queryClient = useQueryClient()
   const { language, t } = useLanguage()
-  const [activeTab, setActiveTab] = useState<'rooms' | 'guests'>('rooms')
+  const { theme, setTheme } = useTheme()
+  const [activeTab, setActiveTab] = useState<'rooms' | 'guests' | 'appearance'>('rooms')
   const [modalOpen, setModalOpen] = useState(false)
   const [editingRoom, setEditingRoom] = useState<Room | null>(null)
   
   // Form states
   const [number, setNumber] = useState('')
   const [floor, setFloor] = useState(1)
-  const [roomType, setRoomType] = useState<'AC Deluxe' | 'Non AC Deluxe' | 'AC Standard' | 'Non AC Standard'>('AC Deluxe')
+  const [roomType, setRoomType] = useState<'AC Deluxe' | 'Non AC Deluxe' | 'VIP AC Suite' | 'VIP Non AC Suite'>('AC Deluxe')
   const [basePrice, setBasePrice] = useState(1500)
   const [extraBedPrice, setExtraBedPrice] = useState(500)
   const [isActive, setIsActive] = useState(true)
+  const [activeKeypad, setActiveKeypad] = useState<'floor' | 'basePrice' | 'extraBedPrice' | null>(null)
 
   // Guest Search states
   const [searchQuery, setSearchQuery] = useState('')
@@ -184,12 +188,16 @@ export default function SettingsPage() {
           <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-emerald-400 to-teal-200 bg-clip-text text-transparent">
             {activeTab === 'rooms' 
               ? (language === 'mr' ? 'खोलीच्या सेटिंग्ज' : 'Room Settings') 
-              : (language === 'mr' ? 'पाहुण्यांची यादी' : 'Guest Registry')}
+              : activeTab === 'guests'
+              ? (language === 'mr' ? 'ग्राहकांची यादी' : 'Customer Registry')
+              : (language === 'mr' ? 'अ‍ॅप थीम व देखावा' : 'App Theme & Appearance')}
           </h1>
           <p className="text-slate-400 text-sm mt-1">
             {activeTab === 'rooms'
               ? (language === 'mr' ? 'हॉटेलच्या खोल्यांचे व्यवस्थापन आणि दर ठरवा' : 'Configure and manage hotel rooms')
-              : (language === 'mr' ? 'पाहुण्यांचा राहण्याचा इतिहास, भेटींची नोंद आणि ओळखपत्रे शोधा' : 'Look up guest stays, visits history, and uploaded ID proofs')}
+              : activeTab === 'guests'
+              ? (language === 'mr' ? 'ग्राहकांचा राहण्याचा इतिहास, भेटींची नोंद आणि ओळखपत्रे शोधा' : 'Look up customer stays, visits history, and uploaded ID proofs')
+              : (language === 'mr' ? 'दिवसाची (White) किंवा रात्रीची (Dark) थीम निवडा' : 'Select Day (White) or Night (Dark) theme for the application')}
           </p>
         </div>
         {activeTab === 'rooms' && (
@@ -203,28 +211,39 @@ export default function SettingsPage() {
       </div>
 
       {/* Segmented Switcher */}
-      <div className="flex bg-slate-950/80 border border-slate-800/40 p-1 rounded-2xl max-w-[280px] mb-8">
+      <div className="flex bg-slate-950/80 border border-slate-800/40 p-1 rounded-2xl max-w-md mb-8">
         <button
           onClick={() => setActiveTab('rooms')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${
+          className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-bold transition-all duration-200 ${
             activeTab === 'rooms'
               ? 'bg-slate-905 text-emerald-400 border border-slate-800 shadow-md'
               : 'text-slate-500 hover:text-slate-300 border border-transparent'
           }`}
         >
           <Hotel className="h-4 w-4" />
-          {language === 'mr' ? 'खोल्यांचे नियोजन' : 'Rooms Config'}
+          {language === 'mr' ? 'खोल्या' : 'Rooms'}
         </button>
         <button
           onClick={() => setActiveTab('guests')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${
+          className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-bold transition-all duration-200 ${
             activeTab === 'guests'
               ? 'bg-slate-905 text-emerald-400 border border-slate-800 shadow-md'
               : 'text-slate-500 hover:text-slate-300 border border-transparent'
           }`}
         >
           <Users className="h-4 w-4" />
-          {language === 'mr' ? 'पाहुणे नोंदणी' : 'Guest Registry'}
+          {language === 'mr' ? 'ग्राहक' : 'Customers'}
+        </button>
+        <button
+          onClick={() => setActiveTab('appearance')}
+          className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-bold transition-all duration-200 ${
+            activeTab === 'appearance'
+              ? 'bg-slate-905 text-emerald-400 border border-slate-800 shadow-md'
+              : 'text-slate-500 hover:text-slate-300 border border-transparent'
+          }`}
+        >
+          <Palette className="h-4 w-4" />
+          {language === 'mr' ? 'थीम' : 'Theme'}
         </button>
       </div>
 
@@ -314,12 +333,12 @@ export default function SettingsPage() {
             </div>
           )}
         </>
-      ) : (
+      ) : activeTab === 'guests' ? (
         <div className="space-y-6 animate-fade-in">
           {/* Guest Search Bar */}
           <div className="glass-panel p-4 rounded-2xl bg-slate-900/45 border-slate-850 max-w-2xl">
             <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
-              {language === 'mr' ? 'पाहुणे शोधा' : 'Search Guests'}
+              {language === 'mr' ? 'ग्राहक शोधा' : 'Search Customers'}
             </label>
             <div className="relative">
               <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
@@ -327,7 +346,7 @@ export default function SettingsPage() {
               </span>
               <input
                 type="text"
-                placeholder={language === 'mr' ? 'पाहुण्याचे नाव किंवा मोबाईल नंबर टाईप करा...' : 'Type guest name or phone number...'}
+                placeholder={language === 'mr' ? 'ग्राहकाचे नाव किंवा मोबाईल नंबर टाईप करा...' : 'Type customer name or phone number...'}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-10 pr-10 py-3 bg-slate-950 border border-slate-850 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-sm"
@@ -391,20 +410,20 @@ export default function SettingsPage() {
               <Users className="h-10 w-10 text-slate-600 mx-auto mb-3" />
               <p className="text-sm font-semibold">
                 {language === 'mr' 
-                  ? `या नावाने पाहुणे सापडले नाहीत: "${searchQuery}"` 
-                  : `No guests found matching "${searchQuery}"`}
+                  ? `या नावाने ग्राहक सापडले नाहीत: "${searchQuery}"` 
+                  : `No customers found matching "${searchQuery}"`}
               </p>
             </div>
           ) : (
             <div className="glass-panel rounded-3xl p-12 text-center text-slate-500 max-w-md mx-auto bg-slate-900/20 border-slate-850 animate-fade-in">
               <Users className="h-10 w-10 text-emerald-500/40 mx-auto mb-3" />
               <h4 className="text-sm font-extrabold text-slate-300">
-                {language === 'mr' ? 'पाहुण्यांचे प्रोफाईल शोधा' : 'Lookup Guest Profiles'}
+                {language === 'mr' ? 'ग्राहकांचे प्रोफाईल शोधा' : 'Lookup Customer Profiles'}
               </h4>
               <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto leading-relaxed">
                 {language === 'mr' 
-                  ? 'पाहुण्यांचा जुना इतिहास आणि अपलोड केलेली ओळखपत्रे शोधण्यासाठी वर पाहुण्याचे नाव किंवा मोबाईल नंबरचे २ किंवा त्यापेक्षा जास्त अक्षरे टाईप करा.' 
-                  : "Type 2 or more characters of a guest's name or mobile number in the search bar above to fetch stay histories and uploaded ID cards."}
+                  ? 'ग्राहकांचा जुना इतिहास आणि अपलोड केलेली ओळखपत्रे शोधण्यासाठी वर ग्राहकाचे नाव किंवा मोबाईल नंबरचे २ किंवा त्यापेक्षा जास्त अक्षरे टाईप करा.' 
+                  : "Type 2 or more characters of a customer's name or mobile number in the search bar above to fetch stay histories and uploaded ID cards."}
               </p>
             </div>
           )}
@@ -416,6 +435,83 @@ export default function SettingsPage() {
               onClose={() => setSelectedGuest(null)}
             />
           )}
+        </div>
+      ) : (
+        /* Theme & Appearance tab */
+        <div className="space-y-6 max-w-3xl animate-fade-in">
+          <div className="glass-panel p-6 rounded-3xl border border-slate-800/60 shadow-xl space-y-6">
+            <div>
+              <h3 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+                <Palette className="h-5 w-5 text-emerald-400" />
+                {language === 'mr' ? 'अ‍ॅपची थीम निवडा (App Theme)' : 'Choose Application Theme'}
+              </h3>
+              <p className="text-xs text-slate-400 mt-1">
+                {language === 'mr' 
+                  ? 'अ‍ॅपच्या सर्व पानांवर ही थीम लागू होईल. दिवस आणि रात्रीच्या वेळेनुसार सोयीस्कर थीम निवडा.' 
+                  : 'Select your preferred visual style. Applied instantly across all app pages.'}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Day Theme (White) Option */}
+              <div
+                onClick={() => setTheme('light')}
+                className={`cursor-pointer rounded-2xl p-5 border-2 transition-all duration-200 relative flex flex-col justify-between h-44 ${
+                  theme === 'light'
+                    ? 'border-emerald-500 bg-white shadow-xl shadow-emerald-500/10 text-slate-900'
+                    : 'border-slate-800 bg-slate-900/40 text-slate-400 hover:border-slate-700'
+                }`}
+              >
+                <div>
+                  <div className="flex justify-between items-center mb-3">
+                    <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-500">
+                      <Sun className="h-6 w-6" />
+                    </div>
+                    {theme === 'light' && (
+                      <span className="flex items-center gap-1 bg-emerald-500 text-slate-950 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase">
+                        <Check className="h-3 w-3" /> {language === 'mr' ? 'सक्रिय (Default)' : 'Active'}
+                      </span>
+                    )}
+                  </div>
+                  <h4 className="font-extrabold text-base text-slate-900">
+                    {language === 'mr' ? 'दिवसाची थीम (Day Theme / White)' : 'Day Theme (White)'}
+                  </h4>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {language === 'mr' ? 'उजळ आणि स्वच्छ देखावा, दिवसभरातील वापरासाठी उत्तम (Default)' : 'Clean, crisp white interface tailored for daylight readability.'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Night Theme (Dark) Option */}
+              <div
+                onClick={() => setTheme('dark')}
+                className={`cursor-pointer rounded-2xl p-5 border-2 transition-all duration-200 relative flex flex-col justify-between h-44 ${
+                  theme === 'dark'
+                    ? 'border-emerald-500 bg-slate-900 shadow-xl shadow-emerald-500/10 text-slate-100'
+                    : 'border-slate-800 bg-slate-900/40 text-slate-400 hover:border-slate-700'
+                }`}
+              >
+                <div>
+                  <div className="flex justify-between items-center mb-3">
+                    <div className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400">
+                      <Moon className="h-6 w-6" />
+                    </div>
+                    {theme === 'dark' && (
+                      <span className="flex items-center gap-1 bg-emerald-500 text-slate-950 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase">
+                        <Check className="h-3 w-3" /> {language === 'mr' ? 'सक्रिय' : 'Active'}
+                      </span>
+                    )}
+                  </div>
+                  <h4 className="font-extrabold text-base text-slate-100">
+                    {language === 'mr' ? 'रात्रीची थीम (Night Theme / Dark)' : 'Night Theme (Dark)'}
+                  </h4>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {language === 'mr' ? 'गडद रंगांचा आकर्षक लुक, डोळ्यांवर ताण कमी करतो' : 'Sleek dark mode interface designed to reduce eye fatigue.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -455,14 +551,14 @@ export default function SettingsPage() {
                   <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase">
                     {language === 'mr' ? 'मजला' : 'Floor'}
                   </label>
-                  <input
-                    type="number"
-                    required
-                    value={floor}
-                    onChange={(e) => setFloor(Number(e.target.value))}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50"
-                    min="0"
-                  />
+                  <button
+                    type="button"
+                    onClick={() => setActiveKeypad('floor')}
+                    className="w-full bg-slate-900 border border-slate-800 hover:border-emerald-500 rounded-xl px-4 py-2.5 text-slate-200 text-left flex justify-between items-center transition"
+                  >
+                    <span>{floor}</span>
+                    <span className="text-[10px] text-slate-500 font-bold">{language === 'mr' ? 'बदला' : 'Edit'}</span>
+                  </button>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase">
@@ -490,8 +586,8 @@ export default function SettingsPage() {
                 >
                   <option value="AC Deluxe">AC Deluxe</option>
                   <option value="Non AC Deluxe">Non AC Deluxe</option>
-                  <option value="AC Standard">AC Standard</option>
-                  <option value="Non AC Standard">Non AC Standard</option>
+                  <option value="VIP AC Suite">VIP AC Suite</option>
+                  <option value="VIP Non AC Suite">VIP Non AC Suite</option>
                 </select>
               </div>
 
@@ -500,27 +596,27 @@ export default function SettingsPage() {
                   <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase">
                     {language === 'mr' ? 'मूळ भाडे (₹)' : 'Base Price (₹)'}
                   </label>
-                  <input
-                    type="number"
-                    required
-                    value={basePrice}
-                    onChange={(e) => setBasePrice(Number(e.target.value))}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50"
-                    min="0"
-                  />
+                  <button
+                    type="button"
+                    onClick={() => setActiveKeypad('basePrice')}
+                    className="w-full bg-slate-900 border border-slate-800 hover:border-emerald-500 rounded-xl px-4 py-2.5 text-slate-200 text-left flex justify-between items-center transition"
+                  >
+                    <span>₹{basePrice}</span>
+                    <span className="text-[10px] text-slate-500 font-bold">{language === 'mr' ? 'बदला' : 'Edit'}</span>
+                  </button>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase">
                     {language === 'mr' ? 'अतिरिक्त बेड (₹)' : 'Extra Bed (₹)'}
                   </label>
-                  <input
-                    type="number"
-                    required
-                    value={extraBedPrice}
-                    onChange={(e) => setExtraBedPrice(Number(e.target.value))}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50"
-                    min="0"
-                  />
+                  <button
+                    type="button"
+                    onClick={() => setActiveKeypad('extraBedPrice')}
+                    className="w-full bg-slate-900 border border-slate-800 hover:border-emerald-500 rounded-xl px-4 py-2.5 text-slate-200 text-left flex justify-between items-center transition"
+                  >
+                    <span>₹{extraBedPrice}</span>
+                    <span className="text-[10px] text-slate-500 font-bold">{language === 'mr' ? 'बदला' : 'Edit'}</span>
+                  </button>
                 </div>
               </div>
 
@@ -542,6 +638,29 @@ export default function SettingsPage() {
               </div>
             </form>
           </div>
+
+          {activeKeypad !== null && (
+            <NumericKeypad
+              value={activeKeypad === 'floor' ? floor : activeKeypad === 'basePrice' ? basePrice : extraBedPrice}
+              onChange={(val) => {
+                const numVal = Number(val) || 0
+                if (activeKeypad === 'floor') setFloor(numVal)
+                else if (activeKeypad === 'basePrice') setBasePrice(numVal)
+                else if (activeKeypad === 'extraBedPrice') setExtraBedPrice(numVal)
+              }}
+              onClose={() => setActiveKeypad(null)}
+              label={
+                activeKeypad === 'floor'
+                  ? (language === 'mr' ? 'मजला क्रमांक टाका' : 'Enter Floor Number')
+                  : activeKeypad === 'basePrice'
+                  ? (language === 'mr' ? 'मूळ भाडे टाका' : 'Enter Base Price')
+                  : (language === 'mr' ? 'अतिरिक्त बेड भाडे टाका' : 'Enter Extra Bed Price')
+              }
+              keypadType={activeKeypad === 'floor' ? 'number' : 'currency'}
+              maxDigits={activeKeypad === 'floor' ? 2 : 6}
+              language={language}
+            />
+          )}
         </div>,
         document.body
       )}

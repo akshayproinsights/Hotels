@@ -2,7 +2,7 @@ export interface Room {
   id: string
   number: string
   floor: number
-  room_type: 'AC Deluxe' | 'Non AC Deluxe' | 'AC Standard' | 'Non AC Standard'
+  room_type: 'AC Deluxe' | 'Non AC Deluxe' | 'VIP AC Suite' | 'VIP Non AC Suite'
   base_price: number
   extra_bed_price: number
   is_active: boolean
@@ -31,7 +31,7 @@ export interface Booking {
   id: string
   booking_number: string
   room_id: string
-  room_type: 'AC Deluxe' | 'Non AC Deluxe' | 'AC Standard' | 'Non AC Standard'
+  room_type: 'AC Deluxe' | 'Non AC Deluxe' | 'VIP AC Suite' | 'VIP Non AC Suite'
   guest_id: string
   check_in: string // ISO string
   check_out: string // ISO string
@@ -42,12 +42,13 @@ export interface Booking {
   extra_bed_total: number
   total_amount: number
   paid_amount: number
-  payment_mode: 'Cash' | 'UPI' | 'Pending'
+  payment_mode: 'Cash' | 'UPI' | 'IDFC' | 'Pending'
   payment_status: 'paid' | 'unpaid' | 'partial' | 'hold'
   deposit_amount: number
   occupation?: string | null
   notes?: string | null
   status: 'active' | 'checked_out' | 'cancelled'
+  actual_checkin_time?: string | null
   actual_checkout_time?: string | null
   created_by?: string | null
   created_at: string
@@ -60,7 +61,7 @@ export interface Booking {
 
 export interface BookingCreate {
   room_id: string
-  room_type: 'AC Deluxe' | 'Non AC Deluxe' | 'AC Standard' | 'Non AC Standard'
+  room_type: 'AC Deluxe' | 'Non AC Deluxe' | 'VIP AC Suite' | 'VIP Non AC Suite'
   guest_id?: string
   guest_name?: string
   guest_phone?: string
@@ -70,7 +71,7 @@ export interface BookingCreate {
   children: number
   extra_beds: number
   room_price: number
-  payment_mode: 'Cash' | 'UPI' | 'Pending'
+  payment_mode: 'Cash' | 'UPI' | 'IDFC' | 'Pending'
   payment_status: 'paid' | 'unpaid' | 'hold' | 'partial'
   deposit_amount: number
   occupation?: string
@@ -83,7 +84,7 @@ export interface BookingCreate {
 
 export interface RoomBookingInfo {
   room_id: string
-  room_type: 'AC Deluxe' | 'Non AC Deluxe' | 'AC Standard' | 'Non AC Standard'
+  room_type: 'AC Deluxe' | 'Non AC Deluxe' | 'VIP AC Suite' | 'VIP Non AC Suite'
   adults: number
   children: number
   extra_beds: number
@@ -100,7 +101,7 @@ export interface BookingBatchCreate {
   guest_age?: number
   check_in: string // ISO string
   check_out: string // ISO string
-  payment_mode: 'Cash' | 'UPI' | 'Pending'
+  payment_mode: 'Cash' | 'UPI' | 'IDFC' | 'Pending'
   payment_status: 'paid' | 'unpaid' | 'hold' | 'partial'
   deposit_amount: number
   occupation?: string
@@ -112,11 +113,12 @@ export interface BookingBatchCreate {
 export interface BookingUpdate {
   check_out?: string // ISO string
   paid_amount?: number
-  payment_mode?: 'Cash' | 'UPI' | 'Pending'
+  payment_mode?: 'Cash' | 'UPI' | 'IDFC' | 'Pending'
   payment_status?: 'paid' | 'unpaid' | 'partial' | 'hold'
   status?: 'active' | 'checked_out' | 'cancelled'
   notes?: string
   total_amount?: number
+  actual_checkin_time?: string | null
   actual_checkout_time?: string | null
   is_checked_in?: boolean
 }
@@ -137,7 +139,7 @@ export interface InventoryRoom extends Room {
   booking?: {
     id: string
     room_id: string
-    room_type: 'AC Deluxe' | 'Non AC Deluxe' | 'AC Standard' | 'Non AC Standard'
+    room_type: 'AC Deluxe' | 'Non AC Deluxe' | 'VIP AC Suite' | 'VIP Non AC Suite'
     guest_id: string
     check_in: string
     check_out: string

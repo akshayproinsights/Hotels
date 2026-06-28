@@ -13,17 +13,17 @@ def get_inventory(query_date: date = Query(alias="date", default=date.today()),
         .eq("is_active", True).order("floor").order("number").execute()
     rooms = rooms_res.data
 
-    # Fetch all bookings active on this date
+    # Fetch all bookings active or checked_out on this date
     date_str = query_date.isoformat()
     bookings_res = supabase.table("bookings") \
-        .select("id,room_id,room_type,guest_id,check_in,check_out,payment_status,total_amount,paid_amount,is_checked_in,guests(name,phone)") \
-        .eq("status", "active") \
+        .select("id,room_id,room_type,guest_id,check_in,check_out,payment_status,status,total_amount,paid_amount,is_checked_in,guests(name,phone),rooms(number)") \
+        .in_("status", ["active", "checked_out"]) \
         .lte("check_in", f"{date_str}T23:59:59+05:30") \
-        .gt("check_out",  f"{date_str}T00:00:00+05:30") \
+        .gte("check_out",  f"{date_str}T00:00:00+05:30") \
         .execute()
 
-    # Build a room_id → booking lookup
-    booking_map = {b["room_id"]: b for b in bookings_res.data}
+    # Build a room_id → booking lookup (only active bookings occupy a room in grid status)
+    booking_map = {b["room_id"]: b for b in bookings_res.data if b["status"] == "active"}
 
     result = []
     summary = {"vacant": 0, "occupied": 0, "hold": 0, "unpaid": 0}
@@ -52,4 +52,9 @@ def get_inventory(query_date: date = Query(alias="date", default=date.today()),
             "booking": booking,
         })
 
-    return {"date": date_str, "summary": summary, "rooms": result}
+    return {
+        "date": date_str,
+        "summary": summary,
+        "rooms": result,
+        "daily_bookings": bookings_res.data
+    }

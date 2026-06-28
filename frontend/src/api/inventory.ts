@@ -1,5 +1,5 @@
 import api from './client'
-import type { InventoryRoom } from '../types'
+import type { InventoryRoom, Booking } from '../types'
 
 export interface InventoryResponse {
   date: string
@@ -10,6 +10,7 @@ export interface InventoryResponse {
     unpaid: number
   }
   rooms: InventoryRoom[]
+  daily_bookings?: Booking[]
 }
 
 export async function getInventory(dateStr: string): Promise<InventoryResponse> {

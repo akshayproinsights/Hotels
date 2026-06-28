@@ -73,7 +73,7 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
   // Dynamic Room interface and states
   interface SelectedRoomConfig {
     id: string
-    room_type: 'AC Deluxe' | 'Non AC Deluxe' | 'AC Standard' | 'Non AC Standard'
+    room_type: 'AC Deluxe' | 'Non AC Deluxe' | 'VIP AC Suite' | 'VIP Non AC Suite'
     room_id: string
     adults: number
     children: number
@@ -180,7 +180,9 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
   // Additional Fields
   const [occupation, setOccupation] = useState('')
   const [notes, setNotes] = useState('')
-  const [paymentMode, setPaymentMode] = useState<'Cash' | 'UPI' | 'Pending'>('Pending')
+  const [paymentMode, setPaymentMode] = useState<'Cash' | 'UPI' | 'IDFC' | 'Pending'>(() => {
+    return (localStorage.getItem('last_payment_mode') as any) || 'Pending'
+  })
   const [depositAmount, setDepositAmount] = useState<string | number>(0)
   
   // Documents
@@ -641,6 +643,11 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
       return
     }
 
+    if (paymentMode === 'Pending' && paymentStatus !== 'hold' && (Number(depositAmount) || 0) <= 0) {
+      toast.error(language === 'mr' ? 'बाकी पेमेंटसाठी जमा रक्कम आवश्यक आहे' : 'Advance amount is required for Pending payments')
+      return
+    }
+
     setIsSubmitting(true)
 
     try {
@@ -682,6 +689,7 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
       const bookings = await createBookingsBatch(payload)
 
       if (bookings && bookings.length > 0) {
+        localStorage.setItem('last_payment_mode', paymentMode)
         saveToRecentGuests({
           id: bookings[0].guest_id,
           name: guestName,
@@ -1273,308 +1281,296 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
 
 
 
-        </div> {/* End of scrollable body */}
+          {/* ——— Billing & Book Room Section (Inline at end of all boxes) ——— */}
+          {(() => {
+            const total = Number(totalAmount) || 0
+            const paid = paymentMode !== 'Pending' && Number(depositAmount) === 0
+              ? total
+              : Math.min(Number(depositAmount) || 0, total)
+            const due = Math.max(0, total - paid)
 
-        {/* ——— Keyboard-aware Payment Footer ——— */}
-        {/* When keyboard is open: collapses to a slim summary pill (Airbnb/Swiggy style)  */}
-        {/* When keyboard is closed: full detailed payment card                            */}
-        {(() => {
-          const total = Number(totalAmount) || 0
-          const paid = paymentMode !== 'Pending' && Number(depositAmount) === 0
-            ? total
-            : Math.min(Number(depositAmount) || 0, total)
-          const due = Math.max(0, total - paid)
+            // Dynamic payment status label
+            let statusLabelEn = 'PENDING PAYMENT'
+            let statusLabelMr = 'पेमेंट बाकी'
+            let statusColor = 'text-amber-500 bg-amber-500/10 border-amber-500/20'
 
-          // Detect keyboard open: visual viewport height is significantly less than screen height
-          const screenH = typeof window !== 'undefined' ? window.screen.height : 900
-          const keyboardOpen = viewport ? viewport.height < screenH * 0.65 : false
-
-          const modeColor = paymentMode === 'Cash'
-            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
-            : paymentMode === 'UPI'
-            ? 'bg-blue-500/20 text-blue-400 border-blue-500/40'
-            : 'bg-amber-500/20 text-amber-400 border-amber-500/40'
-
-          const modeEmoji = paymentMode === 'Cash' ? '💵' : paymentMode === 'UPI' ? '📱' : '⏳'
-          const modeLabel = paymentMode === 'Cash'
-            ? (language === 'mr' ? 'कॅश' : 'Cash')
-            : paymentMode === 'UPI' ? 'UPI'
-            : (language === 'mr' ? 'बाकी' : 'Pending')
-
-          // Primary CTA action
-          const handlePrimaryCTA = () => {
-            const depositAmt = Number(depositAmount) || 0
-            const totalAmt = Number(totalAmount) || 0
-            const isPartial = depositAmt > 0 && depositAmt < totalAmt
-            if (isCheckingInToday) {
-              if (paymentMode === 'Pending') {
-                handleSubmit(isPartial ? 'partial' : 'unpaid')
-              } else {
-                handleSubmit(isPartial ? 'partial' : 'paid')
-              }
-            } else {
-              handleSubmit('hold')
+            if (due === 0 && total > 0) {
+              statusLabelEn = '✓ FULLY PAID'
+              statusLabelMr = '✓ पूर्ण भरले'
+              statusColor = 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
+            } else if (paid > 0 && due > 0) {
+              statusLabelEn = 'PARTIAL PAYMENT'
+              statusLabelMr = 'अंशतः जमा'
+              statusColor = 'text-blue-400 bg-blue-500/10 border-blue-500/20'
             }
-          }
 
-          return (
-        <div className={`border-t border-slate-800 bg-slate-950 flex-shrink-0 flex flex-col transition-all duration-300 ${keyboardOpen ? 'overflow-hidden' : ''}`}>
+            const pct = total > 0 ? Math.min(100, (paid / total) * 100) : 0
 
-          {/* ─── COLLAPSED: slim summary pill (visible when keyboard is open) ─── */}
-          <div className={`transition-all duration-300 ease-in-out overflow-hidden ${keyboardOpen ? 'max-h-20 opacity-100' : 'max-h-0 opacity-0 pointer-events-none'}`}>
-            <div className="flex items-center gap-2 px-3 py-2.5">
-              {/* Amount + mode */}
-              <div className="flex items-center gap-2 flex-1 min-w-0">
-                <div className="flex items-baseline gap-0.5">
-                  <span className="text-xs font-bold text-slate-500">₹</span>
-                  <span className="text-xl font-black text-slate-100 leading-none">{totalAmount || '0'}</span>
-                </div>
-                <span className={`px-2 py-0.5 rounded-lg border text-[10px] font-black flex-shrink-0 ${modeColor}`}>
-                  {modeEmoji} {modeLabel}
-                </span>
-                {due > 0 ? (
-                  <span className="text-[10px] font-bold text-rose-400 flex-shrink-0">Due ₹{due}</span>
-                ) : paid > 0 ? (
-                  <span className="text-[10px] font-bold text-emerald-400 flex-shrink-0">✓ Paid</span>
-                ) : null}
-              </div>
-
-              {/* Compact primary CTA */}
-              <button
-                type="button"
-                disabled={isSubmitting}
-                onClick={handlePrimaryCTA}
-                className="flex-shrink-0 h-10 px-4 rounded-xl bg-emerald-500 text-slate-950 font-black text-sm transition active:scale-95 disabled:opacity-50 flex items-center gap-1.5 shadow-lg shadow-emerald-500/25"
-              >
-                {isSubmitting
-                  ? <Loader2 className="h-4 w-4 animate-spin" />
-                  : <span>{isCheckingInToday ? (language === 'mr' ? 'चेक-इन' : 'Check In') : (language === 'mr' ? 'बुक करा' : 'Book')}</span>
-                }
-                <span>›</span>
-              </button>
-            </div>
-          </div>
-
-          {/* ─── EXPANDED: full payment card (visible when keyboard is closed) ─── */}
-          <div className={`transition-all duration-300 ease-in-out overflow-hidden ${keyboardOpen ? 'max-h-0 opacity-0 pointer-events-none' : 'max-h-[500px] opacity-100'}`}>
-
-          {/* Row 1: Total Bill + Payment Method Pills */}
-          <div className="flex items-start justify-between px-4 pt-4 pb-3 border-b border-slate-800/60">
-            <div className="flex flex-col">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                {language === 'mr' ? 'एकूण बिल' : 'Total Bill'}
-              </span>
-              <button
-                type="button"
-                onClick={() => setActiveKeypad('total')}
-                className="flex items-baseline gap-1 mt-0.5 group"
-              >
-                <span className="text-base font-black text-slate-400">₹</span>
-                <span className="text-2xl font-black text-slate-100 min-w-[3rem] text-left border-b-2 border-dashed border-slate-700 group-hover:border-amber-500/50 transition-colors pb-0.5">
-                  {totalAmount || '0'}
-                </span>
-              </button>
-              <span className="text-[10px] text-slate-600 font-medium mt-0.5">
-                {language === 'mr' 
-                  ? `${selectedRooms.length} खोल्या × ${nights} रात्र` 
-                  : `${selectedRooms.length} room(s) × ${nights} night(s)`}
-              </span>
-            </div>
-
-            {/* Payment Method Pills */}
-            <div className="flex flex-col items-end gap-1.5">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                {language === 'mr' ? 'पेमेंट कसे?' : 'How paying?'}
-              </span>
-              <div className="flex gap-1.5">
-                {(['Cash', 'UPI', 'Pending'] as const).map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    onClick={() => {
-                      setPaymentMode(mode)
-                      if (mode !== 'Pending') setDepositAmount(0)
-                    }}
-                    className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-black transition-all duration-200 ${
-                      paymentMode === mode
-                        ? mode === 'Cash'
-                          ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40'
-                          : mode === 'UPI'
-                          ? 'bg-blue-500/15 text-blue-400 border-blue-500/40'
-                          : 'bg-amber-500/15 text-amber-400 border-amber-500/40'
-                        : 'bg-slate-900 border-slate-700/60 text-slate-500 hover:text-slate-300'
-                    }`}
-                  >
-                    {mode === 'Cash' ? '💵' : mode === 'UPI' ? '📱' : '⏳'}&nbsp;
-                    {mode === 'Cash' ? (language === 'mr' ? 'कॅश' : 'Cash') : mode === 'UPI' ? 'UPI' : (language === 'mr' ? 'बाकी' : 'Pending')}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Row 2: Deposit Input + Live Split Bar */}
-          <div className="px-4 py-3 flex items-center gap-3">
-            <div className="flex-1 flex flex-col gap-1">
-              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                {language === 'mr' ? 'आता मिळाले (₹)' : 'Collected Now (₹)'}
-              </label>
-              <button
-                type="button"
-                onClick={() => setActiveKeypad('deposit')}
-                className={`w-full flex items-center gap-2 rounded-xl px-3 py-2.5 border transition active:scale-[0.98] ${
-                  activeKeypad === 'deposit'
-                    ? paymentMode === 'Pending'
-                      ? 'bg-amber-500/10 border-amber-400/60 ring-2 ring-amber-500/20'
-                      : 'bg-emerald-500/10 border-emerald-400/60 ring-2 ring-emerald-500/20'
-                    : paymentMode === 'Pending'
-                    ? 'bg-slate-900 border-amber-500/30'
-                    : 'bg-slate-900 border-emerald-500/20'
-                }`}
-              >
-                <span className={`text-sm font-black ${paymentMode === 'Pending' ? 'text-amber-400' : 'text-emerald-400'}`}>₹</span>
-                <span className="flex-1 text-left text-base font-black text-slate-100">
-                  {depositAmount === 0 || depositAmount === '' ? (
-                    <span className="text-slate-500 font-medium text-sm">
-                      {paymentMode !== 'Pending' ? String(totalAmount || 0) : (language === 'mr' ? 'टॅप करा...' : 'Tap to enter...')}
-                    </span>
-                  ) : depositAmount}
-                </span>
-                <span className="text-[10px] text-slate-600 font-bold">{language === 'mr' ? 'टॅप' : 'TAP'}</span>
-              </button>
-            </div>
-
-            {/* Live paid/due split */}
-            {(() => {
-              const pct = total > 0 ? Math.min(100, (paid / total) * 100) : 0
-              return (
-                <div className="flex flex-col items-end gap-1 min-w-[84px]">
-                  <div className="flex items-center gap-1">
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>
-                    <span className="text-[10px] font-bold text-emerald-400">
-                      {language === 'mr' ? 'भरले' : 'Paid'} ₹{paid}
-                    </span>
-                  </div>
-                  <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-emerald-400 transition-all duration-300"
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
-                  {due > 0 ? (
-                    <div className="flex items-center gap-1">
-                      <div className="w-1.5 h-1.5 rounded-full bg-rose-400"></div>
-                      <span className="text-[10px] font-black text-rose-400">
-                        {language === 'mr' ? 'बाकी' : 'Due'} ₹{due}
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-1">
-                      <span className="text-[10px] font-black text-emerald-400">
-                        {language === 'mr' ? '✓ पूर्ण' : '✓ Fully Paid'}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              )
-            })()}
-          </div>
-
-          {/* Row 3: Action Buttons — smart layout based on check-in date */}
-          <div className="px-4 pb-4 flex flex-col gap-2.5">
-
-            {isCheckingInToday ? (
-              /* ── TODAY: Two buttons — guest might be here OR just reserving ── */
-              <>
-                {/* Secondary: Reserve only (guest booked today but not here yet) */}
-                <button
-                  type="button"
-                  disabled={isSubmitting}
-                  onClick={() => handleSubmit('hold')}
-                  className="w-full py-3 px-4 bg-slate-900 hover:bg-slate-800/80 active:bg-slate-900 border border-slate-700/60 hover:border-amber-500/30 text-slate-200 rounded-2xl transition disabled:opacity-50 flex items-center gap-3"
-                >
-                  {isSubmitting ? (
-                    <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" />
-                  ) : (
-                    <CalendarIcon className="h-4.5 w-4.5 text-slate-400 flex-shrink-0" />
-                  )}
-                  <div className="flex flex-col items-start text-left gap-0.5">
-                    <span className="text-sm font-black tracking-tight">
-                      {language === 'mr' ? 'खोली राखून ठेवा (येतील नंतर)' : 'Book Room (Not Here Yet)'}
-                    </span>
-                    <span className="text-[10px] text-amber-400/90 font-semibold">
-                      {language === 'mr'
-                        ? `→ होल्ड: ${formatBtnDate(checkInDate)} ते ${formatBtnDate(checkOutDate)} (${nights} रात्र)`
-                        : `→ Hold: ${formatBtnDate(checkInDate)} to ${formatBtnDate(checkOutDate)} (${nights} ${nights === 1 ? 'Night' : 'Nights'})`}
-                    </span>
-                  </div>
-                </button>
-
-                {/* Primary: Block & Check In (guest is standing at the counter) */}
-                <button
-                  type="button"
-                  disabled={isSubmitting}
-                  onClick={() => {
-                    const depositAmt = Number(depositAmount) || 0
-                    const totalAmt = Number(totalAmount) || 0
-                    const isPartial = depositAmt > 0 && depositAmt < totalAmt
-                    if (paymentMode === 'Pending') {
-                      handleSubmit(isPartial ? 'partial' : 'unpaid')
-                    } else {
-                      handleSubmit(isPartial ? 'partial' : 'paid')
-                    }
-                  }}
-                  className="w-full py-3.5 px-4 bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-500 text-slate-950 rounded-2xl transition disabled:opacity-50 flex items-center gap-3 shadow-lg shadow-emerald-500/20"
-                >
-                  {isSubmitting
-                    ? <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" />
-                    : <span className="text-xl flex-shrink-0">✅</span>
-                  }
-                  <div className="flex flex-col items-start text-left gap-0.5">
-                    <span className="text-sm font-black tracking-tight">
-                      {language === 'mr' ? 'ब्लॉक & चेक-इन करा' : 'Block & Check In'}
-                    </span>
-                    <span className="text-[10px] text-emerald-900 font-semibold">
-                      {language === 'mr'
-                        ? `→ चेक-इन: ${formatBtnDate(checkInDate)} ते ${formatBtnDate(checkOutDate)} (${nights} रात्र)`
-                        : `→ Check In: ${formatBtnDate(checkInDate)} to ${formatBtnDate(checkOutDate)} (${nights} ${nights === 1 ? 'Night' : 'Nights'})`}
-                    </span>
-                  </div>
-                </button>
-              </>
-            ) : (
-              /* ── FUTURE DATE: Single "Book Room" button — only one thing to do ── */
-              <>
-                <div className="flex items-center gap-2 px-1 pb-0.5">
-                  <span className="text-[10px] text-slate-500 font-semibold">
-                    {language === 'mr'
-                      ? '⏳ पाहुणे नंतर येणार आहेत — खोली होल्ड होईल'
-                      : '⏳ Guest arrives later — room will be reserved until then'}
+            return (
+              <div className="mt-2 border border-slate-800 bg-slate-950/90 rounded-3xl overflow-hidden shadow-2xl flex flex-col">
+                
+                {/* Header Strip with Status Badge */}
+                <div className="flex items-center justify-between px-4 py-3 bg-slate-900/50 border-b border-slate-800">
+                  <span className="text-xs font-black uppercase tracking-wider text-slate-400">
+                    💰 {language === 'mr' ? 'बिल आणि पेमेंट' : 'Billing & Payment'}
+                  </span>
+                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black border ${statusColor}`}>
+                    {language === 'mr' ? statusLabelMr : statusLabelEn}
                   </span>
                 </div>
-                <button
-                  type="button"
-                  disabled={isSubmitting}
-                  onClick={() => handleSubmit('hold')}
-                  className="w-full py-4 px-4 bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-500 text-slate-950 rounded-2xl transition disabled:opacity-50 flex items-center gap-3 shadow-lg shadow-emerald-500/20 justify-center"
-                >
-                  {isSubmitting ? (
-                    <Loader2 className="h-5 w-5 animate-spin flex-shrink-0" />
-                  ) : (
-                    <CalendarIcon className="h-5 w-5 text-slate-950 flex-shrink-0" />
-                  )}
-                  <span className="text-base font-black tracking-tight">
-                    {language === 'mr' ? 'खोली बुक करा' : 'Book Room Now'}
-                  </span>
-                </button>
-              </>
-            )}
 
-          </div>
-          </div>{/* end expanded panel */}
-        </div>
-          )
-        })()}
+                {/* Receipt Card Body */}
+                <div className="p-4 flex flex-col gap-4">
+                  {/* Row 1: Total Bill */}
+                  <div className="flex justify-between items-center bg-slate-900/20 p-3 rounded-2xl border border-slate-800/40">
+                    <div className="flex flex-col">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                        {language === 'mr' ? 'एकूण बिल' : 'Total Bill'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setActiveKeypad('total')}
+                        className="flex items-baseline gap-1 mt-0.5 group text-left"
+                      >
+                        <span className="text-sm font-black text-slate-400">₹</span>
+                        <span className="text-2xl font-black text-slate-100 min-w-[3rem] border-b-2 border-dashed border-slate-700 group-hover:border-amber-500/50 transition-colors pb-0.5">
+                          {totalAmount || '0'}
+                        </span>
+                      </button>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">
+                        {language === 'mr' ? 'कालावधी' : 'Duration'}
+                      </span>
+                      <span className="text-xs font-black text-slate-300 mt-1 block">
+                        {language === 'mr' 
+                          ? `${selectedRooms.length} खोल्या × ${nights} रात्र` 
+                          : `${selectedRooms.length} room(s) × ${nights} night(s)`}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Row 2: Payment Method */}
+                  <div className="flex flex-col gap-2">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                      {language === 'mr' ? 'पेमेंट कसे?' : 'Payment Method'}
+                    </span>
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {(['Cash', 'UPI', 'IDFC', 'Pending'] as const).map((mode) => {
+                        let activeStyle = ''
+                        let modeIcon = ''
+                        let modeLabel: string = mode
+
+                        if (mode === 'Cash') {
+                          modeIcon = '💵'
+                          modeLabel = language === 'mr' ? 'कॅश' : 'Cash'
+                          activeStyle = 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40'
+                        } else if (mode === 'UPI') {
+                          modeIcon = '📱'
+                          modeLabel = 'UPI'
+                          activeStyle = 'bg-blue-500/15 text-blue-400 border-blue-500/40'
+                        } else if (mode === 'IDFC') {
+                          modeIcon = '🏦'
+                          modeLabel = 'IDFC'
+                          activeStyle = 'bg-purple-500/15 text-purple-400 border-purple-500/40'
+                        } else {
+                          modeIcon = '⏳'
+                          modeLabel = language === 'mr' ? 'बाकी' : 'Pending'
+                          activeStyle = 'bg-amber-500/15 text-amber-400 border-amber-500/40'
+                        }
+
+                        return (
+                          <button
+                            key={mode}
+                            type="button"
+                            onClick={() => {
+                              setPaymentMode(mode)
+                              if (mode !== 'Pending') setDepositAmount(0)
+                            }}
+                            className={`py-2 rounded-xl border text-[10px] font-black transition-all duration-200 flex flex-col items-center gap-1 justify-center ${
+                              paymentMode === mode
+                                ? activeStyle
+                                : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300'
+                            }`}
+                          >
+                            <span className="text-sm">{modeIcon}</span>
+                            <span>{modeLabel}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Row 3: Advance Received Input */}
+                  <div className="grid grid-cols-2 gap-3 items-center">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                        {language === 'mr' ? 'जमा रक्कम (₹)' : 'Advance Paid (₹)'}
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setActiveKeypad('deposit')}
+                        className={`w-full flex items-center gap-2 rounded-2xl px-3 py-3 border transition active:scale-[0.98] ${
+                          activeKeypad === 'deposit'
+                            ? paymentMode === 'Pending'
+                              ? 'bg-amber-500/10 border-amber-400/60 ring-2 ring-amber-500/20'
+                              : 'bg-emerald-500/10 border-emerald-400/60 ring-2 ring-emerald-500/20'
+                            : paymentMode === 'Pending'
+                            ? 'bg-slate-900 border-amber-500/30'
+                            : 'bg-slate-900 border-emerald-500/20'
+                        }`}
+                      >
+                        <span className={`text-sm font-black ${paymentMode === 'Pending' ? 'text-amber-400' : 'text-emerald-400'}`}>₹</span>
+                        <span className="flex-1 text-left text-sm font-black text-slate-100">
+                          {depositAmount === 0 || depositAmount === '' ? (
+                            <span className="text-slate-500 font-medium text-xs">
+                              {paymentMode !== 'Pending' ? String(totalAmount || 0) : (language === 'mr' ? 'रक्कम टाका' : 'Enter amount')}
+                            </span>
+                          ) : depositAmount}
+                        </span>
+                        <span className="text-[9px] text-slate-500 font-bold">{language === 'mr' ? 'बदला' : 'EDIT'}</span>
+                      </button>
+                    </div>
+
+                    {/* Due/Remaining Summary */}
+                    <div className="flex flex-col justify-end h-full">
+                      <div className="flex justify-between text-[10px] font-bold text-slate-500 mb-1">
+                        <span>{language === 'mr' ? 'भरले: ' : 'Paid: '}₹{paid}</span>
+                        <span>{language === 'mr' ? 'बाकी: ' : 'Due: '}₹{due}</span>
+                      </div>
+                      <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden mb-1">
+                        <div
+                          className="h-full rounded-full bg-emerald-400 transition-all duration-300"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <div className="text-right">
+                        {due > 0 ? (
+                          <span className="text-[10px] font-black text-rose-400">
+                            ₹{due} {language === 'mr' ? 'देणे बाकी' : 'Remaining Due'}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-black text-emerald-400">
+                            ✓ {language === 'mr' ? 'पूर्ण भरले' : 'Fully Settled'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Row 4: Action Buttons */}
+                <div className="p-4 pt-0 flex flex-col gap-2.5 bg-slate-900/20">
+                  {isCheckingInToday ? (
+                    <>
+                      {/* Secondary: Reserve only */}
+                      <button
+                        type="button"
+                        disabled={isSubmitting}
+                        onClick={() => handleSubmit('hold')}
+                        className="w-full py-3.5 px-4 bg-slate-900 hover:bg-slate-850 active:bg-slate-900 border border-slate-800 hover:border-amber-500/20 text-slate-300 rounded-2xl transition disabled:opacity-50 flex items-center gap-3"
+                      >
+                        {isSubmitting ? (
+                          <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" />
+                        ) : (
+                          <CalendarIcon className="h-4.5 w-4.5 text-slate-500 flex-shrink-0" />
+                        )}
+                        <div className="flex flex-col items-start text-left gap-0.5">
+                          <span className="text-sm font-black tracking-tight">
+                            {language === 'mr' ? 'खोली राखून ठेवा (येतील नंतर)' : 'Book Room (Not Here Yet)'}
+                          </span>
+                          <span className="text-[9px] text-amber-400/90 font-bold uppercase tracking-wider">
+                            {language === 'mr'
+                              ? `→ होल्ड: ${formatBtnDate(checkInDate)} ते ${formatBtnDate(checkOutDate)} (${nights} रात्र)`
+                              : `→ Hold: ${formatBtnDate(checkInDate)} to ${formatBtnDate(checkOutDate)} (${nights} ${nights === 1 ? 'Night' : 'Nights'})`}
+                          </span>
+                        </div>
+                      </button>
+
+                      {/* Primary: Block & Check In */}
+                      <button
+                        type="button"
+                        disabled={isSubmitting}
+                        onClick={() => {
+                          const depositAmt = Number(depositAmount) || 0
+                          const totalAmt = Number(totalAmount) || 0
+                          const isPartial = depositAmt > 0 && depositAmt < totalAmt
+                          if (paymentMode === 'Pending') {
+                            handleSubmit(isPartial ? 'partial' : 'unpaid')
+                          } else {
+                            handleSubmit(isPartial ? 'partial' : 'paid')
+                          }
+                        }}
+                        className="w-full py-4 px-4 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.99] text-slate-950 rounded-2xl transition disabled:opacity-50 flex items-center gap-3 shadow-xl shadow-emerald-500/20"
+                      >
+                        {isSubmitting ? (
+                          <Loader2 className="h-5 w-5 animate-spin flex-shrink-0" />
+                        ) : (
+                          <span className="text-xl flex-shrink-0">✅</span>
+                        )}
+                        <div className="flex flex-col items-start text-left gap-0.5 flex-1">
+                          <span className="text-base font-black tracking-tight">
+                            {language === 'mr' ? 'ब्लॉक & चेक-इन करा' : 'Block & Check In'}
+                          </span>
+                          <span className="text-[10px] text-emerald-950 font-bold uppercase tracking-wider">
+                            {paymentMode === 'Pending'
+                              ? (language === 'mr' ? `→ जमा रक्कम: ₹${paid} · देणे बाकी: ₹${due}` : `→ Advance: ₹${paid} · Due: ₹${due}`)
+                              : due > 0
+                              ? (language === 'mr' ? `→ ${paymentMode} द्वारे जमा ₹${paid} · बाकी ₹${due}` : `→ Advance ₹${paid} via ${paymentMode} · Due ₹${due}`)
+                              : (language === 'mr' ? `→ ${paymentMode} द्वारे पूर्ण भरले (₹${total})` : `→ Fully Paid via ${paymentMode} (₹${total})`)}
+                          </span>
+                        </div>
+                        <span className="text-lg font-black bg-emerald-600/30 px-3 py-1 rounded-xl border border-emerald-600/10">
+                          ₹{total}
+                        </span>
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2 px-1 pb-1">
+                        <span className="text-[10px] text-slate-500 font-semibold flex items-center gap-1">
+                          <span>⏳</span>
+                          {language === 'mr'
+                            ? 'ग्राहक नंतर येणार आहेत — खोली होल्ड होईल'
+                            : 'Customer arrives later — room will be reserved until check-in'}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={isSubmitting}
+                        onClick={() => handleSubmit('hold')}
+                        className="w-full py-4 px-4 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.99] text-slate-950 rounded-2xl transition disabled:opacity-50 flex items-center gap-3 shadow-xl shadow-emerald-500/20"
+                      >
+                        {isSubmitting ? (
+                          <Loader2 className="h-5 w-5 animate-spin flex-shrink-0" />
+                        ) : (
+                          <CalendarIcon className="h-5 w-5 text-slate-950 flex-shrink-0" />
+                        )}
+                        <div className="flex flex-col items-start text-left gap-0.5 flex-1">
+                          <span className="text-base font-black tracking-tight">
+                            {language === 'mr' ? 'खोली बुक करा' : 'Book Room Now'}
+                          </span>
+                          <span className="text-[10px] text-emerald-950 font-bold uppercase tracking-wider">
+                            {paymentMode === 'Pending'
+                              ? (language === 'mr' ? `→ जमा रक्कम: ₹${paid} · देणे बाकी: ₹${due}` : `→ Advance: ₹${paid} · Due: ₹${due}`)
+                              : due > 0
+                              ? (language === 'mr' ? `→ ${paymentMode} द्वारे जमा ₹${paid} · बाकी ₹${due}` : `→ Advance ₹${paid} via ${paymentMode} · Due ₹${due}`)
+                              : (language === 'mr' ? `→ ${paymentMode} द्वारे पूर्ण भरले (₹${total})` : `→ Fully Paid via ${paymentMode} (₹${total})`)}
+                          </span>
+                        </div>
+                        <span className="text-lg font-black bg-emerald-600/30 px-3 py-1 rounded-xl border border-emerald-600/10">
+                          ₹{total}
+                        </span>
+                      </button>
+                    </>
+                  )}
+                </div>
+
+              </div>
+            )
+          })()}
+
+        </div> {/* End of scrollable body */}
       </div>
       {renderDatePickerModal()}
       {selectedDoc && (

@@ -59,7 +59,7 @@ export default function DocumentLightbox({
 
   const formatDocType = (type?: string, fallbackName?: string) => {
     if (!type) return fallbackName || ''
-    if (type === 'guest_photo') return 'Guest Photo'
+    if (type === 'guest_photo') return 'Customer Photo'
     if (type === 'id_proof') return 'ID Proof'
     return type
       .split('_')
@@ -82,7 +82,7 @@ export default function DocumentLightbox({
         <div className="flex flex-col gap-0.5">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-extrabold text-slate-100">
-              {guestName || 'Guest Document'}
+              {guestName || 'Customer Document'}
             </span>
             {roomNumber && (
               <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 px-2 py-0.5 rounded-lg text-[10px] font-extrabold">

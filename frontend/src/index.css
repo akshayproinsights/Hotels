@@ -6,26 +6,130 @@
 
 :root {
   font-family: 'Outfit', sans-serif;
-  background-color: #0f172a;
-  color: #f8fafc;
 }
 
-body {
+/* ═══════════════════════════════════════════════
+   Day / Light Theme (Default)
+   ═══════════════════════════════════════════════ */
+html:not(.dark) {
+  color-scheme: light;
+}
+
+html:not(.dark) body {
   margin: 0;
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  background: radial-gradient(circle at top left, #1e1b4b, #0f172a 60%);
+  background: #f8fafc;
+  background-image: radial-gradient(circle at top left, #f1f5f9 0%, #f8fafc 60%);
+  color: #0f172a;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Glassmorphism utility card */
-.glass-panel {
+/* Glassmorphism utility card for Light Mode */
+html:not(.dark) .glass-panel {
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05);
+}
+
+/* Slate utility transformations for Light Mode */
+html:not(.dark) .bg-slate-950 { background-color: #ffffff !important; }
+html:not(.dark) .bg-slate-900 { background-color: #ffffff !important; }
+html:not(.dark) .bg-slate-900\/60 { background-color: rgba(248, 250, 252, 0.95) !important; }
+html:not(.dark) .bg-slate-900\/80 { background-color: rgba(241, 245, 249, 0.95) !important; }
+html:not(.dark) .bg-slate-900\/90 { background-color: rgba(241, 245, 249, 0.98) !important; }
+html:not(.dark) .bg-slate-900\/95 { background-color: rgba(255, 255, 255, 0.99) !important; }
+
+html:not(.dark) .bg-slate-800 { background-color: #f1f5f9 !important; }
+html:not(.dark) .bg-slate-800\/40 { background-color: rgba(241, 245, 249, 0.7) !important; }
+html:not(.dark) .bg-slate-800\/50 { background-color: rgba(241, 245, 249, 0.85) !important; }
+html:not(.dark) .bg-slate-800\/60 { background-color: rgba(241, 245, 249, 0.95) !important; }
+html:not(.dark) .bg-slate-800\/80 { background-color: rgba(226, 232, 240, 0.9) !important; }
+
+html:not(.dark) .bg-slate-700 { background-color: #e2e8f0 !important; }
+html:not(.dark) .bg-slate-700\/50 { background-color: rgba(226, 232, 240, 0.75) !important; }
+
+/* Text colors in Light Mode */
+html:not(.dark) .text-slate-100 { color: #0f172a !important; }
+html:not(.dark) .text-slate-200 { color: #1e293b !important; }
+html:not(.dark) .text-slate-300 { color: #334155 !important; }
+html:not(.dark) .text-slate-400 { color: #64748b !important; }
+html:not(.dark) .text-slate-500 { color: #64748b !important; }
+
+/* Borders in Light Mode */
+html:not(.dark) .border-slate-800 { border-color: #e2e8f0 !important; }
+html:not(.dark) .border-slate-800\/40 { border-color: rgba(226, 232, 240, 0.7) !important; }
+html:not(.dark) .border-slate-800\/50 { border-color: rgba(226, 232, 240, 0.8) !important; }
+html:not(.dark) .border-slate-700 { border-color: #cbd5e1 !important; }
+html:not(.dark) .border-slate-700\/50 { border-color: rgba(203, 213, 225, 0.8) !important; }
+html:not(.dark) .border-slate-700\/60 { border-color: rgba(203, 213, 225, 0.9) !important; }
+
+/* Inputs & Form Controls in Light Mode */
+html:not(.dark) input, 
+html:not(.dark) select, 
+html:not(.dark) textarea {
+  color: #0f172a;
+}
+html:not(.dark) input::placeholder, 
+html:not(.dark) select::placeholder, 
+html:not(.dark) textarea::placeholder {
+  color: #94a3b8;
+}
+
+/* Numeric Keypad Light Mode */
+html:not(.dark) .nkp-sheet {
+  background: #ffffff;
+  border-top: 1px solid #e2e8f0;
+  box-shadow: 0 -24px 60px rgba(0, 0, 0, 0.12);
+}
+html:not(.dark) .nkp-header { border-bottom: 1px solid #f1f5f9; }
+html:not(.dark) .nkp-display { color: #0f172a; }
+html:not(.dark) .nkp-key {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #0f172a;
+}
+html:not(.dark) .nkp-key:active { background: #e2e8f0; }
+html:not(.dark) .nkp-key-digit { color: #0f172a; }
+html:not(.dark) .nkp-preset-chip {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  color: #475569;
+}
+
+
+/* ═══════════════════════════════════════════════
+   Night / Dark Theme
+   ═══════════════════════════════════════════════ */
+html.dark {
+  color-scheme: dark;
+}
+
+html.dark body {
+  margin: 0;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: #0f172a;
+  background-image: radial-gradient(circle at top left, #1e1b4b, #0f172a 60%);
+  color: #f8fafc;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html.dark .glass-panel {
   background: rgba(30, 41, 59, 0.45);
   backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
+
+
+/* ═══════════════════════════════════════════════
+   Common Animations & Layout Utilities
+   ═══════════════════════════════════════════════ */
 
 /* Subtly animated gradient border */
 .animate-gradient {
@@ -65,7 +169,7 @@ body {
 }
 
 /* ═══════════════════════════════════════════════
-   Numeric Keypad — custom in-app numeric input
+   Numeric Keypad Base Components
    ═══════════════════════════════════════════════ */
 
 /* Overlay backdrop */
@@ -80,7 +184,7 @@ body {
   justify-content: center;
 }
 
-/* Bottom sheet */
+/* Bottom sheet base */
 .nkp-sheet {
   width: 100%;
   max-width: 480px;
@@ -187,17 +291,17 @@ body {
 .nkp-preset-chip--active {
   background: rgba(16, 185, 129, 0.15);
   border-color: rgba(16, 185, 129, 0.45);
-  color: #34d399;
+  color: #10b981;
 }
 .nkp-preset-chip--full {
   background: rgba(59, 130, 246, 0.1);
   border-color: rgba(59, 130, 246, 0.3);
-  color: #60a5fa;
+  color: #3b82f6;
 }
 .nkp-preset-chip--full.nkp-preset-chip--active {
   background: rgba(59, 130, 246, 0.2);
   border-color: rgba(59, 130, 246, 0.55);
-  color: #93c5fd;
+  color: #2563eb;
 }
 
 /* Key grid */
@@ -300,3 +404,10 @@ body {
   color: #fff;
   box-shadow: 0 4px 20px rgba(245, 158, 11, 0.35);
 }
+
+.nkp-done-btn--idfc {
+  background: linear-gradient(135deg, #7c3aed, #8b5cf6);
+  color: #fff;
+  box-shadow: 0 4px 20px rgba(139, 92, 246, 0.35);
+}
+

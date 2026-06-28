@@ -9,7 +9,7 @@ router = APIRouter()
 
 class BookingCreate(BaseModel):
     room_id: str
-    room_type: Literal['AC Deluxe', 'Non AC Deluxe', 'AC Standard', 'Non AC Standard']
+    room_type: Literal['AC Deluxe', 'Non AC Deluxe', 'VIP AC Suite', 'VIP Non AC Suite']
     guest_id: Optional[str] = None        # existing guest UUID
     guest_name: Optional[str] = None      # new guest — one of guest_id OR name+phone required
     guest_phone: Optional[str] = None
@@ -28,10 +28,11 @@ class BookingCreate(BaseModel):
     guest_address: Optional[str] = None
     guest_age: Optional[int] = None
     is_checked_in: Optional[bool] = None
+    actual_checkin_time: Optional[datetime] = None
 
 class RoomBookingInfo(BaseModel):
     room_id: str
-    room_type: Literal['AC Deluxe', 'Non AC Deluxe', 'AC Standard', 'Non AC Standard']
+    room_type: Literal['AC Deluxe', 'Non AC Deluxe', 'VIP AC Suite', 'VIP Non AC Suite']
     adults: int = 1
     children: int = 0
     extra_beds: int = 0
@@ -54,6 +55,7 @@ class BookingBatchCreate(BaseModel):
     guest_address: Optional[str] = None
     guest_age: Optional[int] = None
     is_checked_in: Optional[bool] = None
+    actual_checkin_time: Optional[datetime] = None
 
 class BookingUpdate(BaseModel):
     check_out: Optional[datetime] = None
@@ -64,6 +66,7 @@ class BookingUpdate(BaseModel):
     notes: Optional[str] = None
     total_amount: Optional[float] = None
     actual_checkout_time: Optional[datetime] = None
+    actual_checkin_time: Optional[datetime] = None
     is_checked_in: Optional[bool] = None
 
 @router.post("")
@@ -99,7 +102,9 @@ def create_booking(body: BookingCreate, user=Depends(get_current_user)):
 
     # 2. Calculate totals
     nights = max(1, (body.check_out.date() - body.check_in.date()).days)
-    extra_bed_total = body.extra_beds * 500 * nights  # ₹500 per extra bed per night
+    room_res = supabase.table("rooms").select("extra_bed_price").eq("id", body.room_id).execute()
+    extra_bed_price = room_res.data[0]["extra_bed_price"] if room_res.data and "extra_bed_price" in room_res.data[0] else 500.0
+    extra_bed_total = body.extra_beds * float(extra_bed_price) * nights
     if body.total_amount is not None:
         total_amount = body.total_amount
     else:
@@ -140,6 +145,7 @@ def create_booking(body: BookingCreate, user=Depends(get_current_user)):
             "notes":           body.notes,
             "created_by":      user.get("sub"),
             "is_checked_in":   is_checked_in,
+            "actual_checkin_time": (body.actual_checkin_time.isoformat() if body.actual_checkin_time else (datetime.now(timezone.utc).isoformat() if is_checked_in else None)),
         }).execute()
     except Exception as e:
         if "no_overlap" in str(e):
@@ -194,9 +200,14 @@ def create_bookings_batch(body: BookingBatchCreate, user=Depends(get_current_use
     # 2. Calculate totals and distribute deposit
     nights = max(1, (body.check_out.date() - body.check_in.date()).days)
     
+    room_ids = [r.room_id for r in body.rooms]
+    rooms_res = supabase.table("rooms").select("id, extra_bed_price").in_("id", room_ids).execute()
+    room_extra_prices = {r["id"]: float(r["extra_bed_price"]) for r in (rooms_res.data or []) if "extra_bed_price" in r}
+
     room_totals = []
     for r in body.rooms:
-        extra_bed_total = r.extra_beds * 500 * nights
+        eb_price = room_extra_prices.get(r.room_id, 500.0)
+        extra_bed_total = r.extra_beds * eb_price * nights
         room_total = (r.room_price * nights) + extra_bed_total
         room_totals.append(room_total)
         
@@ -205,7 +216,8 @@ def create_bookings_batch(body: BookingBatchCreate, user=Depends(get_current_use
     
     for i, r in enumerate(body.rooms):
         room_total = room_totals[i]
-        extra_bed_total = r.extra_beds * 500 * nights
+        eb_price = room_extra_prices.get(r.room_id, 500.0)
+        extra_bed_total = r.extra_beds * eb_price * nights
         
         if body.payment_status == "paid":
             room_paid = room_total
@@ -226,6 +238,7 @@ def create_bookings_batch(body: BookingBatchCreate, user=Depends(get_current_use
             else:
                 room_status = "unpaid"
                 
+        room_is_checked_in = body.is_checked_in if body.is_checked_in is not None else (room_status != "hold")
         bookings_to_create.append({
             "room_id":         r.room_id,
             "room_type":       r.room_type,
@@ -245,7 +258,8 @@ def create_bookings_batch(body: BookingBatchCreate, user=Depends(get_current_use
             "occupation":      body.occupation,
             "notes":           r.notes or body.notes,
             "created_by":      user.get("sub"),
-            "is_checked_in":   body.is_checked_in if body.is_checked_in is not None else (room_status != "hold"),
+            "is_checked_in":   room_is_checked_in,
+            "actual_checkin_time": (body.actual_checkin_time.isoformat() if body.actual_checkin_time else (datetime.now(timezone.utc).isoformat() if room_is_checked_in else None)),
         })
 
     # 3. Insert bookings atomically
@@ -352,6 +366,11 @@ def update_booking(booking_id: str, body: BookingUpdate, user=Depends(get_curren
                 status_code=409,
                 detail="Room is already booked or occupied by another guest during this extended period."
             )
+
+    if "actual_checkin_time" in updates and updates["actual_checkin_time"] is not None:
+        updates["actual_checkin_time"] = updates["actual_checkin_time"].isoformat()
+    elif updates.get("is_checked_in") is True and "actual_checkin_time" not in updates:
+        updates["actual_checkin_time"] = datetime.now(timezone.utc).isoformat()
 
     if "actual_checkout_time" in updates and updates["actual_checkout_time"] is not None:
         updates["actual_checkout_time"] = updates["actual_checkout_time"].isoformat()

@@ -17,6 +17,7 @@ export default function InventoryPage() {
   const [selectedRoomForBooking, setSelectedRoomForBooking] = useState<InventoryRoom | null>(null)
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'grid' | 'map'>('grid')
+  const [briefTab, setBriefTab] = useState<'arrivals' | 'checkouts' | 'staying'>('arrivals')
   const { language, t } = useLanguage()
 
   // Touch gesture state for swipe-to-navigate days
@@ -270,52 +271,301 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      {/* Arriving Today Banner — shows reserved guests whose check-in date is today */}
+      {/* Today's Front Desk Brief Card */}
       {(() => {
         const todayStr = format(new Date(), 'yyyy-MM-dd')
         const isViewingToday = selectedDate === todayStr
         if (!isViewingToday) return null
-        const arrivingToday = data.rooms.filter(room =>
-          room.room_status === 'hold' &&
-          room.booking?.check_in &&
-          room.booking.check_in.startsWith(todayStr)
+
+        const dailyBookings = data.daily_bookings || []
+
+        // Arrivals: check_in is today
+        const arrivals = dailyBookings.filter(b => b.check_in.startsWith(todayStr))
+        // Pending arrivals = not yet checked in
+        const arrivalsPending = arrivals.filter(b => !b.is_checked_in)
+        // Done arrivals = already checked in
+        const arrivalsDone = arrivals.filter(b => b.is_checked_in)
+
+        // Checkouts: check_out is today (only those who are still active / not yet checked out)
+        const checkouts = dailyBookings.filter(b => b.check_out.startsWith(todayStr))
+        // Pending checkouts = still in house (not yet checked out)
+        const checkoutsPending = checkouts.filter(b => b.status !== 'checked_out')
+        // Done checkouts = already checked out (room freed)
+        const checkoutsDone = checkouts.filter(b => b.status === 'checked_out')
+
+        // Staying Over: checked in, not checking out today, not a today arrival
+        const stayingOver = dailyBookings.filter(b =>
+          b.status === 'active' &&
+          b.is_checked_in &&
+          !b.check_in.startsWith(todayStr) &&
+          !b.check_out.startsWith(todayStr)
         )
-        if (arrivingToday.length === 0) return null
+
+        const hasActivity = arrivals.length > 0 || checkouts.length > 0 || stayingOver.length > 0
+        if (!hasActivity) return null
+
+        // Smart: auto-highlight the tab with most pending work
+        // (this is read-only logic for the badge dot indicator)
+        const arrivalsPendingCount = arrivalsPending.length
+        const checkoutsPendingCount = checkoutsPending.length
+
+        // Helper: render a guest action row
+        const GuestRow = ({ b, variant }: { b: typeof arrivals[0], variant: 'arrival' | 'checkout' | 'staying' }) => {
+          const isDone =
+            variant === 'arrival' ? b.is_checked_in :
+            variant === 'checkout' ? b.status === 'checked_out' :
+            false
+
+          const colorSet = {
+            arrival: { pending: 'bg-amber-500/8 border-amber-500/20', done: 'bg-slate-800/30 border-slate-700/30', badge_pending: 'bg-amber-500 text-slate-950', badge_done: 'bg-slate-700/60 text-slate-400', room_pending: 'bg-amber-500/10 text-amber-400 border-amber-500/25', room_done: 'bg-slate-800 text-slate-500 border-slate-700/30' },
+            checkout: { pending: 'bg-rose-500/8 border-rose-500/20', done: 'bg-slate-800/30 border-slate-700/30', badge_pending: 'bg-rose-500 text-white', badge_done: 'bg-slate-700/60 text-slate-400', room_pending: 'bg-rose-500/10 text-rose-400 border-rose-500/25', room_done: 'bg-slate-800 text-slate-500 border-slate-700/30' },
+            staying: { pending: 'bg-emerald-500/5 border-emerald-800/40', done: 'bg-slate-800/30 border-slate-700/30', badge_pending: 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/25', badge_done: 'bg-slate-700/60 text-slate-400', room_pending: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20', room_done: 'bg-slate-800 text-slate-500 border-slate-700/30' },
+          }[variant]
+
+          const badgeLabel = variant === 'arrival'
+            ? (isDone ? (language === 'mr' ? '✓ हजर' : '✓ In') : (language === 'mr' ? 'बाकी' : 'Pending'))
+            : variant === 'checkout'
+            ? (isDone ? (language === 'mr' ? '✓ गेले' : '✓ Out') : (language === 'mr' ? 'बाकी' : 'Pending'))
+            : (language === 'mr' ? 'मुक्काम' : 'Staying')
+
+          const subtitleLabel = variant === 'arrival'
+            ? (language === 'mr' ? 'आगमन आज' : 'Check-In Today')
+            : variant === 'checkout'
+            ? (language === 'mr' ? 'प्रस्थान आज' : 'Check-Out Today')
+            : (language === 'mr' ? 'मुक्कामी ग्राहक' : 'In-House Guest')
+
+          return (
+            <button
+              key={b.id}
+              type="button"
+              onClick={() => setSelectedBookingId(b.id)}
+              className={`w-full flex items-center justify-between p-2.5 rounded-xl border transition-all text-left ${
+                isDone ? colorSet.done : colorSet.pending
+              } ${isDone ? 'opacity-55' : ''}`}
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs flex-shrink-0 border ${
+                  isDone ? colorSet.room_done : colorSet.room_pending
+                }`}>
+                  {b.rooms?.number || b.room_id}
+                </span>
+                <div className="min-w-0">
+                  <p className={`text-xs font-black truncate ${isDone ? 'text-slate-400 line-through' : 'text-slate-200'}`}>{b.guests?.name}</p>
+                  <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wider mt-0.5">
+                    {b.room_type} · {subtitleLabel}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                <span className={`text-[9px] uppercase tracking-wider font-extrabold px-2.5 py-0.5 rounded ${
+                  isDone ? colorSet.badge_done : colorSet.badge_pending
+                }`}>
+                  {badgeLabel}
+                </span>
+              </div>
+            </button>
+          )
+        }
+
         return (
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-2">
-              <span className="text-base">🛬</span>
-              <h3 className="text-sm font-extrabold text-amber-400 uppercase tracking-wider">
-                {language === 'mr'
-                  ? `आज येणारे पाहुणे — ${arrivingToday.length} खोल्या`
-                  : `Arriving Today — ${arrivingToday.length} Room${arrivingToday.length > 1 ? 's' : ''}`}
-              </h3>
+          <div className="glass-panel rounded-2xl border border-slate-800 bg-slate-900/60 p-4 flex flex-col gap-4 shadow-lg">
+            {/* Title / Header */}
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">📋</span>
+                <h3 className="text-sm font-black uppercase tracking-wider text-slate-200">
+                  {language === 'mr' ? 'आजचा फ्रंट डेस्क सारांश' : "Today's Front Desk Brief"}
+                </h3>
+              </div>
+              {/* Live urgency indicator */}
+              {(arrivalsPendingCount > 0 || checkoutsPendingCount > 0) ? (
+                <span className="text-[9px] font-black text-amber-950 bg-amber-400 px-2 py-0.5 rounded-full uppercase tracking-wider animate-pulse">
+                  {arrivalsPendingCount + checkoutsPendingCount} {language === 'mr' ? 'बाकी' : 'Pending'}
+                </span>
+              ) : (
+                <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg uppercase tracking-wider">
+                  {language === 'mr' ? '✓ सर्व झाले' : '✓ All Done'}
+                </span>
+              )}
             </div>
-            <div className="flex flex-col gap-2">
-              {arrivingToday.map(room => (
-                <button
-                  key={room.id}
-                  onClick={() => handleRoomClick(room)}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/15 hover:border-amber-500/50 transition active:scale-[0.99] text-left"
-                >
-                  <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center flex-shrink-0">
-                    <span className="text-sm font-black text-amber-400">{room.number}</span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-black text-slate-200 truncate">
-                      {room.booking?.guests?.name || (language === 'mr' ? 'अज्ञात पाहुणे' : 'Unknown Guest')}
-                    </p>
-                    <p className="text-[10px] text-slate-500 font-semibold truncate">
-                      {room.room_type} · {language === 'mr' ? 'आज चेक-इन' : 'Check-in Today'}
-                    </p>
-                  </div>
-                  <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                    <span className="text-[9px] uppercase tracking-wider font-extrabold text-amber-400 bg-amber-500/15 px-2 py-0.5 rounded-full">
-                      {language === 'mr' ? 'ताडण करा' : 'Tap to Check In'}
-                    </span>
-                  </div>
-                </button>
-              ))}
+
+            {/* Tabs Row */}
+            <div className="grid grid-cols-3 gap-2 bg-slate-955/60 p-1 border border-slate-800/60 rounded-xl">
+              {/* Arrivals Tab */}
+              <button
+                type="button"
+                onClick={() => setBriefTab('arrivals')}
+                className={`py-2 px-1 rounded-lg flex flex-col items-center justify-center transition-all relative ${
+                  briefTab === 'arrivals'
+                    ? 'bg-amber-500 text-slate-955 shadow-md font-black'
+                    : 'text-slate-400 hover:text-slate-200 font-semibold'
+                }`}
+              >
+                {/* Pending dot indicator */}
+                {arrivalsPendingCount > 0 && briefTab !== 'arrivals' && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-amber-400 text-slate-950 text-[8px] font-black rounded-full flex items-center justify-center">
+                    {arrivalsPendingCount}
+                  </span>
+                )}
+                <div className="flex items-center gap-1">
+                  <span>🛬</span>
+                  <span className="text-[9px] uppercase tracking-wider font-extrabold">
+                    {language === 'mr' ? 'आगमन' : 'Arrivals'}
+                  </span>
+                </div>
+                <span className={`text-[10px] mt-0.5 font-bold tabular-nums ${
+                  briefTab === 'arrivals' ? 'text-slate-900' :
+                  arrivalsPendingCount > 0 ? 'text-amber-400' : 'text-slate-500'
+                }`}>
+                  {arrivals.length === 0
+                    ? (language === 'mr' ? 'कोणी नाही' : 'None')
+                    : arrivalsPendingCount > 0
+                    ? `${arrivalsPendingCount} ${language === 'mr' ? 'बाकी' : 'Pending'}`
+                    : `${language === 'mr' ? '✓ सर्व हजर' : '✓ All In'}`
+                  }
+                </span>
+              </button>
+
+              {/* Departures Tab */}
+              <button
+                type="button"
+                onClick={() => setBriefTab('checkouts')}
+                className={`py-2 px-1 rounded-lg flex flex-col items-center justify-center transition-all relative ${
+                  briefTab === 'checkouts'
+                    ? 'bg-rose-500 text-white shadow-md font-black'
+                    : 'text-slate-400 hover:text-slate-200 font-semibold'
+                }`}
+              >
+                {/* Pending dot indicator */}
+                {checkoutsPendingCount > 0 && briefTab !== 'checkouts' && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-400 text-white text-[8px] font-black rounded-full flex items-center justify-center">
+                    {checkoutsPendingCount}
+                  </span>
+                )}
+                <div className="flex items-center gap-1">
+                  <span>🚪</span>
+                  <span className="text-[9px] uppercase tracking-wider font-extrabold">
+                    {language === 'mr' ? 'प्रस्थान' : 'Checkouts'}
+                  </span>
+                </div>
+                <span className={`text-[10px] mt-0.5 font-bold tabular-nums ${
+                  briefTab === 'checkouts' ? 'text-white' :
+                  checkoutsPendingCount > 0 ? 'text-rose-400' : 'text-slate-500'
+                }`}>
+                  {checkouts.length === 0
+                    ? (language === 'mr' ? 'कोणी नाही' : 'None')
+                    : checkoutsPendingCount > 0
+                    ? `${checkoutsPendingCount} ${language === 'mr' ? 'बाकी' : 'Pending'}`
+                    : `${language === 'mr' ? '✓ सर्व गेले' : '✓ All Out'}`
+                  }
+                </span>
+              </button>
+
+              {/* Staying Tab */}
+              <button
+                type="button"
+                onClick={() => setBriefTab('staying')}
+                className={`py-2 px-1 rounded-lg flex flex-col items-center justify-center transition-all ${
+                  briefTab === 'staying'
+                    ? 'bg-emerald-500 text-slate-955 shadow-md font-black'
+                    : 'text-slate-400 hover:text-slate-200 font-semibold'
+                }`}
+              >
+                <div className="flex items-center gap-1">
+                  <span>🏨</span>
+                  <span className="text-[9px] uppercase tracking-wider font-extrabold">
+                    {language === 'mr' ? 'मुक्काम' : 'In-House'}
+                  </span>
+                </div>
+                <span className={`text-[10px] mt-0.5 font-bold tabular-nums ${briefTab === 'staying' ? 'text-slate-955 font-black' : 'text-emerald-450'}`}>
+                  {stayingOver.length} {language === 'mr' ? 'खोल्या' : 'Rooms'}
+                </span>
+              </button>
+            </div>
+
+            {/* List for the selected tab */}
+            <div className="flex flex-col gap-2 max-h-[260px] overflow-y-auto pr-1">
+              {briefTab === 'arrivals' && (
+                <>
+                  {arrivals.length === 0 ? (
+                    <div className="text-center py-5 text-xs text-slate-500 italic bg-slate-955/20 rounded-xl border border-slate-850/60 border-dashed">
+                      {language === 'mr' ? '🌙 आज कोणतेही आगमन नियोजित नाही.' : '🌙 No arrivals scheduled for today.'}
+                    </div>
+                  ) : arrivalsPending.length === 0 ? (
+                    // All arrivals done — celebration + collapsed done list
+                    <>
+                      <div className="text-center py-3 text-xs font-bold text-emerald-400 bg-emerald-500/5 rounded-xl border border-emerald-500/15">
+                        🎉 {language === 'mr' ? 'सर्व अतिथी आले! खोल्या Occupied आहेत.' : 'All guests checked in! Rooms are now Occupied.'}
+                      </div>
+                      {arrivalsDone.map(b => <GuestRow key={b.id} b={b} variant="arrival" />)}
+                    </>
+                  ) : (
+                    // Pending first, then done at bottom dimmed
+                    <>
+                      {arrivalsPending.map(b => <GuestRow key={b.id} b={b} variant="arrival" />)}
+                      {arrivalsDone.length > 0 && (
+                        <>
+                          <div className="flex items-center gap-2 pt-1">
+                            <div className="flex-1 h-px bg-slate-800"/>
+                            <span className="text-[9px] font-bold text-slate-600 uppercase tracking-wider">
+                              {language === 'mr' ? '✓ हजर झाले' : '✓ Checked In'}
+                            </span>
+                            <div className="flex-1 h-px bg-slate-800"/>
+                          </div>
+                          {arrivalsDone.map(b => <GuestRow key={b.id} b={b} variant="arrival" />)}
+                        </>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
+
+              {briefTab === 'checkouts' && (
+                <>
+                  {checkouts.length === 0 ? (
+                    <div className="text-center py-5 text-xs text-slate-500 italic bg-slate-955/20 rounded-xl border border-slate-850/60 border-dashed">
+                      {language === 'mr' ? '🌙 आज कोणतेही प्रस्थान नियोजित नाही.' : '🌙 No departures scheduled for today.'}
+                    </div>
+                  ) : checkoutsPending.length === 0 ? (
+                    // All checkouts done — rooms freed
+                    <>
+                      <div className="text-center py-3 text-xs font-bold text-emerald-400 bg-emerald-500/5 rounded-xl border border-emerald-500/15">
+                        🎉 {language === 'mr' ? 'सर्व अतिथी निघाले! खोल्या आता Free आहेत.' : 'All guests checked out! Rooms are now Free.'}
+                      </div>
+                      {checkoutsDone.map(b => <GuestRow key={b.id} b={b} variant="checkout" />)}
+                    </>
+                  ) : (
+                    // Pending first (urgent), done dimmed below
+                    <>
+                      {checkoutsPending.map(b => <GuestRow key={b.id} b={b} variant="checkout" />)}
+                      {checkoutsDone.length > 0 && (
+                        <>
+                          <div className="flex items-center gap-2 pt-1">
+                            <div className="flex-1 h-px bg-slate-800"/>
+                            <span className="text-[9px] font-bold text-slate-600 uppercase tracking-wider">
+                              {language === 'mr' ? '✓ निघाले • खोली Free' : '✓ Checked Out • Room Free'}
+                            </span>
+                            <div className="flex-1 h-px bg-slate-800"/>
+                          </div>
+                          {checkoutsDone.map(b => <GuestRow key={b.id} b={b} variant="checkout" />)}
+                        </>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
+
+              {briefTab === 'staying' && (
+                <>
+                  {stayingOver.length === 0 ? (
+                    <div className="text-center py-5 text-xs text-slate-500 italic bg-slate-955/20 rounded-xl border border-slate-850/60 border-dashed">
+                      {language === 'mr' ? 'सध्या हॉटेलात इतर मुक्कामी ग्राहक नाहीत.' : 'No other staying guests.'}
+                    </div>
+                  ) : (
+                    stayingOver.map(b => <GuestRow key={b.id} b={b} variant="staying" />)
+                  )}
+                </>
+              )}
             </div>
           </div>
         )

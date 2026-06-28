@@ -2,7 +2,7 @@ import * as React from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'react-hot-toast'
-import { LogOut, Plus, WifiOff } from 'lucide-react'
+import { LogOut, Plus, WifiOff, Sun, Moon } from 'lucide-react'
 import LoginPage from './pages/LoginPage'
 import SettingsPage from './pages/SettingsPage'
 import InventoryPage from './pages/InventoryPage'
@@ -12,6 +12,7 @@ import UnpaidDuesPage from './pages/UnpaidDuesPage'
 import BottomNav from './components/BottomNav'
 import { useAuth } from './hooks/useAuth'
 import { useLanguage } from './context/LanguageContext'
+import { ThemeProvider, useTheme } from './context/ThemeContext'
 import BlockRoomSheet from './components/BlockRoomSheet'
 
 const queryClient = new QueryClient({
@@ -36,6 +37,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 function AppLayout() {
   const { logout, user } = useAuth()
   const { language, setLanguage, t } = useLanguage()
+  const { theme, toggleTheme } = useTheme()
   const [isBookSheetOpen, setIsBookSheetOpen] = React.useState(false)
   const [isOnline, setIsOnline] = React.useState(navigator.onLine)
 
@@ -87,6 +89,15 @@ function AppLayout() {
               मराठी
             </button>
           </div>
+
+          {/* Theme Toggle Button */}
+          <button
+            onClick={toggleTheme}
+            className="p-1.5 sm:p-2 rounded-xl bg-slate-950 border border-slate-800 text-amber-400 hover:text-amber-300 transition-all shadow-sm flex items-center justify-center"
+            title={theme === 'light' ? 'Switch to Night Theme' : 'Switch to Day Theme'}
+          >
+            {theme === 'light' ? <Moon className="h-4 w-4 text-indigo-500" /> : <Sun className="h-4 w-4 text-amber-400" />}
+          </button>
 
           {user && (
             <div className="flex items-center gap-2 sm:gap-3">
@@ -149,32 +160,29 @@ function AppLayout() {
 
 export default function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route
-            path="/*"
-            element={
-              <AuthGuard>
-                <AppLayout />
-              </AuthGuard>
-            }
-          />
-        </Routes>
-      </BrowserRouter>
-      {/* Toast provider notifications */}
-      <Toaster
-        position="top-right"
-        toastOptions={{
-          className: 'glass-panel text-slate-200 border-slate-800/40 rounded-xl',
-          style: {
-            background: '#1e293b',
-            color: '#f8fafc',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
-          },
-        }}
-      />
-    </QueryClientProvider>
+    <ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route
+              path="/*"
+              element={
+                <AuthGuard>
+                  <AppLayout />
+                </AuthGuard>
+              }
+            />
+          </Routes>
+        </BrowserRouter>
+        {/* Toast provider notifications */}
+        <Toaster
+          position="top-right"
+          toastOptions={{
+            className: 'glass-panel text-slate-200 border-slate-800/40 rounded-xl',
+          }}
+        />
+      </QueryClientProvider>
+    </ThemeProvider>
   )
 }

@@ -8,8 +8,11 @@ interface NumericKeypadProps {
   onClose: () => void
   label?: string
   totalAmount?: number       // for quick-fill "Full Amount" chip
-  paymentMode?: 'Cash' | 'UPI' | 'Pending'
+  paymentMode?: 'Cash' | 'UPI' | 'IDFC' | 'Pending'
   language?: 'en' | 'mr'
+  keypadType?: 'currency' | 'phone' | 'number'
+  maxDigits?: number
+  showPresets?: boolean
 }
 
 const PRESETS = [500, 1000, 1500, 2000]
@@ -22,26 +25,33 @@ export default function NumericKeypad({
   totalAmount,
   paymentMode,
   language = 'en',
+  keypadType = 'currency',
+  maxDigits,
+  showPresets,
 }: NumericKeypadProps) {
-  const display = value === 0 || value === '' ? '' : String(value)
+  const display = value === 0 || value === '' || value === null || value === undefined ? '' : String(value)
+  const limit = maxDigits ?? (keypadType === 'phone' ? 10 : keypadType === 'number' ? 4 : 6)
+  const renderPresets = showPresets ?? (keypadType === 'currency')
 
   const handleKey = (k: string) => {
     if (k === 'backspace') {
       const next = display.slice(0, -1)
-      onChange(next === '' ? '' : next)
+      onChange(next)
       return
     }
     if (k === 'clear') {
       onChange('')
       return
     }
-    // prevent leading zeros (except single 0)
-    if (display === '0' && k !== '.') {
-      onChange(k)
-      return
+    if (keypadType !== 'phone') {
+      // prevent leading zeros for numbers/amounts (except single 0)
+      if (display === '0' && k !== '.') {
+        onChange(k)
+        return
+      }
     }
-    // max 6 digits
-    if (display.length >= 6) return
+    // max digits check
+    if (display.length >= limit) return
     onChange(display + k)
   }
 
@@ -60,6 +70,13 @@ export default function NumericKeypad({
     ['clear', '0', 'backspace'],
   ]
 
+  const defaultLabel =
+    keypadType === 'phone'
+      ? (language === 'mr' ? 'मोबाईल नंबर टाका' : 'Enter Mobile Number')
+      : keypadType === 'number'
+      ? (language === 'mr' ? 'संख्या टाका' : 'Enter Value')
+      : (language === 'mr' ? 'रक्कम टाका' : 'Enter Amount')
+
   return createPortal(
     <div
       className="nkp-overlay"
@@ -71,40 +88,42 @@ export default function NumericKeypad({
         {/* Header */}
         <div className="nkp-header">
           <div className="nkp-label-row">
-            <span className="nkp-label">{label || (language === 'mr' ? 'रक्कम टाका' : 'Enter Amount')}</span>
+            <span className="nkp-label">{label || defaultLabel}</span>
             <button className="nkp-close-btn" onClick={onClose} type="button">
               <X size={16} />
             </button>
           </div>
           {/* Display */}
           <div className="nkp-display-wrap">
-            <span className="nkp-currency">₹</span>
+            {keypadType === 'currency' && <span className="nkp-currency">₹</span>}
             <span className="nkp-display">{display || '0'}</span>
           </div>
         </div>
 
         {/* Quick-fill chips */}
-        <div className="nkp-presets">
-          {PRESETS.map((p) => (
-            <button
-              key={p}
-              type="button"
-              className={`nkp-preset-chip ${Number(display) === p ? 'nkp-preset-chip--active' : ''}`}
-              onClick={() => handlePreset(p)}
-            >
-              ₹{p}
-            </button>
-          ))}
-          {totalAmount && totalAmount > 0 && (
-            <button
-              type="button"
-              className={`nkp-preset-chip nkp-preset-chip--full ${Number(display) === totalAmount ? 'nkp-preset-chip--active' : ''}`}
-              onClick={handleFull}
-            >
-              {language === 'mr' ? '✓ पूर्ण' : '✓ Full'}
-            </button>
-          )}
-        </div>
+        {renderPresets && (
+          <div className="nkp-presets">
+            {PRESETS.map((p) => (
+              <button
+                key={p}
+                type="button"
+                className={`nkp-preset-chip ${Number(display) === p ? 'nkp-preset-chip--active' : ''}`}
+                onClick={() => handlePreset(p)}
+              >
+                ₹{p}
+              </button>
+            ))}
+            {totalAmount && totalAmount > 0 && (
+              <button
+                type="button"
+                className={`nkp-preset-chip nkp-preset-chip--full ${Number(display) === totalAmount ? 'nkp-preset-chip--active' : ''}`}
+                onClick={handleFull}
+              >
+                {language === 'mr' ? '✓ पूर्ण' : '✓ Full'}
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Keypad grid */}
         <div className="nkp-grid">
@@ -140,6 +159,8 @@ export default function NumericKeypad({
                 ? 'nkp-done-btn--cash'
                 : paymentMode === 'UPI'
                 ? 'nkp-done-btn--upi'
+                : paymentMode === 'IDFC'
+                ? 'nkp-done-btn--idfc'
                 : 'nkp-done-btn--pending'
             }`}
             onClick={onClose}

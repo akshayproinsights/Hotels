@@ -13,7 +13,7 @@ create table rooms (
   floor           int  not null,
   room_type       text not null check (room_type in (
                     'AC Deluxe', 'Non AC Deluxe',
-                    'AC Standard', 'Non AC Standard')),
+                    'VIP AC Suite', 'VIP Non AC Suite')),
   base_price      numeric(10,2) not null,
   extra_bed_price numeric(10,2) not null default 500,
   is_active       boolean not null default true,
@@ -52,7 +52,7 @@ create table bookings (
   extra_bed_total numeric(10,2) not null default 0,
   total_amount    numeric(10,2) not null,
   paid_amount     numeric(10,2) not null default 0,
-  payment_mode    text check (payment_mode in ('Cash', 'UPI', 'Pending')),
+  payment_mode    text check (payment_mode in ('Cash', 'UPI', 'IDFC', 'Pending')),
   payment_status  text not null default 'unpaid'
                   check (payment_status in ('paid', 'unpaid', 'partial', 'hold')),
   deposit_amount  numeric(10,2) default 0,
@@ -60,6 +60,9 @@ create table bookings (
   notes           text,
   status          text not null default 'active'
                   check (status in ('active', 'checked_out', 'cancelled')),
+  is_checked_in        boolean not null default false,
+  actual_checkin_time  timestamptz,
+  actual_checkout_time timestamptz,
   created_by      uuid references auth.users(id),
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now(),

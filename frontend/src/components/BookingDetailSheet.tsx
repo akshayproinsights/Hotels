@@ -34,7 +34,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
 
   const queryClient = useQueryClient()
   const [isUploading, setIsUploading] = useState(false)
-  const [selectedPaymentMode, setSelectedPaymentMode] = useState<'Cash' | 'UPI'>('Cash')
+  const [selectedPaymentMode, setSelectedPaymentMode] = useState<'Cash' | 'UPI' | 'IDFC'>('Cash')
   const [editingTotal, setEditingTotal] = useState<string | number>('')
   const [editingPaid, setEditingPaid] = useState<string | number>('')
   const [showRefDetails, setShowRefDetails] = useState(false)
@@ -222,7 +222,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
     updateMutation.mutate(updates)
   }
 
-  const handleSavePaymentMode = (newMode: 'Cash' | 'UPI' | 'Pending') => {
+  const handleSavePaymentMode = (newMode: 'Cash' | 'UPI' | 'IDFC' | 'Pending') => {
     if (newMode === booking.payment_mode) return
     const currentPaid = editingPaid === '' ? 0 : Number(editingPaid)
     const currentTotal = editingTotal === '' ? 0 : Number(editingTotal)
@@ -556,7 +556,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                 {language === 'mr' ? 'पेमेंट पद्धत:' : 'Payment via:'}
               </span>
               <div className="flex gap-2">
-                {(['Cash', 'UPI', 'Pending'] as const).map((mode) => (
+                {(['Cash', 'UPI', 'IDFC', 'Pending'] as const).map((mode) => (
                   <button
                     key={mode}
                     type="button"
@@ -564,14 +564,16 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                     className={`px-3 py-2 rounded-xl text-xs font-black transition-all ${
                       booking.payment_mode === mode
                         ? mode === 'Cash'
-                          ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
+                          ? 'bg-emerald-500 text-slate-955 shadow-md shadow-emerald-500/20'
                           : mode === 'UPI'
                           ? 'bg-blue-500 text-white shadow-md shadow-blue-500/20'
-                          : 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
+                          : mode === 'IDFC'
+                          ? 'bg-purple-500 text-white shadow-md shadow-purple-500/20'
+                          : 'bg-amber-500 text-slate-955 shadow-md shadow-amber-500/20'
                         : 'bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    {mode === 'Cash' ? '💵 Cash' : mode === 'UPI' ? '📱 UPI' : '⏳ Pending'}
+                    {mode === 'Cash' ? '💵 Cash' : mode === 'UPI' ? '📱 UPI' : mode === 'IDFC' ? '🏦 IDFC' : '⏳ Pending'}
                   </button>
                 ))}
               </div>
@@ -745,7 +747,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                       <span>{language === 'mr' ? `⚠️ प्रलंबित रक्कम: ₹${dues.toLocaleString()}` : `⚠️ Dues Pending: ₹${dues.toLocaleString()}`}</span>
                       {booking.payment_mode !== 'Pending' && (
                         <span className="text-[10px] text-rose-400/80 font-medium">
-                          {language === 'mr' ? `पेमेंट मोड: ${booking.payment_mode === 'Cash' ? 'कॅश' : 'UPI'}` : `Payment Mode: ${booking.payment_mode}`}
+                          {language === 'mr' ? `पेमेंट मोड: ${booking.payment_mode === 'Cash' ? 'कॅश' : booking.payment_mode === 'UPI' ? 'UPI' : 'IDFC'}` : `Payment Mode: ${booking.payment_mode}`}
                         </span>
                       )}
                     </div>
@@ -756,19 +758,23 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                       <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 text-center block">
                         {language === 'mr' ? 'पेमेंट मोड निवडा:' : 'Select Payment Mode:'}
                       </span>
-                      <div className="grid grid-cols-2 gap-2 mt-1">
-                        {(['Cash', 'UPI'] as const).map((mode) => (
+                      <div className="grid grid-cols-3 gap-2 mt-1">
+                        {(['Cash', 'UPI', 'IDFC'] as const).map((mode) => (
                           <button
                             key={mode}
                             type="button"
                             onClick={() => setSelectedPaymentMode(mode)}
                             className={`py-2 px-3 rounded-xl border text-xs font-bold transition text-center ${
                               selectedPaymentMode === mode
-                                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40'
-                                : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-350'
+                                ? mode === 'Cash'
+                                  ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40'
+                                  : mode === 'UPI'
+                                  ? 'bg-blue-500/15 text-blue-400 border-blue-500/40'
+                                  : 'bg-purple-500/15 text-purple-400 border-purple-500/40'
+                                : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-350'
                             }`}
                           >
-                            {mode === 'Cash' ? (language === 'mr' ? '💵 कॅश' : '💵 Cash') : (language === 'mr' ? '📱 UPI' : '📱 UPI')}
+                            {mode === 'Cash' ? (language === 'mr' ? '💵 कॅश' : '💵 Cash') : mode === 'UPI' ? (language === 'mr' ? '📱 UPI' : '📱 UPI') : (language === 'mr' ? '🏦 IDFC' : '🏦 IDFC')}
                           </button>
                         ))}
                       </div>

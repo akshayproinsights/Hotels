@@ -30,7 +30,7 @@ const translations: Record<Language, Record<string, string>> = {
     invalid_credentials: 'Invalid username or password',
 
     // Calendar & Bookings dashboard
-    search_guest: 'Search guest name...',
+    search_guest: 'Search customer name...',
     all_floors: 'All Floors',
     floor_num: 'Floor {num}',
     quick_book: 'Quick Book Room',
@@ -50,7 +50,7 @@ const translations: Record<Language, Record<string, string>> = {
 
     // Dues Page
     pending_payments: 'Pending Payments',
-    tap_guest_card: 'Tap a guest card to collect or update payment',
+    tap_guest_card: 'Tap a customer card to collect or update payment',
     overdue_days: 'Overdue by {days}d',
     checkout_today: 'Checkout Today!',
     checkout_tomorrow: 'Checkout Tomorrow',
@@ -82,11 +82,11 @@ const translations: Record<Language, Record<string, string>> = {
 
     // Settings Page
     rooms_management: 'Rooms Management',
-    guests_management: 'Guests Management',
+    guests_management: 'Customer Management',
     manage_rooms: 'Manage Rooms',
-    manage_guests: 'Manage Guests',
-    search_guests: 'Search guests...',
-    select_guest_history: 'Select a guest to view their booking history',
+    manage_guests: 'Manage Customers',
+    search_guests: 'Search customers...',
+    select_guest_history: 'Select a customer to view their booking history',
     add_room: 'Add Room',
     room_number: 'Room Number',
     extra_bed: 'Extra Bed',
@@ -101,7 +101,7 @@ const translations: Record<Language, Record<string, string>> = {
     failed_update_room: 'Failed to update room',
 
     // Sheets / Modals / Details
-    guest_details: 'Guest Details',
+    guest_details: 'Customer Details',
     mobile_number: 'Mobile Number',
     id_proof_type: 'ID Proof Type',
     aadhaar_card: 'Aadhaar Card',
@@ -123,19 +123,19 @@ const translations: Record<Language, Record<string, string>> = {
     update_payment: 'Update Payment',
     mark_fully_paid: 'Mark as Fully Paid',
     add_payment_log: 'Add Payment Log',
-    booking_history: 'Guest Booking History',
+    booking_history: 'Customer Booking History',
     select_room_prompt: 'Select Room',
     choose_room_type: 'Choose room type',
     room_details: 'Room Details',
     booking_details: 'Booking Details',
     payment_summary: 'Payment Summary',
-    no_bookings_recorded: 'No bookings recorded for this guest.',
+    no_bookings_recorded: 'No bookings recorded for this customer.',
     view_id_proof: 'View ID Proof',
     upload_new_id: 'Upload New ID',
     loading: 'Loading...',
     success: 'Success',
     error: 'Error',
-    viewing_guest_profile: 'Viewing Guest Profile',
+    viewing_guest_profile: 'Viewing Customer Profile',
   },
   mr: {
     // Navigation
@@ -158,7 +158,7 @@ const translations: Record<Language, Record<string, string>> = {
     invalid_credentials: 'चुकीचे युझरनेम किंवा पासवर्ड',
 
     // Calendar & Bookings dashboard
-    search_guest: 'पाहुण्याचे नाव शोधा...',
+    search_guest: 'ग्राहकाचे नाव शोधा...',
     all_floors: 'सर्व मजले',
     floor_num: 'मजला {num}',
     quick_book: 'खोली बुक करा',
@@ -178,7 +178,7 @@ const translations: Record<Language, Record<string, string>> = {
 
     // Dues Page
     pending_payments: 'प्रलंबित पेमेंट (बाकी)',
-    tap_guest_card: 'पेमेंट गोळा करण्यासाठी किंवा अपडेट करण्यासाठी पाहुण्याच्या कार्डवर टॅप करा',
+    tap_guest_card: 'पेमेंट गोळा करण्यासाठी किंवा अपडेट करण्यासाठी ग्राहकाच्या कार्डवर टॅप करा',
     overdue_days: 'थकीत दिवस: {days}d',
     checkout_today: 'आज चेकआउट आहे!',
     checkout_tomorrow: 'उद्या चेकआउट आहे',
@@ -210,11 +210,11 @@ const translations: Record<Language, Record<string, string>> = {
 
     // Settings Page
     rooms_management: 'खोली व्यवस्थापन',
-    guests_management: 'पाहुणे व्यवस्थापन',
+    guests_management: 'ग्राहक व्यवस्थापन',
     manage_rooms: 'खोल्यांचे व्यवस्थापन',
-    manage_guests: 'पाहुण्यांचे व्यवस्थापन',
-    search_guests: 'पाहुणे शोधा...',
-    select_guest_history: 'पाहुण्याचा बुकिंग रेकॉर्ड पाहण्यासाठी निवडा',
+    manage_guests: 'ग्राहकांचे व्यवस्थापन',
+    search_guests: 'ग्राहक शोधा...',
+    select_guest_history: 'ग्राहकाचा बुकिंग रेकॉर्ड पाहण्यासाठी निवडा',
     add_room: 'खोली जोडा',
     room_number: 'खोली क्रमांक',
     extra_bed: 'अतिरिक्त बेड',
@@ -229,7 +229,7 @@ const translations: Record<Language, Record<string, string>> = {
     failed_update_room: 'खोली अपडेट करणे अयशस्वी झाले',
 
     // Sheets / Modals / Details
-    guest_details: 'पाहुण्यांचे तपशील',
+    guest_details: 'ग्राहकाचे तपशील',
     mobile_number: 'मोबाईल नंबर',
     id_proof_type: 'ओळखपत्र प्रकार',
     aadhaar_card: 'आधार कार्ड',
@@ -251,19 +251,19 @@ const translations: Record<Language, Record<string, string>> = {
     update_payment: 'पेमेंट अपडेट करा',
     mark_fully_paid: 'पूर्ण पेमेंट म्हणून नोंद करा',
     add_payment_log: 'पेमेंट रेकॉर्ड जोडा',
-    booking_history: 'पाहुण्यांचे जुने बुकिंग रेकॉर्ड',
+    booking_history: 'ग्राहकांचे जुने बुकिंग रेकॉर्ड',
     select_room_prompt: 'खोली निवडा',
     choose_room_type: 'खोलीचा प्रकार निवडा',
     room_details: 'खोलीचे तपशील',
     booking_details: 'बुकिंगचे तपशील',
     payment_summary: 'पेमेंट सारांश',
-    no_bookings_recorded: 'या पाहुण्याचे कोणतेही रेकॉर्ड सापडले नाही.',
+    no_bookings_recorded: 'या ग्राहकाचे कोणतेही रेकॉर्ड सापडले नाही.',
     view_id_proof: 'ओळखपत्र पहा',
     upload_new_id: 'नवीन ओळखपत्र अपलोड करा',
     loading: 'लोड होत आहे...',
     success: 'यशस्वी',
     error: 'त्रुटी',
-    viewing_guest_profile: 'पाहुण्याचे प्रोफाइल पहात आहे',
+    viewing_guest_profile: 'ग्राहकाचे प्रोफाइल पहात आहे',
   }
 }
 

@@ -131,7 +131,7 @@ export default function GuestProfileSheet({ guest, onClose }: GuestProfileSheetP
           <div>
             <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
               <span className="bg-slate-800 text-slate-300 px-3 py-1 rounded-xl text-sm font-extrabold border border-slate-700">
-                Guest Profile
+                Customer Profile
               </span>
             </h2>
             <p className="text-xs text-slate-500 mt-1">Customer Record ID: {guest.id.substring(0, 8)}...</p>

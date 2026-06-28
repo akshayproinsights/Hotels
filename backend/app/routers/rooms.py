@@ -9,7 +9,7 @@ import logging
 router = APIRouter()
 
 # Enforce room type constraint at application level
-RoomType = Literal['AC Deluxe', 'Non AC Deluxe', 'AC Standard', 'Non AC Standard']
+RoomType = Literal['AC Deluxe', 'Non AC Deluxe', 'VIP AC Suite', 'VIP Non AC Suite']
 
 class RoomCreate(BaseModel):
     number: str = Field(..., min_length=1)

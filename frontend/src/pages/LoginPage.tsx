@@ -1,9 +1,10 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Hotel, Mail, Lock, Loader2, Eye, EyeOff } from 'lucide-react'
+import { Hotel, Mail, Lock, Loader2, Eye, EyeOff, Sun, Moon } from 'lucide-react'
 import api from '../api/client'
 import toast from 'react-hot-toast'
 import { useLanguage } from '../context/LanguageContext'
+import { useTheme } from '../context/ThemeContext'
 
 export default function LoginPage() {
   const [username, setUsername] = useState('')
@@ -12,6 +13,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
   const { language, setLanguage, t } = useLanguage()
+  const { theme, toggleTheme } = useTheme()
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -41,8 +43,8 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12 sm:px-6 lg:px-8 relative">
-      {/* Absolute Language Switcher */}
-      <div className="absolute top-4 right-4 z-20">
+      {/* Absolute Language & Theme Switcher Header */}
+      <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
         <div className="flex bg-slate-950 p-0.5 rounded-xl border border-slate-800 text-[10px] font-bold">
           <button
             onClick={() => setLanguage('en')}
@@ -67,6 +69,15 @@ export default function LoginPage() {
             मराठी
           </button>
         </div>
+
+        <button
+          onClick={toggleTheme}
+          type="button"
+          className="p-1.5 rounded-xl bg-slate-950 border border-slate-800 text-amber-400 hover:text-amber-300 transition-all shadow-sm flex items-center justify-center"
+          title={theme === 'light' ? 'Switch to Night Theme' : 'Switch to Day Theme'}
+        >
+          {theme === 'light' ? <Moon className="h-4 w-4 text-indigo-500" /> : <Sun className="h-4 w-4 text-amber-400" />}
+        </button>
       </div>
 
       {/* Background blur effects */}
