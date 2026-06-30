@@ -16,7 +16,7 @@ router = APIRouter()
 
 class UploadRequest(BaseModel):
     booking_id: str
-    guest_id: str
+    customer_id: str
     file_name: str
     content_type: str   # e.g. "image/jpeg"
     doc_type: str = "id_proof"
@@ -34,7 +34,7 @@ def get_upload_url(body: UploadRequest, user=Depends(get_current_user)):
     supabase.table("documents").insert({
         "id":         doc_id,
         "booking_id": body.booking_id,
-        "guest_id":   body.guest_id,
+        "customer_id": body.customer_id,
         "r2_key":     r2_key,
         "file_name":  body.file_name,
         "doc_type":   body.doc_type,
@@ -59,10 +59,10 @@ def list_docs(booking_id: str, user=Depends(get_current_user)):
              "public_url": public_url(d["r2_key"]),
              "uploaded_at": d["uploaded_at"]} for d in res.data]
 
-@router.get("/guest/{guest_id}")
-def list_guest_docs(guest_id: str, user=Depends(get_current_user)):
+@router.get("/customer/{customer_id}")
+def list_customer_docs(customer_id: str, user=Depends(get_current_user)):
     res = supabase.table("documents").select("*") \
-        .eq("guest_id", guest_id).execute()
+        .eq("customer_id", customer_id).execute()
     return [{"id": d["id"], "file_name": d["file_name"],
              "public_url": public_url(d["r2_key"]),
              "uploaded_at": d["uploaded_at"]} for d in res.data]
@@ -94,18 +94,21 @@ def call_gemini_extract_details(
         raise HTTPException(status_code=400, detail="Invalid input type for call_gemini_extract_details")
 
     prompt = (
-        "You are an OCR assistant for a hotel reception desk. Extract the guest details from the uploaded ID document image(s). "
+        "You are an OCR assistant for a hotel reception desk. Extract the customer details from the uploaded ID document image(s). "
         "ID documents might be an Aadhar Card, Driving License, Passport, PAN Card, etc.\n\n"
         "Extract the following fields:\n"
-        "1. Full Name: Look for labels like 'Name', 'Full Name', 'नाम', or similar. Return the name value.\n"
+        "1. Full Name: Look for labels like 'Name', 'Full Name', 'नाम', or similar. Extract the name and format it as 'English Name (Marathi Name)'. "
+        "The English Name part must be in Latin script (e.g. 'John Doe' or 'Rahul Sharma'). If the name is in Devanagari script on the card, transliterate/convert it to Latin script. "
+        "The Marathi Name part must be inside parentheses and in Devanagari script (e.g. '(जॉन डो)' or '(राहुल शर्मा)'). If the name is in Latin script on the card, transliterate it to Devanagari. "
+        "Example format: 'John Doe (जॉन डो)'. Ensure there is exactly one space before the opening parenthesis.\n"
         "2. Address: Look for labels like 'Address', 'पता', or similar. Return the complete address value. If not found, return empty string.\n"
         "3. Age: Look for Date of Birth (DOB), Year of Birth (YOB), or labels like 'DOB', 'Year of Birth', 'जन्म तारीख', 'जन्म वर्ष'. "
-        f"Calculate the guest's age as of today ({date.today().isoformat()}). "
+        f"Calculate the customer's age as of today ({date.today().isoformat()}). "
         "The age must be a whole number (integer). If DOB/YOB cannot be found, calculate/return null.\n\n"
         "Return the output as a valid JSON object with the keys 'name', 'address', and 'age'. "
         "Do not include any markdown formatting, code blocks, or extra text. Just the raw JSON string. "
         "Example output:\n"
-        "{\"name\": \"John Doe\", \"address\": \"123 Main St, New York, NY\", \"age\": 34}"
+        "{\"name\": \"John Doe (जॉन डो)\", \"address\": \"123 Main St, New York, NY\", \"age\": 34}"
     )
 
     parts = [{"text": prompt}]
@@ -151,9 +154,11 @@ def call_gemini_extract_details(
                 
             try:
                 details = json.loads(text)
+                name_val = details.get("name")
+                addr_val = details.get("address")
                 return {
-                    "name": details.get("name", "").strip(),
-                    "address": details.get("address", "").strip(),
+                    "name": name_val.strip() if name_val else "",
+                    "address": addr_val.strip() if addr_val else "",
                     "age": details.get("age")
                 }
             except json.JSONDecodeError:
@@ -194,4 +199,30 @@ async def extract_name(
         
     extracted_details = call_gemini_extract_details(files_data)
     return extracted_details
+
+
+@router.delete("/{document_id}")
+def delete_document(document_id: str, user=Depends(get_current_user)):
+    try:
+        uuid.UUID(document_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid UUID format")
+        
+    res = supabase.table("documents").select("id, r2_key").eq("id", document_id).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Document not found")
+        
+    doc = res.data[0]
+    
+    # 1. Delete from Cloudflare R2
+    from app.storage import delete_file
+    try:
+        delete_file(doc["r2_key"])
+    except Exception as e:
+        import logging
+        logging.error(f"Error deleting file from R2 for document {document_id}: {str(e)}")
+        
+    # 2. Delete from database
+    supabase.table("documents").delete().eq("id", document_id).execute()
+    return {"message": "Document deleted successfully", "id": document_id}
 

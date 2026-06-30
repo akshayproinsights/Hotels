@@ -80,3 +80,14 @@ def public_url(key: str) -> str:
         Full public URL string.
     """
     return f"{settings.r2_public_url.rstrip('/')}/{key}"
+
+
+def delete_file(key: str) -> None:
+    """
+    Delete a file from Cloudflare R2 bucket.
+    """
+    try:
+        r2.delete_object(Bucket=settings.r2_bucket, Key=key)
+    except ClientError as e:
+        logging.error(f"Failed to delete object key={key} from R2: {e}")
+        raise

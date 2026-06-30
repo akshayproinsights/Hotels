@@ -87,7 +87,7 @@ def get_calendar(
             # Overlap: booking starts before end of day, and ends after start of day
             if pb["check_in"] <= day_end and pb["check_out"] > day_start:
                 occupied_rooms.add(pb["room_id"])
-                if pb.get("payment_status") in ("unpaid", "partial", "hold"):
+                if pb.get("payment_status") in ("unpaid", "partial", "reserved"):
                     pending_count += 1
         
         occupied_count = len(occupied_rooms)

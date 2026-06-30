@@ -347,7 +347,7 @@ export default function CalendarPage() {
               <div 
                 onClick={(e) => {
                   e.stopPropagation()
-                  navigate('/unpaid')
+                  navigate('/unpaid?filter=today')
                 }}
                 className="glass-panel p-3 rounded-2xl bg-amber-500/[0.04] border-amber-500/15 flex flex-col items-center justify-center text-center shadow-inner hover:bg-amber-500/[0.08] active:scale-95 transition duration-200 cursor-pointer relative overflow-hidden"
               >

@@ -13,9 +13,10 @@ export interface User {
   id: string
   email: string
   name: string
+  role?: 'admin' | 'staff'
 }
 
-export interface Guest {
+export interface Customer {
   id: string
   name: string
   phone: string
@@ -27,12 +28,15 @@ export interface Guest {
   created_at: string
 }
 
+export type Guest = Customer;
+
 export interface Booking {
   id: string
   booking_number: string
   room_id: string
   room_type: 'AC Deluxe' | 'Non AC Deluxe' | 'VIP AC Suite' | 'VIP Non AC Suite'
-  guest_id: string
+  customer_id: string
+  guest_id?: string
   check_in: string // ISO string
   check_out: string // ISO string
   adults: number
@@ -43,7 +47,7 @@ export interface Booking {
   total_amount: number
   paid_amount: number
   payment_mode: 'Cash' | 'UPI' | 'IDFC' | 'Pending'
-  payment_status: 'paid' | 'unpaid' | 'partial' | 'hold'
+  payment_status: 'paid' | 'unpaid' | 'partial' | 'reserved'
   deposit_amount: number
   occupation?: string | null
   notes?: string | null
@@ -54,17 +58,20 @@ export interface Booking {
   created_at: string
   updated_at: string
   rooms?: Room
-  guests?: Guest
+  customers?: Customer
+  guests?: Customer
   documents?: Document[]
   is_checked_in: boolean
+  extra_bill_amount?: number
+  extra_bill_note?: string | null
 }
 
 export interface BookingCreate {
   room_id: string
   room_type: 'AC Deluxe' | 'Non AC Deluxe' | 'VIP AC Suite' | 'VIP Non AC Suite'
-  guest_id?: string
-  guest_name?: string
-  guest_phone?: string
+  customer_id?: string
+  customer_name?: string
+  customer_phone?: string
   check_in: string // ISO string
   check_out: string // ISO string
   adults: number
@@ -72,14 +79,16 @@ export interface BookingCreate {
   extra_beds: number
   room_price: number
   payment_mode: 'Cash' | 'UPI' | 'IDFC' | 'Pending'
-  payment_status: 'paid' | 'unpaid' | 'hold' | 'partial'
+  payment_status: 'paid' | 'unpaid' | 'reserved' | 'partial'
   deposit_amount: number
   occupation?: string
   notes?: string
   total_amount?: number
-  guest_address?: string
-  guest_age?: number
+  customer_address?: string
+  customer_age?: number
   is_checked_in?: boolean
+  extra_bill_amount?: number
+  extra_bill_note?: string | null
 }
 
 export interface RoomBookingInfo {
@@ -94,39 +103,50 @@ export interface RoomBookingInfo {
 
 export interface BookingBatchCreate {
   rooms: RoomBookingInfo[]
-  guest_id?: string
-  guest_name?: string
-  guest_phone?: string
-  guest_address?: string
-  guest_age?: number
+  customer_id?: string
+  customer_name?: string
+  customer_phone?: string
+  customer_address?: string
+  customer_age?: number
   check_in: string // ISO string
   check_out: string // ISO string
   payment_mode: 'Cash' | 'UPI' | 'IDFC' | 'Pending'
-  payment_status: 'paid' | 'unpaid' | 'hold' | 'partial'
+  payment_status: 'paid' | 'unpaid' | 'reserved' | 'partial'
   deposit_amount: number
   occupation?: string
   notes?: string
   total_amount?: number
   is_checked_in?: boolean
+  extra_bill_amount?: number
+  extra_bill_note?: string | null
 }
 
 export interface BookingUpdate {
+  check_in?: string // ISO string
   check_out?: string // ISO string
+  room_id?: string
+  room_type?: 'AC Deluxe' | 'Non AC Deluxe' | 'VIP AC Suite' | 'VIP Non AC Suite'
+  adults?: number
+  children?: number
+  extra_beds?: number
+  room_price?: number
   paid_amount?: number
   payment_mode?: 'Cash' | 'UPI' | 'IDFC' | 'Pending'
-  payment_status?: 'paid' | 'unpaid' | 'partial' | 'hold'
+  payment_status?: 'paid' | 'unpaid' | 'partial' | 'reserved'
   status?: 'active' | 'checked_out' | 'cancelled'
   notes?: string
   total_amount?: number
   actual_checkin_time?: string | null
   actual_checkout_time?: string | null
   is_checked_in?: boolean
+  extra_bill_amount?: number
+  extra_bill_note?: string | null
 }
 
 export interface Document {
   id: string
   booking_id: string
-  guest_id: string
+  customer_id: string
   r2_key: string
   file_name: string
   doc_type: string
@@ -135,18 +155,22 @@ export interface Document {
 }
 
 export interface InventoryRoom extends Room {
-  room_status: 'vacant' | 'occupied' | 'hold' | 'unpaid'
+  room_status: 'vacant' | 'occupied' | 'reserved' | 'unpaid'
   booking?: {
     id: string
     room_id: string
     room_type: 'AC Deluxe' | 'Non AC Deluxe' | 'VIP AC Suite' | 'VIP Non AC Suite'
-    guest_id: string
+    customer_id: string
     check_in: string
     check_out: string
-    payment_status: 'paid' | 'unpaid' | 'partial' | 'hold'
+    payment_status: 'paid' | 'unpaid' | 'partial' | 'reserved'
     total_amount: number
     paid_amount: number
     is_checked_in: boolean
+    customers?: {
+      name: string
+      phone: string
+    }
     guests?: {
       name: string
       phone: string

@@ -43,6 +43,7 @@ def login(body: LoginRequest):
                 "id": str(res.user.id),
                 "email": res.user.email,
                 "name": res.user.user_metadata.get("name", ""),
+                "role": "admin" if res.user.email == "admin@snapkhata.com" else "staff",
             }
         }
     except Exception as e:
@@ -73,4 +74,5 @@ def me(user=Depends(get_current_user)):
         "id":    user.get("sub"),
         "email": user.get("email"),
         "name":  user.get("user_metadata", {}).get("name", ""),
+        "role":  "admin" if user.get("email") == "admin@snapkhata.com" else "staff",
     }

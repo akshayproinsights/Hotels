@@ -18,3 +18,7 @@ dist/
 .DS_Store
 Thumbs.db
 
+# Scratch directory
+scratch/
+
+

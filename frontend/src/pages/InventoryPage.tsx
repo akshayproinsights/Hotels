@@ -1,24 +1,83 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { format, addDays, subDays, parseISO } from 'date-fns'
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, RefreshCw, Layers, ShieldAlert, Loader2, LayoutGrid, Map } from 'lucide-react'
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Layers, ShieldAlert, Loader2, X } from 'lucide-react'
 import { useInventory } from '../hooks/useInventory'
 import RoomCard from '../components/RoomCard'
 import BlockRoomSheet from '../components/BlockRoomSheet'
 import BookingDetailSheet from '../components/BookingDetailSheet'
 import type { InventoryRoom } from '../types'
 import { useLanguage } from '../context/LanguageContext'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import toast from 'react-hot-toast'
+import { cancelBooking, restoreBooking } from '../api/bookings'
 
 export default function InventoryPage() {
-  const [searchParams, setSearchParams] = useSearchParams()
+  const queryClient = useQueryClient()
+  const { language, t } = useLanguage()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const initialDate = searchParams.get('date') || format(new Date(), 'yyyy-MM-dd')
   const [selectedDate, setSelectedDate] = useState(initialDate)
   const [selectedRoomForBooking, setSelectedRoomForBooking] = useState<InventoryRoom | null>(null)
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null)
-  const [viewMode, setViewMode] = useState<'grid' | 'map'>('grid')
   const [briefTab, setBriefTab] = useState<'arrivals' | 'checkouts' | 'staying'>('arrivals')
-  const { language, t } = useLanguage()
+  const [quickActionRoom, setQuickActionRoom] = useState<InventoryRoom | null>(null)
+  const [cancelConfirmBooking, setCancelConfirmBooking] = useState<{ id: string; roomNumber: string; customerName: string } | null>(null)
+
+  const cancelMutation = useMutation({
+    mutationFn: (bookingId: string) => cancelBooking(bookingId),
+    onSuccess: (_, bookingId) => {
+      queryClient.invalidateQueries({ queryKey: ['inventory'] })
+      queryClient.invalidateQueries({ queryKey: ['dailyReport'] })
+      queryClient.invalidateQueries({ queryKey: ['monthlyReport'] })
+      
+      toast((t) => (
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-semibold">
+            {language === 'mr' ? 'बुकिंग रद्द केले' : 'Booking cancelled'}
+          </span>
+          <button
+            onClick={async () => {
+              toast.dismiss(t.id)
+              const restoreToast = toast.loading(language === 'mr' ? 'पुनर्संचयित करत आहे...' : 'Restoring booking...')
+              try {
+                await restoreBooking(bookingId)
+                queryClient.invalidateQueries({ queryKey: ['inventory'] })
+                queryClient.invalidateQueries({ queryKey: ['dailyReport'] })
+                queryClient.invalidateQueries({ queryKey: ['monthlyReport'] })
+                toast.success(language === 'mr' ? 'बुकिंग पुनर्संचयित केले!' : 'Booking restored!', { id: restoreToast })
+              } catch (err) {
+                toast.error(language === 'mr' ? 'पुनर्संचयित करण्यात अयशस्वी' : 'Failed to restore booking', { id: restoreToast })
+              }
+            }}
+            className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black px-3 py-1.5 rounded-lg transition"
+          >
+            {language === 'mr' ? 'पूर्वतयारी' : 'Undo'}
+          </button>
+        </div>
+      ), {
+        duration: 7000,
+        position: 'bottom-center',
+        style: {
+          background: '#0f172a',
+          color: '#f8fafc',
+          border: '1px solid #334155',
+          borderRadius: '16px',
+        }
+      })
+    },
+    onError: (err: any) => {
+      const errorMsg = err.response?.data?.detail || (language === 'mr' ? 'बुकिंग रद्द करण्यात अडचण आली' : 'Failed to cancel booking')
+      toast.error(errorMsg)
+    }
+  })
+
+  const handleRoomLongPress = (room: InventoryRoom) => {
+    if (room.room_status !== 'vacant' && room.booking) {
+      setQuickActionRoom(room)
+    }
+  }
 
   // Touch gesture state for swipe-to-navigate days
   const [touchStart, setTouchStart] = useState<number | null>(null)
@@ -58,7 +117,7 @@ export default function InventoryPage() {
     }
   }, [urlDate, selectedDate])
 
-  const { data, isLoading, isError, refetch, isRefetching } = useInventory(selectedDate)
+  const { data, isLoading, isError, refetch } = useInventory(selectedDate)
 
   const handlePrevDay = () => {
     const newDate = format(subDays(parseISO(selectedDate), 1), 'yyyy-MM-dd')
@@ -151,173 +210,52 @@ export default function InventoryPage() {
       onTouchEnd={handleTouchEnd}
       className="flex flex-col gap-4 px-3 py-4 pb-24 animate-fade-in sm:px-4 sm:py-6"
     >
-      
-      {/* Date Navigation Bar */}
-      <div className="glass-panel rounded-2xl p-2.5 sm:p-4 flex flex-col gap-3.5 sm:flex-row sm:justify-between sm:items-center bg-slate-900/40">
-        {/* Primary Date Switcher */}
-        <div className="flex items-center justify-between sm:justify-start gap-3 w-full sm:w-auto">
-          <button
-            onClick={handlePrevDay}
-            className="flex items-center justify-center w-12 h-12 rounded-xl bg-slate-950 border border-slate-850 hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition active:scale-95 flex-shrink-0"
-            title={language === 'mr' ? 'पूर्वीचा दिवस' : 'Previous Day'}
-          >
-            <ChevronLeft className="h-6 w-6" />
-          </button>
-          
-          <div className="flex items-center gap-2 flex-1 justify-center sm:flex-initial">
-            <button
-              onClick={() => navigate(`/?date=${selectedDate}`)}
-              className="flex items-center gap-2 hover:bg-slate-850/60 bg-slate-950/40 border border-slate-850 px-3 py-2.5 rounded-xl transition active:scale-95 text-left"
-              title={language === 'mr' ? 'तारीख बदलण्यासाठी कॅलेंडरवर जा' : 'Go to calendar to change date'}
-            >
-              <CalendarIcon className="h-4.5 w-4.5 text-emerald-400 flex-shrink-0" />
-              <span className="text-xs sm:text-sm font-extrabold text-slate-200 tracking-tight whitespace-nowrap">
-                <span className="inline sm:hidden">{formattedDateCompact}</span>
-                <span className="hidden sm:inline">{formattedDate}</span>
-              </span>
-            </button>
-
-            <button
-              onClick={handleToday}
-              className="px-3 py-2.5 bg-slate-950 border border-slate-850 rounded-xl hover:bg-slate-900 text-xs font-black text-emerald-400 active:scale-95 transition"
-            >
-              {t('today')}
-            </button>
-          </div>
-
-          <button
-            onClick={handleNextDay}
-            className="flex items-center justify-center w-14 h-12 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-md shadow-emerald-500/10 hover:shadow-emerald-500/20 transition active:scale-95 flex-shrink-0"
-            title={language === 'mr' ? 'पुढील दिवस' : 'Next Day'}
-          >
-            <ChevronRight className="h-7 w-7 stroke-[3]" />
-          </button>
-        </div>
-
-        {/* Secondary Controls (Refresh & Layout Toggles) */}
-        <div className="flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto border-t border-slate-850/40 pt-3 sm:pt-0 sm:border-t-0">
-          <button
-            onClick={() => refetch()}
-            disabled={isRefetching}
-            className="flex items-center gap-1.5 px-3 py-2 bg-slate-950/40 border border-slate-850 hover:bg-slate-900 text-slate-400 rounded-xl transition disabled:opacity-50 active:scale-95 text-xs font-bold"
-            title={language === 'mr' ? 'अपडेट करा' : 'Refresh inventory'}
-          >
-            <RefreshCw className={`h-3.5 w-3.5 text-slate-400 ${isRefetching ? 'animate-spin' : ''}`} />
-            <span>{language === 'mr' ? 'रीफ्रेश' : 'Refresh'}</span>
-          </button>
-
-          {/* Toggle Layout Segmented Controller */}
-          <div className="flex bg-slate-950/60 p-0.5 sm:p-1 border border-slate-800 rounded-xl flex-shrink-0">
-            <button
-              onClick={() => setViewMode('grid')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all duration-200 ${
-                viewMode === 'grid'
-                  ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/10'
-                  : 'text-slate-500 hover:text-slate-300'
-              }`}
-              title={language === 'mr' ? 'ग्रिड कार्ड व्ह्यू' : 'Grid Card View'}
-            >
-              <LayoutGrid className="h-3.5 w-3.5" />
-              <span className="text-[10px] uppercase tracking-wider">{language === 'mr' ? 'ग्रिड' : 'Grid'}</span>
-            </button>
-            <button
-              onClick={() => setViewMode('map')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all duration-200 ${
-                viewMode === 'map'
-                  ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/10'
-                  : 'text-slate-500 hover:text-slate-300'
-              }`}
-              title={language === 'mr' ? 'मजला आराखडा मॅप व्ह्यू' : 'Floor Plan Map View'}
-            >
-              <Map className="h-3.5 w-3.5" />
-              <span className="text-[10px] uppercase tracking-wider">{language === 'mr' ? 'नकाशा' : 'Map'}</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Occupancy Stats Summary */}
-      <div className="grid grid-cols-4 gap-1.5 sm:gap-3">
-        <div className="glass-panel flex flex-col items-center justify-center p-1.5 rounded-xl sm:rounded-2xl sm:items-start sm:p-3.5 bg-emerald-500/5 border-emerald-500/10">
-          <span className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-emerald-400 flex items-center gap-1 sm:gap-1.5">
-            <span>✅</span>
-            <span className="truncate">{language === 'mr' ? 'रिकामी' : 'Free'}</span>
-          </span>
-          <span className="text-xs sm:text-2xl font-black text-slate-100 mt-0.5 sm:mt-2">{data.summary.vacant}</span>
-        </div>
-
-        <div className="glass-panel flex flex-col items-center justify-center p-1.5 rounded-xl sm:rounded-2xl sm:items-start sm:p-3.5 bg-slate-500/5 border-slate-800">
-          <span className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-slate-400 flex items-center gap-1 sm:gap-1.5">
-            <span>👤</span>
-            <span className="truncate">{language === 'mr' ? 'भरलेली' : 'Occupied'}</span>
-          </span>
-          <span className="text-xs sm:text-2xl font-black text-slate-100 mt-0.5 sm:mt-2">{data.summary.occupied}</span>
-        </div>
-
-        <div className="glass-panel flex flex-col items-center justify-center p-1.5 rounded-xl sm:rounded-2xl sm:items-start sm:p-3.5 bg-amber-500/5 border-amber-500/10">
-          <span className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-amber-500 flex items-center gap-1 sm:gap-1.5">
-            <span>🔒</span>
-            <span className="truncate">{language === 'mr' ? 'होल्ड' : 'Hold'}</span>
-          </span>
-          <span className="text-xs sm:text-2xl font-black text-slate-100 mt-0.5 sm:mt-2">{data.summary.hold}</span>
-        </div>
-
-        <div className="glass-panel flex flex-col items-center justify-center p-1.5 rounded-xl sm:rounded-2xl sm:items-start sm:p-3.5 bg-rose-500/5 border-rose-500/10">
-          <span className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-rose-500 flex items-center gap-1 sm:gap-1.5">
-            <span>⚠️</span>
-            <span className="truncate">{language === 'mr' ? 'बाकी' : 'Unpaid'}</span>
-          </span>
-          <span className="text-xs sm:text-2xl font-black text-slate-100 mt-0.5 sm:mt-2">{data.summary.unpaid}</span>
-        </div>
-      </div>
-
-      {/* Today's Front Desk Brief Card */}
+      {/* Today's / Historical Front Desk Brief Card */}
       {(() => {
         const todayStr = format(new Date(), 'yyyy-MM-dd')
         const isViewingToday = selectedDate === todayStr
-        if (!isViewingToday) return null
 
         const dailyBookings = data.daily_bookings || []
 
-        // Arrivals: check_in is today
-        const arrivals = dailyBookings.filter(b => b.check_in.startsWith(todayStr))
-        // Pending arrivals = not yet checked in
-        const arrivalsPending = arrivals.filter(b => !b.is_checked_in)
-        // Done arrivals = already checked in
-        const arrivalsDone = arrivals.filter(b => b.is_checked_in)
+        // Arrivals: check_in is on selected Date
+        const arrivals = dailyBookings.filter(b => b.check_in.startsWith(selectedDate))
+        // Pending arrivals = not yet checked in (and must be active)
+        const arrivalsPending = arrivals.filter(b => b.status === 'active' && !b.is_checked_in)
 
-        // Checkouts: check_out is today (only those who are still active / not yet checked out)
-        const checkouts = dailyBookings.filter(b => b.check_out.startsWith(todayStr))
-        // Pending checkouts = still in house (not yet checked out)
-        const checkoutsPending = checkouts.filter(b => b.status !== 'checked_out')
+        // Checkouts: check_out is on selected Date
+        const checkouts = dailyBookings.filter(b => b.check_out.startsWith(selectedDate))
+        // Pending checkouts = still active and not yet checked out
+        const checkoutsPending = checkouts.filter(b => b.status === 'active')
         // Done checkouts = already checked out (room freed)
         const checkoutsDone = checkouts.filter(b => b.status === 'checked_out')
 
-        // Staying Over: checked in, not checking out today, not a today arrival
-        const stayingOver = dailyBookings.filter(b =>
-          b.status === 'active' &&
-          b.is_checked_in &&
-          !b.check_in.startsWith(todayStr) &&
-          !b.check_out.startsWith(todayStr)
-        )
 
-        const hasActivity = arrivals.length > 0 || checkouts.length > 0 || stayingOver.length > 0
+        // Total In-House — read from data.rooms which is already deduplicated per room by backend.
+        // Rooms with room_status 'occupied' or 'unpaid' are physically occupied by a checked-in guest.
+        // This prevents showing Room 101 twice when two bookings overlap (one departing, one arriving).
+        const inHouseBookings = (data.rooms || [])
+          .filter((r: any) => r.room_status === 'occupied' || r.room_status === 'unpaid')
+          .map((r: any) => r.booking)
+          .filter(Boolean)
+        // Badge count from backend summary (always equals inHouseBookings.length now)
+        const inHouseCount = data.summary.occupied
+
+        const hasActivity = arrivals.length > 0 || checkouts.length > 0 || inHouseCount > 0
         if (!hasActivity) return null
 
         // Smart: auto-highlight the tab with most pending work
-        // (this is read-only logic for the badge dot indicator)
         const arrivalsPendingCount = arrivalsPending.length
         const checkoutsPendingCount = checkoutsPending.length
 
-        // Helper: render a guest action row
-        const GuestRow = ({ b, variant }: { b: typeof arrivals[0], variant: 'arrival' | 'checkout' | 'staying' }) => {
+        // Helper: render a customer action row
+        const CustomerRow = ({ b, variant }: { b: typeof arrivals[0], variant: 'arrival' | 'checkout' | 'staying' }) => {
           const isDone =
             variant === 'arrival' ? b.is_checked_in :
             variant === 'checkout' ? b.status === 'checked_out' :
             false
 
           const colorSet = {
-            arrival: { pending: 'bg-amber-500/8 border-amber-500/20', done: 'bg-slate-800/30 border-slate-700/30', badge_pending: 'bg-amber-500 text-slate-950', badge_done: 'bg-slate-700/60 text-slate-400', room_pending: 'bg-amber-500/10 text-amber-400 border-amber-500/25', room_done: 'bg-slate-800 text-slate-500 border-slate-700/30' },
+            arrival: { pending: 'bg-amber-500/8 border-amber-500/20', done: 'bg-slate-800/30 border-slate-700/30', badge_pending: 'bg-amber-500 text-slate-955', badge_done: 'bg-slate-700/60 text-slate-400', room_pending: 'bg-amber-500/10 text-amber-400 border-amber-500/25', room_done: 'bg-slate-800 text-slate-500 border-slate-700/30' },
             checkout: { pending: 'bg-rose-500/8 border-rose-500/20', done: 'bg-slate-800/30 border-slate-700/30', badge_pending: 'bg-rose-500 text-white', badge_done: 'bg-slate-700/60 text-slate-400', room_pending: 'bg-rose-500/10 text-rose-400 border-rose-500/25', room_done: 'bg-slate-800 text-slate-500 border-slate-700/30' },
             staying: { pending: 'bg-emerald-500/5 border-emerald-800/40', done: 'bg-slate-800/30 border-slate-700/30', badge_pending: 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/25', badge_done: 'bg-slate-700/60 text-slate-400', room_pending: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20', room_done: 'bg-slate-800 text-slate-500 border-slate-700/30' },
           }[variant]
@@ -329,17 +267,16 @@ export default function InventoryPage() {
             : (language === 'mr' ? 'मुक्काम' : 'Staying')
 
           const subtitleLabel = variant === 'arrival'
-            ? (language === 'mr' ? 'आगमन आज' : 'Check-In Today')
+            ? (language === 'mr' ? (isViewingToday ? 'आगमन आज' : 'आगमन') : (isViewingToday ? 'Check-In Today' : 'Check-In'))
             : variant === 'checkout'
-            ? (language === 'mr' ? 'प्रस्थान आज' : 'Check-Out Today')
-            : (language === 'mr' ? 'मुक्कामी ग्राहक' : 'In-House Guest')
+            ? (language === 'mr' ? (isViewingToday ? 'प्रस्थान आज' : 'प्रस्थान') : (isViewingToday ? 'Check-Out Today' : 'Check-Out'))
+            : (language === 'mr' ? 'मुक्कामी ग्राहक' : 'In-House Customer')
 
           return (
-            <button
+            <div
               key={b.id}
-              type="button"
               onClick={() => setSelectedBookingId(b.id)}
-              className={`w-full flex items-center justify-between p-2.5 rounded-xl border transition-all text-left ${
+              className={`w-full flex items-center justify-between p-2.5 rounded-xl border transition-all text-left cursor-pointer select-none ${
                 isDone ? colorSet.done : colorSet.pending
               } ${isDone ? 'opacity-55' : ''}`}
             >
@@ -350,20 +287,34 @@ export default function InventoryPage() {
                   {b.rooms?.number || b.room_id}
                 </span>
                 <div className="min-w-0">
-                  <p className={`text-xs font-black truncate ${isDone ? 'text-slate-400 line-through' : 'text-slate-200'}`}>{b.guests?.name}</p>
+                  <p className={`text-xs font-black truncate ${isDone ? 'text-slate-400 line-through' : 'text-slate-200'}`}>{b.customers?.name}</p>
                   <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wider mt-0.5">
                     {b.room_type} · {subtitleLabel}
                   </p>
                 </div>
               </div>
               <div className="flex items-center gap-1.5 flex-shrink-0">
-                <span className={`text-[9px] uppercase tracking-wider font-extrabold px-2.5 py-0.5 rounded ${
-                  isDone ? colorSet.badge_done : colorSet.badge_pending
-                }`}>
-                  {badgeLabel}
-                </span>
+                {!isDone && variant === 'arrival' ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedBookingId(b.id);
+                    }}
+                    className="text-[10px] uppercase tracking-wider font-black px-2.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-500 text-slate-955 transition active:scale-95 flex items-center gap-1 shadow-sm"
+                  >
+                    <span>✓</span>
+                    <span>{language === 'mr' ? 'चेक-इन' : 'Check In'}</span>
+                  </button>
+                ) : (
+                  <span className={`text-[9px] uppercase tracking-wider font-extrabold px-2.5 py-0.5 rounded ${
+                    isDone ? colorSet.badge_done : colorSet.badge_pending
+                  }`}>
+                    {badgeLabel}
+                  </span>
+                )}
               </div>
-            </button>
+            </div>
           )
         }
 
@@ -374,12 +325,14 @@ export default function InventoryPage() {
               <div className="flex items-center gap-2">
                 <span className="text-lg">📋</span>
                 <h3 className="text-sm font-black uppercase tracking-wider text-slate-200">
-                  {language === 'mr' ? 'आजचा फ्रंट डेस्क सारांश' : "Today's Front Desk Brief"}
+                  {isViewingToday
+                    ? (language === 'mr' ? 'आजचा फ्रंट डेस्क सारांश' : "Today's Front Desk Brief")
+                    : (language === 'mr' ? `${formattedDateCompact} फ्रंट डेस्क सारांश` : `${formattedDateCompact} Front Desk Brief`)}
                 </h3>
               </div>
               {/* Live urgency indicator */}
               {(arrivalsPendingCount > 0 || checkoutsPendingCount > 0) ? (
-                <span className="text-[9px] font-black text-amber-950 bg-amber-400 px-2 py-0.5 rounded-full uppercase tracking-wider animate-pulse">
+                <span className="text-[9px] font-black text-amber-955 bg-amber-400 px-2 py-0.5 rounded-full uppercase tracking-wider animate-pulse">
                   {arrivalsPendingCount + checkoutsPendingCount} {language === 'mr' ? 'बाकी' : 'Pending'}
                 </span>
               ) : (
@@ -403,12 +356,12 @@ export default function InventoryPage() {
               >
                 {/* Pending dot indicator */}
                 {arrivalsPendingCount > 0 && briefTab !== 'arrivals' && (
-                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-amber-400 text-slate-950 text-[8px] font-black rounded-full flex items-center justify-center">
+                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-amber-400 text-slate-955 text-[8px] font-black rounded-full flex items-center justify-center">
                     {arrivalsPendingCount}
                   </span>
                 )}
                 <div className="flex items-center gap-1">
-                  <span>🛬</span>
+                  <span>🚌</span>
                   <span className="text-[9px] uppercase tracking-wider font-extrabold">
                     {language === 'mr' ? 'आगमन' : 'Arrivals'}
                   </span>
@@ -478,7 +431,7 @@ export default function InventoryPage() {
                   </span>
                 </div>
                 <span className={`text-[10px] mt-0.5 font-bold tabular-nums ${briefTab === 'staying' ? 'text-slate-955 font-black' : 'text-emerald-450'}`}>
-                  {stayingOver.length} {language === 'mr' ? 'खोल्या' : 'Rooms'}
+                  {inHouseCount} {language === 'mr' ? 'खोल्या' : 'Rooms'}
                 </span>
               </button>
             </div>
@@ -489,33 +442,18 @@ export default function InventoryPage() {
                 <>
                   {arrivals.length === 0 ? (
                     <div className="text-center py-5 text-xs text-slate-500 italic bg-slate-955/20 rounded-xl border border-slate-850/60 border-dashed">
-                      {language === 'mr' ? '🌙 आज कोणतेही आगमन नियोजित नाही.' : '🌙 No arrivals scheduled for today.'}
+                      {language === 'mr' 
+                        ? (isViewingToday ? '🌙 आज कोणतेही आगमन नियोजित नाही.' : '🌙 या दिवशी कोणतेही आगमन नियोजित नाही.') 
+                        : (isViewingToday ? '🌙 No arrivals scheduled for today.' : '🌙 No arrivals scheduled for this day.')}
                     </div>
                   ) : arrivalsPending.length === 0 ? (
-                    // All arrivals done — celebration + collapsed done list
-                    <>
-                      <div className="text-center py-3 text-xs font-bold text-emerald-400 bg-emerald-500/5 rounded-xl border border-emerald-500/15">
-                        🎉 {language === 'mr' ? 'सर्व अतिथी आले! खोल्या Occupied आहेत.' : 'All guests checked in! Rooms are now Occupied.'}
-                      </div>
-                      {arrivalsDone.map(b => <GuestRow key={b.id} b={b} variant="arrival" />)}
-                    </>
+                    // All arrivals done — celebration
+                    <div className="text-center py-3 text-xs font-bold text-emerald-400 bg-emerald-500/5 rounded-xl border border-emerald-500/15">
+                      🎉 {language === 'mr' ? 'सर्व ग्राहक आले! खोल्या Occupied आहेत.' : 'All customers checked in! Rooms are now Occupied.'}
+                    </div>
                   ) : (
-                    // Pending first, then done at bottom dimmed
-                    <>
-                      {arrivalsPending.map(b => <GuestRow key={b.id} b={b} variant="arrival" />)}
-                      {arrivalsDone.length > 0 && (
-                        <>
-                          <div className="flex items-center gap-2 pt-1">
-                            <div className="flex-1 h-px bg-slate-800"/>
-                            <span className="text-[9px] font-bold text-slate-600 uppercase tracking-wider">
-                              {language === 'mr' ? '✓ हजर झाले' : '✓ Checked In'}
-                            </span>
-                            <div className="flex-1 h-px bg-slate-800"/>
-                          </div>
-                          {arrivalsDone.map(b => <GuestRow key={b.id} b={b} variant="arrival" />)}
-                        </>
-                      )}
-                    </>
+                    // Pending only
+                    arrivalsPending.map(b => <CustomerRow key={b.id} b={b} variant="arrival" />)
                   )}
                 </>
               )}
@@ -524,20 +462,22 @@ export default function InventoryPage() {
                 <>
                   {checkouts.length === 0 ? (
                     <div className="text-center py-5 text-xs text-slate-500 italic bg-slate-955/20 rounded-xl border border-slate-850/60 border-dashed">
-                      {language === 'mr' ? '🌙 आज कोणतेही प्रस्थान नियोजित नाही.' : '🌙 No departures scheduled for today.'}
+                      {language === 'mr' 
+                        ? (isViewingToday ? '🌙 आज कोणतेही प्रस्थान नियोजित नाही.' : '🌙 या दिवशी कोणतेही प्रस्थान नियोजित नाही.') 
+                        : (isViewingToday ? '🌙 No departures scheduled for today.' : '🌙 No departures scheduled for this day.')}
                     </div>
                   ) : checkoutsPending.length === 0 ? (
                     // All checkouts done — rooms freed
                     <>
                       <div className="text-center py-3 text-xs font-bold text-emerald-400 bg-emerald-500/5 rounded-xl border border-emerald-500/15">
-                        🎉 {language === 'mr' ? 'सर्व अतिथी निघाले! खोल्या आता Free आहेत.' : 'All guests checked out! Rooms are now Free.'}
+                        🎉 {language === 'mr' ? 'सर्व ग्राहक निघाले! खोल्या आता Free आहेत.' : 'All customers checked out! Rooms are now Free.'}
                       </div>
-                      {checkoutsDone.map(b => <GuestRow key={b.id} b={b} variant="checkout" />)}
+                      {checkoutsDone.map(b => <CustomerRow key={b.id} b={b} variant="checkout" />)}
                     </>
                   ) : (
                     // Pending first (urgent), done dimmed below
                     <>
-                      {checkoutsPending.map(b => <GuestRow key={b.id} b={b} variant="checkout" />)}
+                      {checkoutsPending.map(b => <CustomerRow key={b.id} b={b} variant="checkout" />)}
                       {checkoutsDone.length > 0 && (
                         <>
                           <div className="flex items-center gap-2 pt-1">
@@ -547,7 +487,7 @@ export default function InventoryPage() {
                             </span>
                             <div className="flex-1 h-px bg-slate-800"/>
                           </div>
-                          {checkoutsDone.map(b => <GuestRow key={b.id} b={b} variant="checkout" />)}
+                          {checkoutsDone.map(b => <CustomerRow key={b.id} b={b} variant="checkout" />)}
                         </>
                       )}
                     </>
@@ -557,12 +497,12 @@ export default function InventoryPage() {
 
               {briefTab === 'staying' && (
                 <>
-                  {stayingOver.length === 0 ? (
+                  {inHouseBookings.length === 0 ? (
                     <div className="text-center py-5 text-xs text-slate-500 italic bg-slate-955/20 rounded-xl border border-slate-850/60 border-dashed">
-                      {language === 'mr' ? 'सध्या हॉटेलात इतर मुक्कामी ग्राहक नाहीत.' : 'No other staying guests.'}
+                      {language === 'mr' ? 'सध्या हॉटेलात इतर मुक्कामी ग्राहक नाहीत.' : 'No other staying customers.'}
                     </div>
                   ) : (
-                    stayingOver.map(b => <GuestRow key={b.id} b={b} variant="staying" />)
+                    inHouseBookings.map(b => <CustomerRow key={b.id} b={b} variant="staying" />)
                   )}
                 </>
               )}
@@ -571,13 +511,88 @@ export default function InventoryPage() {
         )
       })()}
 
+      {/* Date Navigation Bar */}
+      <div className="glass-panel rounded-2xl p-2.5 sm:p-4 flex justify-center bg-slate-900/40">
+        {/* Primary Date Switcher */}
+        <div className="flex items-center justify-between gap-3 w-full max-w-md">
+          <button
+            onClick={handlePrevDay}
+            className="flex items-center justify-center w-12 h-12 rounded-xl bg-slate-955 border border-slate-850 hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition active:scale-95 flex-shrink-0"
+            title={language === 'mr' ? 'पूर्वीचा दिवस' : 'Previous Day'}
+          >
+            <ChevronLeft className="h-6 w-6" />
+          </button>
+          
+          <div className="flex items-center gap-2 flex-1 justify-center">
+            <button
+              onClick={() => navigate(`/?date=${selectedDate}`)}
+              className="flex items-center gap-2 hover:bg-slate-850/60 bg-slate-955/40 border border-slate-850 px-3 py-2.5 rounded-xl transition active:scale-95 text-left"
+              title={language === 'mr' ? 'तारीख बदलण्यासाठी कॅलेंडरवर जा' : 'Go to calendar to change date'}
+            >
+              <CalendarIcon className="h-4.5 w-4.5 text-emerald-400 flex-shrink-0" />
+              <span className="text-xs sm:text-sm font-extrabold text-slate-200 tracking-tight whitespace-nowrap">
+                <span className="inline sm:hidden">{formattedDateCompact}</span>
+                <span className="hidden sm:inline">{formattedDate}</span>
+              </span>
+            </button>
+
+            <button
+              onClick={handleToday}
+              className="px-3 py-2.5 bg-slate-955 border border-slate-850 rounded-xl hover:bg-slate-900 text-xs font-black text-emerald-400 active:scale-95 transition"
+            >
+              {t('today')}
+            </button>
+          </div>
+
+          <button
+            onClick={handleNextDay}
+            className="flex items-center justify-center w-14 h-12 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-md shadow-emerald-500/10 hover:shadow-emerald-500/20 transition active:scale-95 flex-shrink-0"
+            title={language === 'mr' ? 'पुढील दिवस' : 'Next Day'}
+          >
+            <ChevronRight className="h-7 w-7 stroke-[3]" />
+          </button>
+        </div>
+      </div>
+
+      {/* Occupancy Stats Summary */}
+      <div className="grid grid-cols-4 gap-1.5 sm:gap-3">
+        <div className="glass-panel flex flex-col items-center justify-center p-1.5 rounded-xl sm:rounded-2xl sm:items-start sm:p-3.5 bg-emerald-500/5 border-emerald-500/10">
+          <span className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-emerald-400 flex items-center gap-1 sm:gap-1.5">
+            <span>✅</span>
+            <span className="truncate">{language === 'mr' ? 'रिकामी' : 'Free'}</span>
+          </span>
+          <span className="text-xs sm:text-2xl font-black text-slate-100 mt-0.5 sm:mt-2">{data.summary.vacant}</span>
+        </div>
+
+        <div className="glass-panel flex flex-col items-center justify-center p-1.5 rounded-xl sm:rounded-2xl sm:items-start sm:p-3.5 bg-slate-500/5 border-slate-800">
+          <span className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-slate-400 flex items-center gap-1 sm:gap-1.5">
+            <span>👤</span>
+            <span className="truncate">{language === 'mr' ? 'भरलेली' : 'Occupied'}</span>
+          </span>
+          <span className="text-xs sm:text-2xl font-black text-slate-100 mt-0.5 sm:mt-2">{data.summary.occupied}</span>
+        </div>
+
+        <div className="glass-panel flex flex-col items-center justify-center p-1.5 rounded-xl sm:rounded-2xl sm:items-start sm:p-3.5 bg-amber-500/5 border-amber-500/10">
+          <span className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-amber-500 flex items-center gap-1 sm:gap-1.5">
+            <span>🔒</span>
+            <span className="truncate">{language === 'mr' ? 'आरक्षित' : 'Reserved'}</span>
+          </span>
+          <span className="text-xs sm:text-2xl font-black text-slate-100 mt-0.5 sm:mt-2">{data.summary.reserved}</span>
+        </div>
+
+        <div className="glass-panel flex flex-col items-center justify-center p-1.5 rounded-xl sm:rounded-2xl sm:items-start sm:p-3.5 bg-rose-500/5 border-rose-500/10">
+          <span className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-rose-500 flex items-center gap-1 sm:gap-1.5">
+            <span>⚠️</span>
+            <span className="truncate">{language === 'mr' ? 'बाकी' : 'Unpaid'}</span>
+          </span>
+          <span className="text-xs sm:text-2xl font-black text-slate-100 mt-0.5 sm:mt-2">{data.summary.unpaid}</span>
+        </div>
+      </div>
+
       {/* Floors Room Layout */}
       <div className="flex flex-col gap-8">
         {sortedFloors.map((floor) => {
           const rooms = roomsByFloor[floor]
-          const mid = Math.ceil(rooms.length / 2)
-          const leftRooms = rooms.slice(0, mid)
-          const rightRooms = rooms.slice(mid)
 
           // Floor text formatting in Marathi / English
           const floorText = floor === 0 
@@ -595,65 +610,19 @@ export default function InventoryPage() {
                     {floorText} — {rooms.length} {language === 'mr' ? 'खोल्या' : 'Rooms'}
                   </h3>
                 </div>
-                {viewMode === 'map' && (
-                  <span className="text-[10px] uppercase font-bold tracking-widest text-slate-500">
-                    {language === 'mr' ? 'मजला आराखडा मॅप व्ह्यू' : 'Floor Plan Map View'}
-                  </span>
-                )}
               </div>
               
-              {viewMode === 'map' ? (
-                /* Physical Corridor Layout */
-                <div className="grid grid-cols-11 gap-2 bg-slate-950/30 border border-slate-800/40 p-4 rounded-3xl relative overflow-hidden min-h-[160px]">
-                  {/* Left Side Rooms Corridor */}
-                  <div className="col-span-5 flex flex-col gap-3">
-                    <span className="text-[9px] uppercase tracking-wider font-extrabold text-slate-500 text-center mb-1 block">
-                      {language === 'mr' ? 'डावीकडील खोल्या' : 'Left Side Rooms'}
-                    </span>
-                    {leftRooms.map((room) => (
-                      <MiniRoomBox
-                        key={room.id}
-                        room={room}
-                        onClick={handleRoomClick}
-                      />
-                    ))}
-                  </div>
-
-                  {/* Hallway Walkway corridor */}
-                  <div className="col-span-1 flex flex-col items-center justify-center border-l border-r border-dashed border-slate-800/80 bg-slate-950/20 relative py-4 select-none rounded-md">
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="text-[9px] uppercase tracking-widest text-slate-600 font-extrabold rotate-90 whitespace-nowrap tracking-[0.25em]">
-                        {language === 'mr' ? 'कॉरिडॉर' : 'CORRIDOR'}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Right Side Rooms Corridor */}
-                  <div className="col-span-5 flex flex-col gap-3">
-                    <span className="text-[9px] uppercase tracking-wider font-extrabold text-slate-500 text-center mb-1 block">
-                      {language === 'mr' ? 'उजवीकडील खोल्या' : 'Right Side Rooms'}
-                    </span>
-                    {rightRooms.map((room) => (
-                      <MiniRoomBox
-                        key={room.id}
-                        room={room}
-                        onClick={handleRoomClick}
-                      />
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                /* Grid Cards Layout */
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 sm:gap-4">
-                  {rooms.map((room) => (
-                    <RoomCard
-                      key={room.id}
-                      room={room}
-                      onClick={handleRoomClick}
-                    />
-                  ))}
-                </div>
-              )}
+              {/* Grid Cards Layout */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 sm:gap-4">
+                {rooms.map((room) => (
+                  <RoomCard
+                    key={room.id}
+                    room={room}
+                    onClick={handleRoomClick}
+                    onLongPress={handleRoomLongPress}
+                  />
+                ))}
+              </div>
             </section>
           )
         })}
@@ -685,72 +654,96 @@ export default function InventoryPage() {
         />
       )}
 
-    </div>
-  )
-}
-
-interface MiniRoomBoxProps {
-  room: InventoryRoom
-  onClick: (room: InventoryRoom) => void
-}
-
-function MiniRoomBox({ room, onClick }: MiniRoomBoxProps) {
-  const { language } = useLanguage()
-
-  const getStatusBorderColor = () => {
-    switch (room.room_status) {
-      case 'vacant':
-        return 'border-emerald-500/20 bg-emerald-500/[0.03] text-emerald-400 hover:border-emerald-400/50 hover:bg-emerald-500/[0.06]'
-      case 'hold':
-        return 'border-amber-500/20 bg-amber-500/[0.03] text-amber-400 hover:border-amber-400/50 hover:bg-amber-500/[0.06]'
-      case 'unpaid':
-        return 'border-rose-500/20 bg-rose-500/[0.03] text-rose-400 hover:border-rose-400/50 hover:bg-rose-500/[0.06]'
-      case 'occupied':
-      default:
-        return 'border-slate-800 bg-slate-950/40 text-slate-300 hover:border-slate-700 hover:bg-slate-900/30'
-    }
-  }
-
-  const getStatusText = () => {
-    switch (room.room_status) {
-      case 'vacant': return language === 'mr' ? 'रिकामी' : 'Free'
-      case 'hold': return language === 'mr' ? 'होल्ड' : 'Hold'
-      case 'unpaid': return language === 'mr' ? 'बाकी – जमा करा' : 'Dues – Collect'
-      case 'occupied': return language === 'mr' ? 'भरलेली' : 'Occupied'
-    }
-  }
-
-  return (
-    <button
-      onClick={() => onClick(room)}
-      className={`border rounded-2xl p-3 flex justify-between items-center transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md w-full text-left ${getStatusBorderColor()}`}
-    >
-      <div className="flex flex-col gap-0.5 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-lg font-black text-slate-100">{room.number}</span>
-          <span className="text-[9px] uppercase tracking-wider font-extrabold px-1.5 py-0.5 bg-slate-900 border border-slate-800 rounded-md text-slate-400 truncate">
-            {room.room_type.replace(' Deluxe', ' DLX').replace(' Standard', ' STD')}
-          </span>
+      {/* Quick Action Context Menu Modal */}
+      {quickActionRoom && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-xs p-6 animate-fade-in">
+          <div className="glass-panel w-full max-w-xs rounded-3xl bg-slate-900 border-slate-800 p-5 flex flex-col gap-4 text-center shadow-2xl relative">
+            <button
+              onClick={() => setQuickActionRoom(null)}
+              className="absolute top-4 right-4 text-slate-500 hover:text-slate-350 transition animate-pulse"
+            >
+              <X className="h-4.5 w-4.5" />
+            </button>
+            <div className="text-left mt-2">
+              <h3 className="text-sm font-extrabold text-slate-100 uppercase tracking-wider">
+                {language === 'mr' ? `खोली ${quickActionRoom.number} - त्वरित कृती` : `Room ${quickActionRoom.number} - Quick Action`}
+              </h3>
+              <p className="text-xs text-slate-450 mt-1 font-semibold">
+                👤 {quickActionRoom.booking?.customers?.name} ({language === 'mr' ? 'ग्राहक' : 'Customer'})
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 mt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedBookingId(quickActionRoom.booking!.id)
+                  setQuickActionRoom(null)
+                }}
+                className="w-full py-3.5 px-4 bg-slate-955 hover:bg-slate-850 text-slate-200 text-xs font-black rounded-2xl transition flex items-center justify-start gap-3 border border-slate-850"
+              >
+                📋 {language === 'mr' ? 'तपशील पहा (View Details)' : 'View Booking Details'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setCancelConfirmBooking({
+                    id: quickActionRoom.booking!.id,
+                    roomNumber: String(quickActionRoom.number),
+                    customerName: quickActionRoom.booking!.customers?.name || ""
+                  })
+                  setQuickActionRoom(null)
+                }}
+                className="w-full py-3.5 px-4 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs font-black rounded-2xl transition flex items-center justify-start gap-3 border border-rose-500/25"
+              >
+                ❌ {language === 'mr' ? 'बुकिंग रद्द करा (Cancel Booking)' : 'Cancel Booking'}
+              </button>
+            </div>
+          </div>
         </div>
-        {room.booking?.guests?.name ? (
-          <span className="text-[11px] font-semibold text-slate-400 truncate block mt-0.5">
-            👤 {room.booking.guests.name}
-          </span>
-        ) : (
-          <span className="text-[10px] text-slate-500 font-medium">
-            {language === 'mr' ? 'तयार / उपलब्ध' : 'Ready / Available'}
-          </span>
-        )}
-      </div>
+      )}
 
-      <div className="flex flex-col items-end flex-shrink-0 ml-2">
-        <span className="text-[9px] uppercase tracking-widest font-black opacity-80">
-          {getStatusText()}
-        </span>
-        <span className="text-[10px] text-slate-400 font-bold mt-0.5">
-          ₹{room.base_price}
-        </span>
-      </div>
-    </button>
+      {/* Cancellation Confirmation Modal */}
+      {cancelConfirmBooking && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 backdrop-blur-sm p-6 animate-fade-in">
+          <div className="glass-panel w-full max-w-xs rounded-3xl bg-slate-900 border-slate-800 p-5 flex flex-col gap-4 text-center shadow-2xl">
+            <div className="h-11 w-11 rounded-full flex items-center justify-center mx-auto border bg-rose-500/10 text-rose-400 border-rose-500/25">
+              <X className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-extrabold text-slate-100">
+                {language === 'mr' ? 'बुकिंग रद्द करण्याची खात्री करा' : 'Confirm Cancellation'}
+              </h3>
+              <p className="text-xs text-slate-450 mt-1.5 leading-relaxed">
+                {language === 'mr' ? (
+                  <>खोली क्रमांक <span className="font-extrabold text-slate-200">{cancelConfirmBooking.roomNumber}</span> मधील ग्राहक <span className="font-extrabold text-slate-200">{cancelConfirmBooking.customerName}</span> यांचे बुकिंग रद्द करायचे आहे का? हे आपण नंतर Settings मधून पुनर्संचयित करू शकता.</>
+                ) : (
+                  <>Cancel the booking for <span className="font-extrabold text-slate-200">{cancelConfirmBooking.customerName}</span> in Room <span className="font-extrabold text-slate-200">{cancelConfirmBooking.roomNumber}</span>? You can restore this later from Settings.</>
+                )}
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 mt-3">
+              <button
+                type="button"
+                onClick={() => setCancelConfirmBooking(null)}
+                className="py-2.5 px-4 bg-slate-955 border border-slate-800 text-slate-300 hover:text-slate-200 text-xs font-bold rounded-xl transition"
+              >
+                {language === 'mr' ? 'रद्द करा' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  cancelMutation.mutate(cancelConfirmBooking.id)
+                  setCancelConfirmBooking(null)
+                }}
+                disabled={cancelMutation.isPending}
+                className="py-2.5 px-4 text-white text-xs font-black rounded-xl transition shadow-lg bg-rose-500 hover:bg-rose-400 active:bg-rose-500 shadow-rose-500/15"
+              >
+                {language === 'mr' ? 'होय, रद्द करा' : 'Yes, Cancel'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }

@@ -8,6 +8,7 @@ import SettingsPage from './pages/SettingsPage'
 import InventoryPage from './pages/InventoryPage'
 import CalendarPage from './pages/CalendarPage'
 import UnpaidDuesPage from './pages/UnpaidDuesPage'
+import ReportsPage from './pages/ReportsPage'
 
 import BottomNav from './components/BottomNav'
 import { useAuth } from './hooks/useAuth'
@@ -29,6 +30,23 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem('access_token')
   if (!token) {
     return <Navigate to="/login" replace />
+  }
+  return <>{children}</>
+}
+
+// Admin Authorization Guard Component
+function AdminGuard({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth()
+  if (loading) {
+    return (
+      <div className="min-h-[100dvh] bg-slate-950 flex flex-col items-center justify-center text-slate-400 font-bold text-xs gap-3">
+        <div className="h-5 w-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+        <span>Loading session...</span>
+      </div>
+    )
+  }
+  if (!user || (user.role !== 'admin' && user.email !== 'admin@snapkhata.com')) {
+    return <Navigate to="/" replace />
   }
   return <>{children}</>
 }
@@ -126,6 +144,7 @@ function AppLayout() {
       <main className="flex-1">
         <Routes>
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/reports" element={<AdminGuard><ReportsPage /></AdminGuard>} />
           {/* Phase 3: Calendar view is now live */}
           <Route path="/" element={<CalendarPage />} />
           <Route path="/inventory" element={<InventoryPage />} />

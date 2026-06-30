@@ -1,6 +1,7 @@
 import api from './client'
 import axios from 'axios'
 import type { Document } from '../types'
+import { compressImages } from '../utils/imageCompressor'
 
 export interface UploadUrlResponse {
   upload_url: string
@@ -10,14 +11,14 @@ export interface UploadUrlResponse {
 
 export async function getUploadUrl(
   bookingId: string,
-  guestId: string,
+  customerId: string,
   fileName: string,
   contentType: string,
   docType?: string
 ): Promise<UploadUrlResponse> {
   const res = await api.post<UploadUrlResponse>('/documents/upload-url', {
     booking_id: bookingId,
-    guest_id: guestId,
+    customer_id: customerId,
     file_name: fileName,
     content_type: contentType,
     doc_type: docType,
@@ -37,8 +38,8 @@ export async function listDocs(bookingId: string): Promise<Document[]> {
   return res.data
 }
 
-export async function listGuestDocs(guestId: string): Promise<Document[]> {
-  const res = await api.get<Document[]>(`/documents/guest/${guestId}`)
+export async function listCustomerDocs(customerId: string): Promise<Document[]> {
+  const res = await api.get<Document[]>(`/documents/customer/${customerId}`)
   return res.data
 }
 
@@ -59,8 +60,9 @@ export interface ExtractedDetails {
 
 export async function extractNameFromId(files: File | File[]): Promise<ExtractedDetails> {
   const formData = new FormData()
-  const filesArray = Array.isArray(files) ? files : [files]
-  filesArray.forEach(file => {
+  const rawFilesArray = Array.isArray(files) ? files : [files]
+  const compressedFiles = await compressImages(rawFilesArray)
+  compressedFiles.forEach(file => {
     formData.append('files', file)
   })
   const res = await api.post<ExtractedDetails>('/documents/extract-name', formData, {
@@ -69,5 +71,9 @@ export async function extractNameFromId(files: File | File[]): Promise<Extracted
     },
   })
   return res.data
+}
+
+export async function deleteDocument(documentId: string): Promise<void> {
+  await api.delete(`/documents/${documentId}`)
 }
 

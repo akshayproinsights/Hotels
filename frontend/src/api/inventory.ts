@@ -6,7 +6,7 @@ export interface InventoryResponse {
   summary: {
     vacant: number
     occupied: number
-    hold: number
+    reserved: number
     unpaid: number
   }
   rooms: InventoryRoom[]

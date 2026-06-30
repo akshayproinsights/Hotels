@@ -1,24 +1,89 @@
 import React, { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit3, X, Save, AlertCircle, RefreshCw, Hotel, Users, Search, User, Phone, Calendar, Loader2, Sun, Moon, Palette, Check } from 'lucide-react'
+import { Plus, Edit3, X, Save, AlertCircle, RefreshCw, Hotel, Users, Search, User, Phone, Calendar, Loader2, Check, Trash2 } from 'lucide-react'
 import api from '../api/client'
-import { Room, Guest } from '../types'
+import { Room, Customer } from '../types'
 import toast from 'react-hot-toast'
-import { searchGuests } from '../api/guests'
-import GuestProfileSheet from '../components/GuestProfileSheet'
+import { searchCustomers } from '../api/customers'
+import CustomerProfileSheet from '../components/CustomerProfileSheet'
 import NumericKeypad from '../components/NumericKeypad'
 import { format, parseISO } from 'date-fns'
 import { useLanguage } from '../context/LanguageContext'
-import { useTheme } from '../context/ThemeContext'
+import { useAuth } from '../hooks/useAuth'
 
 export default function SettingsPage() {
   const queryClient = useQueryClient()
   const { language, t } = useLanguage()
-  const { theme, setTheme } = useTheme()
-  const [activeTab, setActiveTab] = useState<'rooms' | 'guests' | 'appearance'>('rooms')
+  const { user, loading: authLoading } = useAuth()
+  // Hide Rooms tab for the 'santosh' account (becomes santosh@snapkhata.com after login transformation)
+  // While auth is still loading treat as restricted to avoid a brief Rooms tab flash
+  const isSantosh = authLoading || (user?.email?.startsWith('santosh@') ?? false)
+  const [activeTab, setActiveTab] = useState<'rooms' | 'customers' | 'trash'>('customers')
+
+  useEffect(() => {
+    if (isSantosh && activeTab === 'rooms') {
+      setActiveTab('customers')
+    }
+  }, [isSantosh, activeTab])
   const [modalOpen, setModalOpen] = useState(false)
   const [editingRoom, setEditingRoom] = useState<Room | null>(null)
+  const [trashSearchQuery, setTrashSearchQuery] = useState('')
+
+  // Fetch Cancelled Bookings for Trash Bin
+  const { data: cancelledBookings = [], isLoading: isTrashLoading, refetch: refetchTrash } = useQuery<any[]>({
+    queryKey: ['cancelledBookings'],
+    queryFn: async () => {
+      const res = await api.get('/bookings/cancelled')
+      return res.data
+    },
+    enabled: activeTab === 'trash'
+  })
+
+  // Restore Cancelled Booking Mutation
+  const restoreMutation = useMutation({
+    mutationFn: async (bookingId: string) => {
+      const res = await api.post(`/bookings/${bookingId}/restore`)
+      return res.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['cancelledBookings'] })
+      queryClient.invalidateQueries({ queryKey: ['inventory'] })
+      queryClient.invalidateQueries({ queryKey: ['rooms'] })
+      toast.success(language === 'mr' ? 'बुकिंग पुनर्संचयित केले!' : 'Booking restored successfully!')
+    },
+    onError: (err: any) => {
+      const msg = err.response?.data?.detail || (language === 'mr' ? 'पुनर्संचयित करण्यात अयशस्वी' : 'Failed to restore booking')
+      toast.error(msg)
+    }
+  })
+
+  const [showPermanentDeleteConfirm, setShowPermanentDeleteConfirm] = useState(false)
+  const [bookingToDelete, setBookingToDelete] = useState<any | null>(null)
+
+  const deleteMutation = useMutation({
+    mutationFn: async (bookingId: string) => {
+      const res = await api.delete(`/bookings/${bookingId}`)
+      return res.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['cancelledBookings'] })
+      queryClient.invalidateQueries({ queryKey: ['inventory'] })
+      queryClient.invalidateQueries({ queryKey: ['rooms'] })
+      toast.success(language === 'mr' ? 'बुकिंग कायमचे डिलीट केले!' : 'Booking permanently deleted!')
+      setBookingToDelete(null)
+      setShowPermanentDeleteConfirm(false)
+    },
+    onError: (err: any) => {
+      const msg = err.response?.data?.detail || (language === 'mr' ? 'डिलीट करण्यात अयशस्वी' : 'Failed to delete booking')
+      toast.error(msg)
+    }
+  })
+
+  const filteredCancelledBookings = cancelledBookings.filter(b => 
+    b.customers?.name?.toLowerCase().includes(trashSearchQuery.toLowerCase()) ||
+    b.rooms?.number?.toLowerCase().includes(trashSearchQuery.toLowerCase())
+  )
   
   // Form states
   const [number, setNumber] = useState('')
@@ -29,25 +94,25 @@ export default function SettingsPage() {
   const [isActive, setIsActive] = useState(true)
   const [activeKeypad, setActiveKeypad] = useState<'floor' | 'basePrice' | 'extraBedPrice' | null>(null)
 
-  // Guest Search states
+  // Customer Search states
   const [searchQuery, setSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<Guest[]>([])
+  const [searchResults, setSearchResults] = useState<Customer[]>([])
   const [isSearching, setIsSearching] = useState(false)
-  const [selectedGuest, setSelectedGuest] = useState<Guest | null>(null)
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
 
-  // Load default guest list on mount, or query debounced search
+  // Load default customer list on mount, or query debounced search
   useEffect(() => {
     let active = true
 
-    const loadGuests = async (queryStr: string) => {
+    const loadCustomers = async (queryStr: string) => {
       setIsSearching(true)
       try {
-        const results = await searchGuests(queryStr)
+        const results = await searchCustomers(queryStr)
         if (active) {
           setSearchResults(results)
         }
       } catch (err) {
-        console.error('Failed to search guests', err)
+        console.error('Failed to search customers', err)
       } finally {
         if (active) {
           setIsSearching(false)
@@ -56,7 +121,7 @@ export default function SettingsPage() {
     }
 
     if (searchQuery.trim().length === 0) {
-      loadGuests('')
+      loadCustomers('')
       return
     }
 
@@ -65,7 +130,7 @@ export default function SettingsPage() {
     }
 
     const delayDebounceFn = setTimeout(() => {
-      loadGuests(searchQuery)
+      loadCustomers(searchQuery)
     }, 300)
 
     return () => {
@@ -113,6 +178,30 @@ export default function SettingsPage() {
     },
     onError: (err: any) => {
       const msg = err.response?.data?.detail || t('failed_update_room')
+      toast.error(msg)
+    }
+  })
+
+  // Delete Room Mutation
+  const [roomToDelete, setRoomToDelete] = useState<Room | null>(null)
+  const [showDeleteRoomConfirm, setShowDeleteRoomConfirm] = useState(false)
+
+  const deleteRoomMutation = useMutation({
+    mutationFn: async (roomId: string) => {
+      const res = await api.delete(`/rooms/${roomId}`)
+      return res.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['rooms'] })
+      toast.success(language === 'mr' ? 'खोली यशस्विरित्या डिलीट केली!' : 'Room deleted successfully!')
+      setRoomToDelete(null)
+      setShowDeleteRoomConfirm(false)
+      if (modalOpen) {
+        closeModal()
+      }
+    },
+    onError: (err: any) => {
+      const msg = err.response?.data?.detail || (language === 'mr' ? 'खोली डिलीट करण्यात अयशस्वी' : 'Failed to delete room')
       toast.error(msg)
     }
   })
@@ -186,21 +275,21 @@ export default function SettingsPage() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
           <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-emerald-400 to-teal-200 bg-clip-text text-transparent">
-            {activeTab === 'rooms' 
+            {activeTab === 'rooms' && !isSantosh
               ? (language === 'mr' ? 'खोलीच्या सेटिंग्ज' : 'Room Settings') 
-              : activeTab === 'guests'
+              : activeTab === 'customers'
               ? (language === 'mr' ? 'ग्राहकांची यादी' : 'Customer Registry')
-              : (language === 'mr' ? 'अ‍ॅप थीम व देखावा' : 'App Theme & Appearance')}
+              : (language === 'mr' ? 'कचरापेटी (Trash Bin)' : 'Trash Bin')}
           </h1>
           <p className="text-slate-400 text-sm mt-1">
-            {activeTab === 'rooms'
+            {activeTab === 'rooms' && !isSantosh
               ? (language === 'mr' ? 'हॉटेलच्या खोल्यांचे व्यवस्थापन आणि दर ठरवा' : 'Configure and manage hotel rooms')
-              : activeTab === 'guests'
+              : activeTab === 'customers'
               ? (language === 'mr' ? 'ग्राहकांचा राहण्याचा इतिहास, भेटींची नोंद आणि ओळखपत्रे शोधा' : 'Look up customer stays, visits history, and uploaded ID proofs')
-              : (language === 'mr' ? 'दिवसाची (White) किंवा रात्रीची (Dark) थीम निवडा' : 'Select Day (White) or Night (Dark) theme for the application')}
+              : (language === 'mr' ? 'रद्द केलेले बुकिंग्स तपासा आणि पुनर्संचयित करा' : 'Review and restore soft-cancelled bookings')}
           </p>
         </div>
-        {activeTab === 'rooms' && (
+        {activeTab === 'rooms' && !isSantosh && (
           <button
             onClick={openAddModal}
             className="flex items-center px-4 py-2.5 rounded-xl text-slate-950 bg-gradient-to-r from-emerald-400 to-teal-400 hover:from-emerald-500 hover:to-teal-500 font-semibold transition shadow-lg shadow-emerald-500/10"
@@ -213,20 +302,9 @@ export default function SettingsPage() {
       {/* Segmented Switcher */}
       <div className="flex bg-slate-950/80 border border-slate-800/40 p-1 rounded-2xl max-w-md mb-8">
         <button
-          onClick={() => setActiveTab('rooms')}
+          onClick={() => setActiveTab('customers')}
           className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-bold transition-all duration-200 ${
-            activeTab === 'rooms'
-              ? 'bg-slate-905 text-emerald-400 border border-slate-800 shadow-md'
-              : 'text-slate-500 hover:text-slate-300 border border-transparent'
-          }`}
-        >
-          <Hotel className="h-4 w-4" />
-          {language === 'mr' ? 'खोल्या' : 'Rooms'}
-        </button>
-        <button
-          onClick={() => setActiveTab('guests')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-bold transition-all duration-200 ${
-            activeTab === 'guests'
+            activeTab === 'customers'
               ? 'bg-slate-905 text-emerald-400 border border-slate-800 shadow-md'
               : 'text-slate-500 hover:text-slate-300 border border-transparent'
           }`}
@@ -234,20 +312,33 @@ export default function SettingsPage() {
           <Users className="h-4 w-4" />
           {language === 'mr' ? 'ग्राहक' : 'Customers'}
         </button>
+        {!isSantosh && (
+          <button
+            onClick={() => setActiveTab('rooms')}
+            className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-bold transition-all duration-200 ${
+              activeTab === 'rooms'
+                ? 'bg-slate-905 text-emerald-400 border border-slate-800 shadow-md'
+                : 'text-slate-500 hover:text-slate-300 border border-transparent'
+            }`}
+          >
+            <Hotel className="h-4 w-4" />
+            {language === 'mr' ? 'खोल्या' : 'Rooms'}
+          </button>
+        )}
         <button
-          onClick={() => setActiveTab('appearance')}
+          onClick={() => setActiveTab('trash')}
           className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-bold transition-all duration-200 ${
-            activeTab === 'appearance'
+            activeTab === 'trash'
               ? 'bg-slate-905 text-emerald-400 border border-slate-800 shadow-md'
               : 'text-slate-500 hover:text-slate-300 border border-transparent'
           }`}
         >
-          <Palette className="h-4 w-4" />
-          {language === 'mr' ? 'थीम' : 'Theme'}
+          <Trash2 className="h-4 w-4 text-rose-500" />
+          {language === 'mr' ? 'कचरापेटी' : 'Trash Bin'}
         </button>
       </div>
 
-      {activeTab === 'rooms' ? (
+      {activeTab === 'rooms' && !isSantosh ? (
         <>
           {isLoading ? (
             <div className="flex flex-col items-center justify-center py-20 text-slate-400">
@@ -322,7 +413,27 @@ export default function SettingsPage() {
                               </span>
                               <span className="text-slate-200 font-bold text-sm">₹{room.base_price}</span>
                             </div>
-                            <Edit3 className="h-4 w-4 text-slate-500 hover:text-emerald-400 transition" />
+                            <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                              <button
+                                type="button"
+                                onClick={() => openEditModal(room)}
+                                className="p-1.5 text-slate-500 hover:text-emerald-400 transition rounded-lg hover:bg-slate-800/80"
+                                title={language === 'mr' ? 'संपादित करा' : 'Edit'}
+                              >
+                                <Edit3 className="h-4 w-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setRoomToDelete(room)
+                                  setShowDeleteRoomConfirm(true)
+                                }}
+                                className="p-1.5 text-slate-500 hover:text-rose-400 transition rounded-lg hover:bg-rose-500/10"
+                                title={language === 'mr' ? 'डिलीट करा' : 'Delete'}
+                              >
+                                <Trash2 className="h-4 w-4 text-slate-500 hover:text-rose-400" />
+                              </button>
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -333,9 +444,9 @@ export default function SettingsPage() {
             </div>
           )}
         </>
-      ) : activeTab === 'guests' ? (
+      ) : (activeTab === 'customers' || (activeTab === 'rooms' && isSantosh)) ? (
         <div className="space-y-6 animate-fade-in">
-          {/* Guest Search Bar */}
+          {/* Customer Search Bar */}
           <div className="glass-panel p-4 rounded-2xl bg-slate-900/45 border-slate-850 max-w-2xl">
             <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
               {language === 'mr' ? 'ग्राहक शोधा' : 'Search Customers'}
@@ -373,34 +484,39 @@ export default function SettingsPage() {
               {searchResults.map((g) => (
                 <div
                   key={g.id}
-                  onClick={() => setSelectedGuest(g)}
-                  className="glass-panel cursor-pointer rounded-2xl p-5 border border-emerald-500/10 hover:border-emerald-450/40 hover:scale-[1.01] transition-all duration-200 flex flex-col justify-between min-h-[120px] bg-slate-900/30"
+                  onClick={() => setSelectedCustomer(g)}
+                  className="glass-panel cursor-pointer rounded-xl p-3.5 border border-emerald-500/10 hover:border-emerald-450/40 hover:scale-[1.01] transition-all duration-200 flex flex-col justify-between bg-slate-900/30"
                 >
-                  <div>
-                    <h3 className="text-lg font-black text-slate-100 flex items-center gap-2">
-                      <User className="h-4.5 w-4.5 text-emerald-400" />
-                      {g.name}
+                  <div className="flex justify-between items-center gap-3">
+                    <h3 className="text-base font-black text-slate-100 flex items-center gap-2 truncate">
+                      <User className="h-4 w-4 text-emerald-400 flex-shrink-0" />
+                      <span className="truncate">{g.name}</span>
                     </h3>
                     <a
                       href={`tel:${g.phone}`}
                       onClick={(e) => e.stopPropagation()}
-                      className="text-xs text-slate-400 hover:text-emerald-400 font-bold mt-1.5 flex items-center gap-1.5 transition"
+                      className="text-xs text-slate-400 hover:text-emerald-400 font-bold flex items-center gap-1.5 transition flex-shrink-0"
                     >
                       <Phone className="h-3.5 w-3.5 text-slate-500" />
                       {g.phone}
                     </a>
                   </div>
                   
-                  <div className="mt-4 pt-3 border-t border-slate-800/40 flex justify-between items-center text-[11px] text-slate-400 font-semibold">
+                  <div className="mt-3 pt-2.5 border-t border-slate-800/40 flex justify-between items-center text-[11px] text-slate-400 font-semibold">
                     <span className="bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-md text-[10px]">
                       {g.total_visits} {language === 'mr' ? 'भेटी' : (g.total_visits === 1 ? 'visit' : 'visits')}
                     </span>
-                    {g.last_visit && (
+                    {g.last_visit ? (
                       <span className="flex items-center gap-1 text-slate-400">
                         <Calendar className="h-3.5 w-3.5 text-slate-500" />
                         {language === 'mr' ? 'शेवटची भेट:' : 'Last:'} {format(parseISO(g.last_visit + 'T00:00:00'), 'dd MMM yyyy')}
                       </span>
-                    )}
+                    ) : g.created_at ? (
+                      <span className="flex items-center gap-1 text-slate-400">
+                        <Calendar className="h-3.5 w-3.5 text-slate-500" />
+                        {language === 'mr' ? 'चेक इन ::' : 'Check In ::'} {format(parseISO(g.created_at), 'dd MMM yyyy')}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
               ))}
@@ -428,90 +544,137 @@ export default function SettingsPage() {
             </div>
           )}
 
-          {/* Guest detail sheet portal */}
-          {selectedGuest && (
-            <GuestProfileSheet
-              guest={selectedGuest}
-              onClose={() => setSelectedGuest(null)}
+          {/* Customer detail sheet portal */}
+          {selectedCustomer && (
+            <CustomerProfileSheet
+              customer={selectedCustomer}
+              onClose={() => setSelectedCustomer(null)}
             />
           )}
         </div>
       ) : (
-        /* Theme & Appearance tab */
-        <div className="space-y-6 max-w-3xl animate-fade-in">
-          <div className="glass-panel p-6 rounded-3xl border border-slate-800/60 shadow-xl space-y-6">
-            <div>
-              <h3 className="text-lg font-bold text-slate-100 flex items-center gap-2">
-                <Palette className="h-5 w-5 text-emerald-400" />
-                {language === 'mr' ? 'अ‍ॅपची थीम निवडा (App Theme)' : 'Choose Application Theme'}
-              </h3>
-              <p className="text-xs text-slate-400 mt-1">
+        /* Trash Bin tab */
+        <div className="space-y-6 animate-fade-in">
+          {/* Trash Header and Search */}
+          <div className="glass-panel p-4 rounded-2xl bg-slate-900/45 border-slate-850 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex-1">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+                {language === 'mr' ? 'रद्द केलेले बुकिंग शोधा' : 'Search Cancelled Bookings'}
+              </label>
+              <div className="relative">
+                <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                  <Search className="h-4 w-4 text-slate-500" />
+                </span>
+                <input
+                  type="text"
+                  placeholder={language === 'mr' ? 'ग्राहकाचे नाव किंवा खोली क्रमांक टाईप करा...' : 'Type customer name or room number...'}
+                  value={trashSearchQuery}
+                  onChange={(e) => setTrashSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-10 py-3 bg-slate-950 border border-slate-850 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-sm"
+                />
+                {trashSearchQuery && (
+                  <button
+                    onClick={() => setTrashSearchQuery('')}
+                    className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-200"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <button
+              onClick={() => refetchTrash()}
+              disabled={isTrashLoading}
+              className="p-2.5 rounded-xl bg-slate-955 border border-slate-800 hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition self-end sm:self-center"
+              title="Refresh"
+            >
+              <RefreshCw className={`h-4 w-4 ${isTrashLoading ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+
+          {isTrashLoading ? (
+            <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+              <Loader2 className="animate-spin h-8 w-8 text-emerald-400 mb-3" />
+              <p className="text-xs font-semibold">{language === 'mr' ? 'रद्द केलेले बुकिंग लोड करत आहे...' : 'Loading trash bin...'}</p>
+            </div>
+          ) : filteredCancelledBookings.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredCancelledBookings.map((b) => {
+                return (
+                  <div
+                    key={b.id}
+                    className="glass-panel rounded-2xl p-5 border border-slate-800/80 bg-slate-900/30 flex flex-col justify-between min-h-[160px] relative overflow-hidden"
+                  >
+                    <div>
+                      <div className="flex justify-between items-start">
+                        <h3 className="text-base font-extrabold text-slate-100 truncate pr-2">
+                          👤 {b.customers?.name}
+                        </h3>
+                        <span className="bg-slate-950 border border-slate-850 px-2 py-0.5 rounded-md text-[10px] text-slate-400 font-extrabold whitespace-nowrap">
+                          {language === 'mr' ? 'खोली' : 'Room'} {b.rooms?.number || b.room_id}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 font-medium mt-1">
+                        📞 {b.customers?.phone}
+                      </p>
+                      
+                      <div className="mt-3.5 space-y-1.5 border-t border-slate-800/40 pt-3">
+                        <div className="flex justify-between text-[11px] font-semibold text-slate-400">
+                          <span>{language === 'mr' ? 'कालावधी:' : 'Duration:'}</span>
+                          <span className="text-slate-350">
+                            {format(parseISO(b.check_in.split('T')[0]), 'dd MMM')} - {format(parseISO(b.check_out.split('T')[0]), 'dd MMM')}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-[11px] font-semibold text-slate-400">
+                          <span>{language === 'mr' ? 'एकूण रक्कम:' : 'Total Amount:'}</span>
+                          <span className="text-slate-300 font-bold">₹{b.total_amount.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between text-[11px] font-semibold text-slate-400">
+                          <span>{language === 'mr' ? 'जमा रक्कम:' : 'Paid Amount:'}</span>
+                          <span className="text-emerald-500 font-bold">₹{b.paid_amount.toLocaleString()}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-slate-800/40 flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => restoreMutation.mutate(b.id)}
+                        disabled={restoreMutation.isPending}
+                        className="py-2 px-3 bg-emerald-500 hover:bg-emerald-450 text-slate-955 text-xs font-black rounded-xl transition shadow-md shadow-emerald-500/10 flex items-center gap-1"
+                      >
+                        ↩️ {language === 'mr' ? 'पुनर्संचयित करा' : 'Restore'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBookingToDelete(b)
+                          setShowPermanentDeleteConfirm(true)
+                        }}
+                        className="py-2 px-3 bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/20 text-rose-450 hover:text-rose-450 text-xs font-bold rounded-xl transition flex items-center gap-1"
+                      >
+                        <Trash2 className="h-3.5 w-3.5 text-rose-500" />
+                        {language === 'mr' ? 'कायमचे डिलीट करा' : 'Delete'}
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="glass-panel rounded-3xl p-12 text-center text-slate-500 max-w-md mx-auto">
+              <Check className="h-10 w-10 text-emerald-500/50 mx-auto mb-3" />
+              <p className="text-sm font-semibold">
+                {language === 'mr' ? 'कचरापेटी रिकामी आहे.' : 'Trash bin is empty.'}
+              </p>
+              <p className="text-xs text-slate-600 mt-1">
                 {language === 'mr' 
-                  ? 'अ‍ॅपच्या सर्व पानांवर ही थीम लागू होईल. दिवस आणि रात्रीच्या वेळेनुसार सोयीस्कर थीम निवडा.' 
-                  : 'Select your preferred visual style. Applied instantly across all app pages.'}
+                  ? 'रद्द केलेले कोणतेही बुकिंग येथे आढळले नाही.' 
+                  : 'Cancelled bookings will appear here for you to restore if needed.'}
               </p>
             </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Day Theme (White) Option */}
-              <div
-                onClick={() => setTheme('light')}
-                className={`cursor-pointer rounded-2xl p-5 border-2 transition-all duration-200 relative flex flex-col justify-between h-44 ${
-                  theme === 'light'
-                    ? 'border-emerald-500 bg-white shadow-xl shadow-emerald-500/10 text-slate-900'
-                    : 'border-slate-800 bg-slate-900/40 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                <div>
-                  <div className="flex justify-between items-center mb-3">
-                    <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-500">
-                      <Sun className="h-6 w-6" />
-                    </div>
-                    {theme === 'light' && (
-                      <span className="flex items-center gap-1 bg-emerald-500 text-slate-950 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase">
-                        <Check className="h-3 w-3" /> {language === 'mr' ? 'सक्रिय (Default)' : 'Active'}
-                      </span>
-                    )}
-                  </div>
-                  <h4 className="font-extrabold text-base text-slate-900">
-                    {language === 'mr' ? 'दिवसाची थीम (Day Theme / White)' : 'Day Theme (White)'}
-                  </h4>
-                  <p className="text-xs text-slate-500 mt-1">
-                    {language === 'mr' ? 'उजळ आणि स्वच्छ देखावा, दिवसभरातील वापरासाठी उत्तम (Default)' : 'Clean, crisp white interface tailored for daylight readability.'}
-                  </p>
-                </div>
-              </div>
-
-              {/* Night Theme (Dark) Option */}
-              <div
-                onClick={() => setTheme('dark')}
-                className={`cursor-pointer rounded-2xl p-5 border-2 transition-all duration-200 relative flex flex-col justify-between h-44 ${
-                  theme === 'dark'
-                    ? 'border-emerald-500 bg-slate-900 shadow-xl shadow-emerald-500/10 text-slate-100'
-                    : 'border-slate-800 bg-slate-900/40 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                <div>
-                  <div className="flex justify-between items-center mb-3">
-                    <div className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400">
-                      <Moon className="h-6 w-6" />
-                    </div>
-                    {theme === 'dark' && (
-                      <span className="flex items-center gap-1 bg-emerald-500 text-slate-950 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase">
-                        <Check className="h-3 w-3" /> {language === 'mr' ? 'सक्रिय' : 'Active'}
-                      </span>
-                    )}
-                  </div>
-                  <h4 className="font-extrabold text-base text-slate-100">
-                    {language === 'mr' ? 'रात्रीची थीम (Night Theme / Dark)' : 'Night Theme (Dark)'}
-                  </h4>
-                  <p className="text-xs text-slate-400 mt-1">
-                    {language === 'mr' ? 'गडद रंगांचा आकर्षक लुक, डोळ्यांवर ताण कमी करतो' : 'Sleek dark mode interface designed to reduce eye fatigue.'}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
+          )}
         </div>
       )}
 
@@ -621,6 +784,19 @@ export default function SettingsPage() {
               </div>
 
               <div className="pt-4 flex gap-3">
+                {editingRoom && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRoomToDelete(editingRoom)
+                      setShowDeleteRoomConfirm(true)
+                    }}
+                    className="bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 rounded-xl px-3.5 py-2.5 font-semibold transition flex items-center justify-center"
+                    title={language === 'mr' ? 'खोली डिलीट करा' : 'Delete Room'}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={closeModal}
@@ -642,11 +818,12 @@ export default function SettingsPage() {
           {activeKeypad !== null && (
             <NumericKeypad
               value={activeKeypad === 'floor' ? floor : activeKeypad === 'basePrice' ? basePrice : extraBedPrice}
-              onChange={(val) => {
+              onDone={(val) => {
                 const numVal = Number(val) || 0
                 if (activeKeypad === 'floor') setFloor(numVal)
                 else if (activeKeypad === 'basePrice') setBasePrice(numVal)
                 else if (activeKeypad === 'extraBedPrice') setExtraBedPrice(numVal)
+                setActiveKeypad(null)
               }}
               onClose={() => setActiveKeypad(null)}
               label={
@@ -664,6 +841,101 @@ export default function SettingsPage() {
         </div>,
         document.body
       )}
+
+      {/* Room Deletion Confirmation Dialog */}
+      {showDeleteRoomConfirm && roomToDelete && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-6 animate-fade-in">
+          <div className="glass-panel w-full max-w-xs rounded-3xl bg-slate-900 border-slate-800 p-5 flex flex-col gap-4 text-center shadow-2xl">
+            <div className="h-11 w-11 rounded-full flex items-center justify-center mx-auto border bg-rose-500/10 text-rose-450 border-rose-500/25">
+              <Trash2 className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-extrabold text-slate-100">
+                {language === 'mr' ? 'खोली डिलीट करण्याची खात्री करा' : 'Confirm Room Deletion'}
+              </h3>
+              <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
+                <span className="text-rose-400 font-bold block mb-1">
+                  {language === 'mr' ? '⚠️ ही क्रिया पूर्ववत केली जाऊ शकत नाही!' : '⚠️ This action CANNOT be undone!'}
+                </span>
+                {language === 'mr' ? (
+                  <>तुम्हाला खरोखर <span className="font-extrabold text-slate-200">खोली {roomToDelete.number}</span> डिलीट करायची आहे का?</>
+                ) : (
+                  <>Are you sure you want to delete <span className="font-extrabold text-slate-200">Room {roomToDelete.number}</span>?</>
+                )}
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 mt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setRoomToDelete(null)
+                  setShowDeleteRoomConfirm(false)
+                }}
+                className="py-2.5 px-4 bg-slate-955 border border-slate-800 text-slate-300 hover:text-slate-200 text-xs font-bold rounded-xl transition"
+              >
+                {language === 'mr' ? 'रद्द करा' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={() => deleteRoomMutation.mutate(roomToDelete.id)}
+                disabled={deleteRoomMutation.isPending}
+                className="py-2.5 px-4 bg-rose-500 hover:bg-rose-400 active:bg-rose-500 text-slate-955 text-xs font-black rounded-xl transition shadow-lg shadow-rose-500/15"
+              >
+                {language === 'mr' ? 'होय, डिलीट करा' : 'Yes, Delete'}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Trash Bin Booking Permanent Deletion Confirmation Dialog */}
+      {showPermanentDeleteConfirm && bookingToDelete && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-6 animate-fade-in">
+          <div className="glass-panel w-full max-w-xs rounded-3xl bg-slate-900 border-slate-800 p-5 flex flex-col gap-4 text-center shadow-2xl">
+            <div className="h-11 w-11 rounded-full flex items-center justify-center mx-auto border bg-rose-500/10 text-rose-450 border-rose-500/25">
+              <Trash2 className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-extrabold text-slate-100">
+                {language === 'mr' ? 'कायमचे डिलीट करण्याची खात्री करा' : 'Confirm Permanent Deletion'}
+              </h3>
+              <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
+                <span className="text-rose-400 font-bold block mb-1">
+                  {language === 'mr' ? '⚠️ ही क्रिया पूर्ववत केली जाऊ शकत नाही!' : '⚠️ This action CANNOT be undone!'}
+                </span>
+                {language === 'mr' ? (
+                  <>खोली क्रमांक <span className="font-extrabold text-slate-200">{bookingToDelete.rooms?.number || bookingToDelete.room_id}</span> मधील ग्राहक <span className="font-extrabold text-slate-200">{bookingToDelete.customers?.name}</span> यांचे बुकिंग कायमचे डिलीट करायचे आहे का? सर्व संबंधित दस्तऐवज आणि माहिती कायमची नष्ट होईल.</>
+                ) : (
+                  <>Permanently delete the booking for <span className="font-extrabold text-slate-200">{bookingToDelete.customers?.name}</span> in Room <span className="font-extrabold text-slate-200">{bookingToDelete.rooms?.number || bookingToDelete.room_id}</span>? All associated data and documents will be permanently lost.</>
+                )}
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 mt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setBookingToDelete(null)
+                  setShowPermanentDeleteConfirm(false)
+                }}
+                className="py-2.5 px-4 bg-slate-955 border border-slate-800 text-slate-300 hover:text-slate-200 text-xs font-bold rounded-xl transition"
+              >
+                {language === 'mr' ? 'रद्द करा' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={() => deleteMutation.mutate(bookingToDelete.id)}
+                disabled={deleteMutation.isPending}
+                className="py-2.5 px-4 bg-rose-500 hover:bg-rose-400 active:bg-rose-500 text-slate-955 text-xs font-black rounded-xl transition shadow-lg shadow-rose-500/15"
+              >
+                {language === 'mr' ? 'होय, डिलीट करा' : 'Yes, Delete'}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
     </div>
   )
 }

@@ -24,6 +24,26 @@ export async function updateBooking(
   return res.data
 }
 
+export async function cancelBooking(bookingId: string): Promise<Booking> {
+  const res = await api.patch<Booking>(`/bookings/${bookingId}`, { status: 'cancelled' })
+  return res.data
+}
+
+export async function checkInBooking(bookingId: string): Promise<Booking> {
+  const res = await api.patch<Booking>(`/bookings/${bookingId}`, { is_checked_in: true })
+  return res.data
+}
+
+export async function restoreBooking(bookingId: string): Promise<Booking> {
+  const res = await api.post<Booking>(`/bookings/${bookingId}/restore`)
+  return res.data
+}
+
+export async function getCancelledBookings(): Promise<Booking[]> {
+  const res = await api.get<Booking[]>('/bookings/cancelled')
+  return res.data
+}
+
 export interface CheckExtensionResponse {
   available: boolean
   reason: string
@@ -38,4 +58,8 @@ export async function checkBookingExtension(
     { params: { check_out: checkOut } }
   )
   return res.data
+}
+
+export async function deleteBooking(bookingId: string): Promise<void> {
+  await api.delete(`/bookings/${bookingId}`)
 }

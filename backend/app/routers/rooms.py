@@ -80,6 +80,13 @@ def create_room(body: RoomCreate, user=Depends(get_current_user)):
     """
     Create a new room configuration.
     """
+    # Restrict room write access: 'santosh' login maps to santosh@snapkhata.com
+    email = user.get("email", "")
+    if email.startswith("santosh@"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to modify room settings"
+        )
     try:
         res = supabase.table("rooms").insert(body.dict()).execute()
         if not res.data:
@@ -89,6 +96,8 @@ def create_room(body: RoomCreate, user=Depends(get_current_user)):
             )
         return res.data[0]
     except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
         logging.error(f"Error creating room: {str(e)}")
         # Check for unique key constraint violations (e.g. duplicate room number)
         if "duplicate key" in str(e) or "already exists" in str(e):
@@ -107,6 +116,13 @@ def update_room(room_id: str, body: RoomUpdate, user=Depends(get_current_user)):
     Updates an existing room configuration.
     Uses exclude_unset=True so is_active=False (deactivate) is not silently dropped.
     """
+    # Restrict room write access: 'santosh' login maps to santosh@snapkhata.com
+    email = user.get("email", "")
+    if email.startswith("santosh@"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to modify room settings"
+        )
     # exclude_unset=True: only fields the caller explicitly sent — preserves False booleans
     updates = body.model_dump(exclude_unset=True)
     if not updates:
@@ -123,6 +139,8 @@ def update_room(room_id: str, body: RoomUpdate, user=Depends(get_current_user)):
             )
         return res.data[0]
     except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
         logging.error(f"Error updating room {room_id}: {str(e)}")
         if "duplicate key" in str(e) or "already exists" in str(e):
             raise HTTPException(
@@ -133,4 +151,52 @@ def update_room(room_id: str, body: RoomUpdate, user=Depends(get_current_user)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error updating room"
         )
+
+@router.delete("/{room_id}")
+def delete_room(room_id: str, user=Depends(get_current_user)):
+    """
+    Deletes a room configuration.
+    Checks for active bookings before allowing deletion.
+    """
+    email = user.get("email", "")
+    if email.startswith("santosh@"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to modify room settings"
+        )
+    try:
+        # Check if there are any active bookings for this room
+        active_bookings = supabase.table("bookings") \
+            .select("id") \
+            .eq("room_id", room_id) \
+            .eq("status", "active") \
+            .execute()
+        if active_bookings.data and len(active_bookings.data) > 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot delete room because it has active bookings"
+            )
+        
+        res = supabase.table("rooms").delete().eq("id", room_id).execute()
+        if not res.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Room not found"
+            )
+        return {"message": "Room deleted successfully", "id": room_id}
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        logging.error(f"Error deleting room {room_id}: {str(e)}")
+        err_msg = str(e).lower()
+        if "foreign key" in err_msg or "violates" in err_msg:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot delete room because it has past booking records in history"
+            )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error deleting room"
+        )
+
 

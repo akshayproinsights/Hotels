@@ -1,13 +1,26 @@
 import type { InventoryRoom } from '../types'
 import { useLanguage } from '../context/LanguageContext'
+import useLongPress from '../hooks/useLongPress'
 
 interface RoomCardProps {
   room: InventoryRoom
   onClick: (room: InventoryRoom) => void
+  onLongPress?: (room: InventoryRoom) => void
 }
 
-export default function RoomCard({ room, onClick }: RoomCardProps) {
+export default function RoomCard({ room, onClick, onLongPress }: RoomCardProps) {
   const { language } = useLanguage()
+
+  const longPressHandlers = useLongPress(
+    () => {
+      if (onLongPress) {
+        onLongPress(room)
+      }
+    },
+    () => {
+      onClick(room)
+    }
+  )
 
   const getStatusStyles = () => {
     switch (room.room_status) {
@@ -18,11 +31,11 @@ export default function RoomCard({ room, onClick }: RoomCardProps) {
           badgeText: language === 'mr' ? 'रिकामी' : 'Free',
           badgeColor: 'text-emerald-400',
         }
-      case 'hold':
+      case 'reserved':
         return {
           border: 'border-slate-800/80 hover:border-amber-500/30 border-l-4 border-l-amber-400',
           bg: 'bg-amber-500/[0.02]',
-          badgeText: language === 'mr' ? 'बुक / होल्ड' : 'Booked',
+          badgeText: language === 'mr' ? 'बुक / आरक्षित' : 'Booked',
           badgeColor: 'text-amber-400',
         }
       case 'unpaid':
@@ -44,10 +57,11 @@ export default function RoomCard({ room, onClick }: RoomCardProps) {
   }
 
   const styles = getStatusStyles()
+  const handlers = onLongPress ? longPressHandlers : { onClick: () => onClick(room) }
 
   return (
     <button
-      onClick={() => onClick(room)}
+      {...handlers}
       className={`glass-panel w-full text-left rounded-xl sm:rounded-2xl p-2.5 sm:p-3.5 flex flex-col justify-between min-h-[72px] sm:min-h-[96px] transition-all duration-300 transform hover:-translate-y-0.5 hover:shadow-md ${styles.bg} ${styles.border}`}
     >
       <div className="flex justify-between items-start w-full">
@@ -60,9 +74,9 @@ export default function RoomCard({ room, onClick }: RoomCardProps) {
       </div>
 
       <div className="w-full mt-1.5 sm:mt-2">
-        {room.booking?.guests?.name ? (
+        {room.booking?.customers?.name ? (
           <span className="text-[11px] sm:text-xs font-semibold text-slate-300 truncate block">
-            {room.room_status === 'hold' ? '📅' : '👤'} {room.booking.guests.name}
+            {room.room_status === 'reserved' ? '📅' : '👤'} {room.booking.customers.name}
           </span>
         ) : (
           <span className="text-[11px] sm:text-xs font-semibold text-slate-500 block">

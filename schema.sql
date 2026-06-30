@@ -21,9 +21,9 @@ create table rooms (
 );
 
 -- ──────────────────────────────────────────
--- GUESTS
+-- CUSTOMERS
 -- ──────────────────────────────────────────
-create table guests (
+create table customers (
   id           uuid primary key default uuid_generate_v4(),
   name         text not null,
   phone        text not null unique,
@@ -42,7 +42,7 @@ create table bookings (
   id              uuid primary key default uuid_generate_v4(),
   booking_number  text not null unique,         -- e.g. SP-0001, auto-generated
   room_id         uuid not null references rooms(id),
-  guest_id        uuid not null references guests(id),
+  customer_id     uuid not null references customers(id),
   check_in        timestamptz not null,
   check_out       timestamptz not null,
   adults          int  not null default 1,
@@ -54,7 +54,7 @@ create table bookings (
   paid_amount     numeric(10,2) not null default 0,
   payment_mode    text check (payment_mode in ('Cash', 'UPI', 'IDFC', 'Pending')),
   payment_status  text not null default 'unpaid'
-                  check (payment_status in ('paid', 'unpaid', 'partial', 'hold')),
+                  check (payment_status in ('paid', 'unpaid', 'partial', 'reserved')),
   deposit_amount  numeric(10,2) default 0,
   occupation      text,
   notes           text,
@@ -81,7 +81,7 @@ create table bookings (
 create table documents (
   id          uuid primary key default uuid_generate_v4(),
   booking_id  uuid not null references bookings(id) on delete cascade,
-  guest_id    uuid not null references guests(id),
+  customer_id uuid not null references customers(id),
   r2_key      text not null,           -- e.g. docs/2026/06/booking-uuid/aadhar.jpg
   file_name   text not null,
   doc_type    text not null default 'id_proof',
@@ -92,12 +92,12 @@ create table documents (
 -- ROW LEVEL SECURITY (all authenticated staff can read/write)
 -- ──────────────────────────────────────────
 alter table rooms     enable row level security;
-alter table guests    enable row level security;
+alter table customers enable row level security;
 alter table bookings  enable row level security;
 alter table documents enable row level security;
 
 create policy "staff_all" on rooms     for all to authenticated using (true) with check (true);
-create policy "staff_all" on guests    for all to authenticated using (true) with check (true);
+create policy "staff_all" on customers for all to authenticated using (true) with check (true);
 create policy "staff_all" on bookings  for all to authenticated using (true) with check (true);
 create policy "staff_all" on documents for all to authenticated using (true) with check (true);
 
@@ -107,7 +107,7 @@ create policy "staff_all" on documents for all to authenticated using (true) wit
 create index idx_bookings_room_dates on bookings(room_id, check_in, check_out);
 create index idx_bookings_status     on bookings(status);
 create index idx_bookings_dates      on bookings(check_in, check_out);
-create index idx_guests_phone        on guests(phone);
+create index idx_customers_phone     on customers(phone);
 
 -- ──────────────────────────────────────────
 -- AUTO-UPDATE updated_at

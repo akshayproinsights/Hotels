@@ -8,11 +8,11 @@ export interface UnpaidDuesResponse {
   total_amount: number
   paid_amount: number
   deposit_amount: number
-  payment_status: 'unpaid' | 'partial' | 'hold'
+  payment_status: 'unpaid' | 'partial' | 'reserved'
   rooms: {
     number: string
   }
-  guests: {
+  customers: {
     name: string
     phone: string
   }

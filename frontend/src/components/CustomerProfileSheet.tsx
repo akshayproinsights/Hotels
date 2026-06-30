@@ -5,18 +5,19 @@ import { useQuery } from '@tanstack/react-query'
 import { X, User, Phone, MapPin, Briefcase, Calendar, Camera, Upload, FileText, Loader2, ZoomIn, CheckCircle } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
-import { Guest, Document } from '../types'
-import { getGuestBookings } from '../api/guests'
-import { listGuestDocs, getUploadUrl, uploadFileToR2, confirmUpload } from '../api/documents'
+import { Customer, Document } from '../types'
+import { getCustomerBookings } from '../api/customers'
+import { listCustomerDocs, getUploadUrl, uploadFileToR2, confirmUpload } from '../api/documents'
+import { compressImage, compressImages } from '../utils/imageCompressor'
 import DocumentLightbox from './DocumentLightbox'
 import { useVisualViewport } from '../hooks/useVisualViewport'
 
-interface GuestProfileSheetProps {
-  guest: Guest
+interface CustomerProfileSheetProps {
+  customer: Customer
   onClose: () => void
 }
 
-export default function GuestProfileSheet({ guest, onClose }: GuestProfileSheetProps) {
+export default function CustomerProfileSheet({ customer, onClose }: CustomerProfileSheetProps) {
   const viewport = useVisualViewport()
   const [selectedDoc, setSelectedDoc] = useState<Document | null>(null)
   const [isUploading, setIsUploading] = useState(false)
@@ -29,37 +30,38 @@ export default function GuestProfileSheet({ guest, onClose }: GuestProfileSheetP
     }
   }, [])
 
-  // Query guest stay history
+  // Query customer stay history
   const { data: bookings = [], isLoading: isLoadingBookings } = useQuery({
-    queryKey: ['guestBookings', guest.id],
-    queryFn: () => getGuestBookings(guest.id),
+    queryKey: ['customerBookings', customer.id],
+    queryFn: () => getCustomerBookings(customer.id),
   })
 
-  // Query guest documents
-  const { data: guestDocs = [], isLoading: isLoadingDocs, refetch: refetchDocs } = useQuery({
-    queryKey: ['guestDocs', guest.id],
-    queryFn: () => listGuestDocs(guest.id),
+  // Query customer documents
+  const { data: customerDocs = [], isLoading: isLoadingDocs, refetch: refetchDocs } = useQuery({
+    queryKey: ['customerDocs', customer.id],
+    queryFn: () => listCustomerDocs(customer.id),
   })
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       if (bookings.length === 0) {
-        toast.error('Cannot upload documents for a guest with no bookings')
+        toast.error('Cannot upload documents for a customer with no bookings')
         return
       }
 
-      const files = Array.from(e.target.files)
+      const rawFiles = Array.from(e.target.files)
       setIsUploading(true)
-      const uploadToast = toast.loading(`Uploading ${files.length} document(s)...`)
+      const uploadToast = toast.loading(`Compressing & uploading ${rawFiles.length} document(s)...`)
 
-      // Associate with the guest's latest booking ID
+      // Associate with the customer's latest booking ID
       const latestBookingId = bookings[0].id
 
       try {
+        const files = await compressImages(rawFiles)
         for (const file of files) {
           const { upload_url, document_id } = await getUploadUrl(
             latestBookingId,
-            guest.id,
+            customer.id,
             file.name,
             file.type
           )
@@ -77,35 +79,36 @@ export default function GuestProfileSheet({ guest, onClose }: GuestProfileSheetP
     }
   }
 
-  const handleGuestPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleCustomerPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       if (bookings.length === 0) {
-        toast.error('Cannot upload documents for a guest with no bookings')
+        toast.error('Cannot upload documents for a customer with no bookings')
         return
       }
 
-      const file = e.target.files[0]
+      const rawFile = e.target.files[0]
       setIsUploading(true)
-      const uploadToast = toast.loading('Uploading guest photo...')
+      const uploadToast = toast.loading('Compressing & uploading photo...')
 
-      // Associate with the guest's latest booking ID
+      // Associate with the customer's latest booking ID
       const latestBookingId = bookings[0].id
 
       try {
+        const file = await compressImage(rawFile)
         const { upload_url, document_id } = await getUploadUrl(
           latestBookingId,
-          guest.id,
-          file.name || 'guest_photo.jpg',
+          customer.id,
+          file.name || 'customer_photo.jpg',
           file.type || 'image/jpeg',
-          'guest_photo'
+          'customer_photo'
         )
         await uploadFileToR2(upload_url, file)
         await confirmUpload(document_id)
-        toast.success('Guest photo uploaded successfully', { id: uploadToast })
+        toast.success('Customer photo uploaded successfully', { id: uploadToast })
         refetchDocs()
       } catch (err) {
         console.error(err)
-        toast.error('Failed to upload guest photo', { id: uploadToast })
+        toast.error('Failed to upload customer photo', { id: uploadToast })
       } finally {
         setIsUploading(false)
       }
@@ -120,7 +123,7 @@ export default function GuestProfileSheet({ guest, onClose }: GuestProfileSheetP
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm" style={viewport ? { height: `${viewport.height}px`, top: `${viewport.offsetTop}px`, bottom: 'auto' } : undefined}>
-      {/* Off-click dismiss zone - disabled from closing to prevent accidental dismissals on mobile / keyboard shifts */}
+      {/* Off-click dismiss zone */}
       <div className="absolute inset-0 cursor-default" onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} />
 
       {/* Main Drawer Form */}
@@ -134,7 +137,7 @@ export default function GuestProfileSheet({ guest, onClose }: GuestProfileSheetP
                 Customer Profile
               </span>
             </h2>
-            <p className="text-xs text-slate-500 mt-1">Customer Record ID: {guest.id.substring(0, 8)}...</p>
+            <p className="text-xs text-slate-500 mt-1">Customer Record ID: {customer.id.substring(0, 8)}...</p>
           </div>
           <button
             type="button"
@@ -157,7 +160,7 @@ export default function GuestProfileSheet({ guest, onClose }: GuestProfileSheetP
             <div className="flex justify-between items-start gap-4">
               <div className="flex gap-3">
                 {(() => {
-                  const photoDoc = guestDocs.find(d => d.doc_type === 'guest_photo');
+                  const photoDoc = customerDocs.find(d => d.doc_type === 'customer_photo');
                   return photoDoc ? (
                     <div className="relative w-12 h-12 flex-shrink-0">
                       <button
@@ -168,7 +171,7 @@ export default function GuestProfileSheet({ guest, onClose }: GuestProfileSheetP
                       >
                         <img
                           src={photoDoc.public_url}
-                          alt="Guest Photo"
+                          alt="Customer Photo"
                           className="w-full h-full object-cover"
                         />
                       </button>
@@ -179,7 +182,7 @@ export default function GuestProfileSheet({ guest, onClose }: GuestProfileSheetP
                           accept="image/*"
                           capture="environment"
                           className="hidden"
-                          onChange={handleGuestPhotoUpload}
+                          onChange={handleCustomerPhotoUpload}
                         />
                       </label>
                     </div>
@@ -191,27 +194,27 @@ export default function GuestProfileSheet({ guest, onClose }: GuestProfileSheetP
                         accept="image/*"
                         capture="environment"
                         className="hidden"
-                        onChange={handleGuestPhotoUpload}
+                        onChange={handleCustomerPhotoUpload}
                       />
                     </label>
                   );
                 })()}
                 <div>
                   <h3 className="text-lg font-black text-slate-100 flex items-center gap-2">
-                    {guest.name}
+                    {customer.name}
                   </h3>
                   <a
-                    href={`tel:${guest.phone}`}
+                    href={`tel:${customer.phone}`}
                     className="text-xs text-slate-400 hover:text-emerald-400 font-bold mt-1 flex items-center gap-2 transition"
                   >
                     <Phone className="h-3.5 w-3.5 text-slate-500" />
-                    {guest.phone}
+                    {customer.phone}
                   </a>
                 </div>
               </div>
               <div className="text-right">
                 <span className="text-[10px] uppercase tracking-wider font-extrabold px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  {guest.total_visits} {guest.total_visits === 1 ? 'Visit' : 'Visits'}
+                  {customer.total_visits} {customer.total_visits === 1 ? 'Visit' : 'Visits'}
                 </span>
                 {totalPendingDues > 0 && (
                   <div className="text-[10px] text-rose-400 font-black mt-2 uppercase tracking-wide bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded-md inline-block">
@@ -223,21 +226,21 @@ export default function GuestProfileSheet({ guest, onClose }: GuestProfileSheetP
 
             {/* Profile Metadata */}
             <div className="border-t border-slate-850/60 pt-2 grid grid-cols-1 gap-2 text-xs">
-              {guest.address && (
+              {customer.address && (
                 <div className="flex items-start gap-2 text-slate-400">
                   <MapPin className="h-4 w-4 text-slate-500 shrink-0 mt-0.5" />
                   <div>
                     <span className="font-bold text-slate-500 block uppercase text-[9px] tracking-wider">Address</span>
-                    {guest.address}
+                    {customer.address}
                   </div>
                 </div>
               )}
-              {guest.age !== undefined && guest.age !== null && (
+              {customer.age !== undefined && customer.age !== null && (
                 <div className="flex items-start gap-2 text-slate-400">
                   <User className="h-4 w-4 text-slate-500 shrink-0 mt-0.5" />
                   <div>
                     <span className="font-bold text-slate-500 block uppercase text-[9px] tracking-wider">Age</span>
-                    {guest.age} years
+                    {customer.age} years
                   </div>
                 </div>
               )}
@@ -256,7 +259,7 @@ export default function GuestProfileSheet({ guest, onClose }: GuestProfileSheetP
           {/* ID Documents Grid */}
           <div className="flex flex-col gap-2">
             {(() => {
-              const idDocsOnly = guestDocs.filter(d => d.doc_type !== 'guest_photo');
+              const idDocsOnly = customerDocs.filter(d => d.doc_type !== 'customer_photo');
               return (
                 <>
                   <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center justify-between">
@@ -292,7 +295,7 @@ export default function GuestProfileSheet({ guest, onClose }: GuestProfileSheetP
                     </div>
                   ) : (
                     <div className="text-xs text-slate-500 italic p-3 bg-slate-950/20 border border-slate-850 rounded-2xl">
-                      No ID documentation uploaded for this guest.
+                      No ID documentation uploaded for this customer.
                     </div>
                   )}
                 </>
@@ -418,7 +421,7 @@ export default function GuestProfileSheet({ guest, onClose }: GuestProfileSheetP
         <DocumentLightbox
           docUrl={selectedDoc.public_url || ''}
           fileName={selectedDoc.file_name}
-          guestName={guest.name}
+          customerName={customer.name}
           roomNumber={
             bookings.find(b => b.id === selectedDoc.booking_id)?.rooms?.number ||
             bookings[0]?.rooms?.number

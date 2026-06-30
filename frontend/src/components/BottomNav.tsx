@@ -1,12 +1,14 @@
 import { Link, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Calendar, Hotel, Clock, Settings } from 'lucide-react'
+import { Calendar, Hotel, Clock, Settings, TrendingUp } from 'lucide-react'
 import { getUnpaidDues } from '../api/dues'
 import { useLanguage } from '../context/LanguageContext'
+import { useAuth } from '../hooks/useAuth'
 
 export default function BottomNav() {
   const location = useLocation()
   const { t } = useLanguage()
+  const { user } = useAuth()
 
   // Query unpaid dues to show the badge count
   const { data: unpaidData } = useQuery({
@@ -64,6 +66,21 @@ export default function BottomNav() {
         </div>
         <span className="text-[10px] font-bold mt-1 tracking-wider uppercase">{t('dues')}</span>
       </Link>
+
+      {/* Reports Tab (Admin Only) */}
+      {(user?.role === 'admin' || user?.email === 'admin@snapkhata.com') && (
+        <Link
+          to="/reports"
+          className={`flex flex-col items-center py-1 px-3 rounded-2xl transition duration-200 ${
+            activePath === '/reports'
+              ? 'text-emerald-400 bg-emerald-500/5'
+              : 'text-slate-500 hover:text-slate-300'
+          }`}
+        >
+          <TrendingUp className="h-5 w-5" />
+          <span className="text-[10px] font-bold mt-1 tracking-wider uppercase">{t('reports_nav')}</span>
+        </Link>
+      )}
 
       {/* Settings Tab */}
       <Link
