@@ -2,9 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 import uuid
 from typing import Optional, Literal
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from app.database import supabase
 from app.auth import get_current_user
+
+# Local timezone helper for IST (+05:30)
+IST = timezone(timedelta(hours=5, minutes=30))
 
 router = APIRouter()
 
@@ -129,7 +132,16 @@ def create_booking(body: BookingCreate, user=Depends(get_current_user)):
         raise HTTPException(status_code=422, detail="Provide customer_id OR customer_name+customer_phone")
 
     # 2. Calculate totals
-    nights = max(1, (body.check_out.date() - body.check_in.date()).days)
+    is_checked_in = body.is_checked_in if body.is_checked_in is not None else (body.payment_status != "reserved")
+    
+    check_in_dt = body.check_in
+    if is_checked_in:
+        check_in_dt = datetime.now(timezone.utc)
+        
+    check_in_date_local = check_in_dt.astimezone(IST).date() if check_in_dt.tzinfo else check_in_dt.date()
+    check_out_date_local = body.check_out.astimezone(IST).date() if body.check_out.tzinfo else body.check_out.date()
+    nights = max(1, (check_out_date_local - check_in_date_local).days)
+
     room_res = supabase.table("rooms").select("extra_bed_price").eq("id", body.room_id).execute()
     extra_bed_price = room_res.data[0]["extra_bed_price"] if room_res.data and "extra_bed_price" in room_res.data[0] else 500.0
     extra_bed_total = body.extra_beds * float(extra_bed_price) * nights
@@ -150,15 +162,13 @@ def create_booking(body: BookingCreate, user=Depends(get_current_user)):
         else:
             actual_payment_status = "unpaid"
 
-    is_checked_in = body.is_checked_in if body.is_checked_in is not None else (actual_payment_status != "reserved")
-
     # 3. Insert booking (DB constraint will reject overlapping dates)
     try:
         res = supabase.table("bookings").insert({
             "room_id":         body.room_id,
             "room_type":       body.room_type,
             "customer_id":     customer_id,
-            "check_in":        body.check_in.isoformat(),
+            "check_in":        check_in_dt.isoformat(),
             "check_out":       body.check_out.isoformat(),
             "adults":          body.adults,
             "children":        body.children,
@@ -174,7 +184,7 @@ def create_booking(body: BookingCreate, user=Depends(get_current_user)):
             "notes":           body.notes,
             "created_by":      user.get("sub"),
             "is_checked_in":   is_checked_in,
-            "actual_checkin_time": (body.actual_checkin_time.isoformat() if body.actual_checkin_time else (datetime.now(timezone.utc).isoformat() if is_checked_in else None)),
+            "actual_checkin_time": (body.actual_checkin_time.isoformat() if body.actual_checkin_time else (check_in_dt.isoformat() if is_checked_in else None)),
             "extra_bill_amount": extra_bill_amount,
             "extra_bill_note":   body.extra_bill_note,
         }).execute()
@@ -188,7 +198,7 @@ def create_booking(body: BookingCreate, user=Depends(get_current_user)):
                 "room_id":         body.room_id,
                 "room_type":       body.room_type,
                 "customer_id":     customer_id,
-                "check_in":        body.check_in.isoformat(),
+                "check_in":        check_in_dt.isoformat(),
                 "check_out":       body.check_out.isoformat(),
                 "adults":          body.adults,
                 "children":        body.children,
@@ -204,7 +214,7 @@ def create_booking(body: BookingCreate, user=Depends(get_current_user)):
                 "notes":           notes_text,
                 "created_by":      user.get("sub"),
                 "is_checked_in":   is_checked_in,
-                "actual_checkin_time": (body.actual_checkin_time.isoformat() if body.actual_checkin_time else (datetime.now(timezone.utc).isoformat() if is_checked_in else None)),
+                "actual_checkin_time": (body.actual_checkin_time.isoformat() if body.actual_checkin_time else (check_in_dt.isoformat() if is_checked_in else None)),
                 "extra_bill_amount": extra_bill_amount,
                 "extra_bill_note":   body.extra_bill_note,
             }).execute()
@@ -257,7 +267,14 @@ def create_bookings_batch(body: BookingBatchCreate, user=Depends(get_current_use
         raise HTTPException(status_code=422, detail="Provide customer_id OR customer_name+customer_phone")
 
     # 2. Calculate totals and distribute deposit
-    nights = max(1, (body.check_out.date() - body.check_in.date()).days)
+    is_checked_in_batch = body.is_checked_in if body.is_checked_in is not None else (body.payment_status != "reserved")
+    now_time = datetime.now(timezone.utc)
+    check_in_dt = now_time if is_checked_in_batch else body.check_in
+
+    check_in_date_local = check_in_dt.astimezone(IST).date() if check_in_dt.tzinfo else check_in_dt.date()
+    check_out_date_local = body.check_out.astimezone(IST).date() if body.check_out.tzinfo else body.check_out.date()
+    nights = max(1, (check_out_date_local - check_in_date_local).days)
+    
     room_ids = [r.room_id for r in body.rooms]
     rooms_res = supabase.table("rooms").select("id, extra_bed_price").in_("id", room_ids).execute()
     room_extra_prices = {r["id"]: float(r["extra_bed_price"] or 500.0) for r in (rooms_res.data or []) if "extra_bed_price" in r and r["extra_bed_price"] is not None}
@@ -297,11 +314,13 @@ def create_bookings_batch(body: BookingBatchCreate, user=Depends(get_current_use
                 room_status = "unpaid"
                 
         room_is_checked_in = body.is_checked_in if body.is_checked_in is not None else (room_status != "reserved")
+        room_check_in_dt = now_time if room_is_checked_in else body.check_in
+        
         bookings_to_create.append({
             "room_id":         r.room_id,
             "room_type":       r.room_type,
             "customer_id":     customer_id,
-            "check_in":        body.check_in.isoformat(),
+            "check_in":        room_check_in_dt.isoformat(),
             "check_out":       body.check_out.isoformat(),
             "adults":          r.adults,
             "children":        r.children,
@@ -317,7 +336,7 @@ def create_bookings_batch(body: BookingBatchCreate, user=Depends(get_current_use
             "notes":           r.notes or body.notes,
             "created_by":      user.get("sub"),
             "is_checked_in":   room_is_checked_in,
-            "actual_checkin_time": (body.actual_checkin_time.isoformat() if body.actual_checkin_time else (datetime.now(timezone.utc).isoformat() if room_is_checked_in else None)),
+            "actual_checkin_time": (body.actual_checkin_time.isoformat() if body.actual_checkin_time else (room_check_in_dt.isoformat() if room_is_checked_in else None)),
             "extra_bill_amount": body.extra_bill_amount or 0.0,
             "extra_bill_note":   body.extra_bill_note,
         })
@@ -406,6 +425,21 @@ def get_booking(booking_id: str, user=Depends(get_current_user)):
 @router.patch("/{booking_id}")
 def update_booking(booking_id: str, body: BookingUpdate, user=Depends(get_current_user)):
     updates = {k: v for k, v in body.dict().items() if v is not None}
+    original_updates = body.dict(exclude_unset=True)
+    has_explicit_dates = "check_in" in original_updates or "check_out" in original_updates
+
+    # Auto-fill actual check-in / check-out times on status change/check-in action
+    if updates.get("is_checked_in") is True and "check_in" not in original_updates:
+        now_time = datetime.now(timezone.utc)
+        updates["check_in"] = now_time.isoformat()
+        if "actual_checkin_time" not in updates:
+            updates["actual_checkin_time"] = now_time.isoformat()
+
+    if updates.get("status") == "checked_out" and "check_out" not in original_updates:
+        now_time = datetime.now(timezone.utc)
+        updates["check_out"] = now_time.isoformat()
+        if "actual_checkout_time" not in updates:
+            updates["actual_checkout_time"] = now_time.isoformat()
 
     # Adjust total_amount if extra_bill_amount is updated
     if "extra_bill_amount" in updates:
@@ -418,13 +452,13 @@ def update_booking(booking_id: str, body: BookingUpdate, user=Depends(get_curren
                 updates["total_amount"] = float(curr_res.data.get("total_amount") or 0.0) + diff
 
     # Convert dates to ISO format
-    if "check_in" in updates and updates["check_in"] is not None:
+    if "check_in" in updates and updates["check_in"] is not None and isinstance(updates["check_in"], datetime):
         updates["check_in"] = updates["check_in"].isoformat()
-    if "check_out" in updates and updates["check_out"] is not None:
+    if "check_out" in updates and updates["check_out"] is not None and isinstance(updates["check_out"], datetime):
         updates["check_out"] = updates["check_out"].isoformat()
 
-    # Recalculate totals if price, extra beds, or dates change
-    if any(k in updates for k in ["room_price", "extra_beds", "check_in", "check_out", "room_id"]):
+    # Recalculate totals if price, extra beds, or dates change explicitly
+    if any(k in updates for k in ["room_price", "extra_beds", "room_id"]) or (has_explicit_dates and any(k in updates for k in ["check_in", "check_out"])):
         curr_res = supabase.table("bookings").select("room_price, extra_beds, check_in, check_out, extra_bill_amount, paid_amount, room_id").eq("id", booking_id).single().execute()
         if curr_res.data:
             curr = curr_res.data
@@ -464,7 +498,7 @@ def update_booking(booking_id: str, body: BookingUpdate, user=Depends(get_curren
                 else:
                     updates["payment_status"] = "unpaid"
 
-    if any(k in updates for k in ["room_id", "check_in", "check_out"]):
+    if any(k in updates for k in ["room_id"]) or (has_explicit_dates and any(k in updates for k in ["check_in", "check_out"])):
         curr_res = supabase.table("bookings").select("room_id, check_in, check_out").eq("id", booking_id).single().execute()
         if not curr_res.data:
             raise HTTPException(status_code=404, detail="Booking not found")
@@ -489,15 +523,11 @@ def update_booking(booking_id: str, body: BookingUpdate, user=Depends(get_curren
                 detail="Room is already booked or occupied by another customer during this period."
             )
 
-    if "actual_checkin_time" in updates and updates["actual_checkin_time"] is not None:
+    if "actual_checkin_time" in updates and updates["actual_checkin_time"] is not None and isinstance(updates["actual_checkin_time"], datetime):
         updates["actual_checkin_time"] = updates["actual_checkin_time"].isoformat()
-    elif updates.get("is_checked_in") is True and "actual_checkin_time" not in updates:
-        updates["actual_checkin_time"] = datetime.now(timezone.utc).isoformat()
 
-    if "actual_checkout_time" in updates and updates["actual_checkout_time"] is not None:
+    if "actual_checkout_time" in updates and updates["actual_checkout_time"] is not None and isinstance(updates["actual_checkout_time"], datetime):
         updates["actual_checkout_time"] = updates["actual_checkout_time"].isoformat()
-    elif updates.get("status") == "checked_out" and "actual_checkout_time" not in updates:
-        updates["actual_checkout_time"] = datetime.now(timezone.utc).isoformat()
 
     # Clean up IDFC notes tag if changing payment mode away from IDFC
     if "payment_mode" in updates and updates["payment_mode"] != "IDFC":

@@ -26,7 +26,12 @@ export default function LoginPage() {
     try {
       const res = await api.post('/auth/login', { username, password })
       localStorage.setItem('access_token', res.data.access_token)
-      toast.success(t('welcome_back', { name: res.data.user.name || 'Staff' }))
+      const user = res.data.user
+      if (user.email === 'admin@santosh.com') {
+        toast.success(t('welcome_back', { name: 'Admin' }))
+      } else if (user.email !== 'santosh@santosh.com') {
+        toast.success(t('welcome_back', { name: user.name || 'Staff' }))
+      }
       navigate('/')
     } catch (err: any) {
       const message = err.response?.data?.detail || t('invalid_credentials')

@@ -801,7 +801,7 @@ export default function ReportsPage() {
 
                           {/* Duration */}
                           <td className="py-3.5 px-4 text-[10px] text-slate-350">
-                            <div>{format(parseISO(item.check_in), 'dd MMM')} - {format(parseISO(item.check_out), 'dd MMM')}</div>
+                            <div>{format(parseISO(item.check_in), 'dd MMM, hh:mm a')} - {format(parseISO(item.check_out), 'dd MMM, hh:mm a')}</div>
                             <div className="text-[9px] text-slate-500 font-semibold mt-0.5">{format(parseISO(item.check_in), 'yyyy')}</div>
                           </td>
 

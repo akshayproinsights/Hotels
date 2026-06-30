@@ -8,7 +8,7 @@ router = APIRouter()
 
 def require_admin(user=Depends(get_current_user)):
     email = user.get("email")
-    if email != "admin@snapkhata.com":
+    if email != "admin@santosh.com":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access forbidden: Admin only"

@@ -80,7 +80,7 @@ def create_room(body: RoomCreate, user=Depends(get_current_user)):
     """
     Create a new room configuration.
     """
-    # Restrict room write access: 'santosh' login maps to santosh@snapkhata.com
+    # Restrict room write access: 'santosh' login maps to santosh@santosh.com
     email = user.get("email", "")
     if email.startswith("santosh@"):
         raise HTTPException(
@@ -116,7 +116,7 @@ def update_room(room_id: str, body: RoomUpdate, user=Depends(get_current_user)):
     Updates an existing room configuration.
     Uses exclude_unset=True so is_active=False (deactivate) is not silently dropped.
     """
-    # Restrict room write access: 'santosh' login maps to santosh@snapkhata.com
+    # Restrict room write access: 'santosh' login maps to santosh@santosh.com
     email = user.get("email", "")
     if email.startswith("santosh@"):
         raise HTTPException(

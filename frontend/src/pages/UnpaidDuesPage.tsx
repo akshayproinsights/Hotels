@@ -129,7 +129,7 @@ export default function UnpaidDuesPage() {
       const label = language === 'mr' ? 'उद्या चेकआउट' : 'Checkout Tomorrow'
       return { label, color: 'text-yellow-400', bg: 'bg-yellow-500/10 border-yellow-500/20', icon: 'soon' }
     }
-    const label = language === 'mr' ? `चेकआउट: ${format(coDate, 'dd MMM')}` : `Checkout: ${format(coDate, 'dd MMM')}`
+    const label = language === 'mr' ? `चेकआउट: ${format(coDate, 'dd MMM, hh:mm a')}` : `Checkout: ${format(coDate, 'dd MMM, hh:mm a')}`
     return { label, color: 'text-slate-400', bg: 'bg-slate-800/40 border-slate-700/30', icon: 'normal' }
   }
 

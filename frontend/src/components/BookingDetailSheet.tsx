@@ -115,7 +115,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
 
   // Initialize drafts when booking is loaded
   useEffect(() => {
-    if (booking) {
+    if (booking && !showDatePicker && !editRoomMode && !isEditingName && !activeKeypad) {
       setDraftCheckIn(booking.check_in.slice(0, 10))
       setDraftCheckOut(booking.check_out.slice(0, 10))
       setDraftRoomType(booking.room_type || booking.rooms?.room_type || 'AC Deluxe')
@@ -133,7 +133,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
         setDraftCustomerName(booking.customers.name)
       }
     }
-  }, [booking])
+  }, [booking, showDatePicker, editRoomMode, isEditingName, activeKeypad])
 
   // Fetch available rooms when dates change in edit mode
   useEffect(() => {
@@ -502,18 +502,21 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
     const newNights = differenceInCalendarDays(new Date(draftCheckOut), new Date(draftCheckIn))
     const recalculatedTotal = (draftRoomPrice * newNights) + (draftExtraBeds * 500 * newNights) + (booking.extra_bill_amount || 0)
 
-    const isEarlyCheckout = isBefore(new Date(draftCheckOut), new Date(booking.check_out.slice(0, 10)))
-    const confirmMsg = isEarlyCheckout 
-      ? (language === 'mr' ? `लवकर चेक-आउट करत आहात? एकूण रात्री: ${newNights}. एकूण देय रक्कम: ₹${recalculatedTotal} होईल.` : `Early checkout detected! Total nights: ${newNights}. Recalculated total bill: ₹${recalculatedTotal}.`)
-      : (language === 'mr' ? `तारखा अपडेट करायच्या आहेत का? नवीन बिल: ₹${recalculatedTotal}.` : `Update booking dates? New total bill: ₹${recalculatedTotal}.`)
+    const currentTimeStr = format(new Date(), 'HH:mm')
 
-    if (window.confirm(confirmMsg)) {
-      updateMutation.mutate({
-        check_in: parse(`${draftCheckIn} 12:00`, 'yyyy-MM-dd HH:mm', new Date()).toISOString(),
-        check_out: parse(`${draftCheckOut} 11:00`, 'yyyy-MM-dd HH:mm', new Date()).toISOString(),
-        total_amount: recalculatedTotal
-      })
-    }
+    const finalCheckIn = draftCheckIn === booking.check_in.slice(0, 10)
+      ? booking.check_in
+      : parse(`${draftCheckIn} ${currentTimeStr}`, 'yyyy-MM-dd HH:mm', new Date()).toISOString()
+
+    const finalCheckOut = draftCheckOut === booking.check_out.slice(0, 10)
+      ? booking.check_out
+      : parse(`${draftCheckOut} ${currentTimeStr}`, 'yyyy-MM-dd HH:mm', new Date()).toISOString()
+
+    updateMutation.mutate({
+      check_in: finalCheckIn,
+      check_out: finalCheckOut,
+      total_amount: recalculatedTotal
+    })
   }
 
   const renderDatePickerModal = () => {
@@ -618,7 +621,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                 const currentMonth = day.getMonth() === pickerMonth.getMonth()
                 
                 let dayBg = 'hover:bg-slate-800 text-slate-400'
-                if (!currentMonth) dayBg = 'text-slate-700 pointer-events-none'
+                if (!currentMonth) dayBg = 'text-slate-500 opacity-30 hover:bg-slate-800'
                 if (isSelectedStart) dayBg = 'bg-emerald-500 text-slate-955 font-black rounded-lg'
                 if (isSelectedEnd) dayBg = 'bg-amber-500 text-slate-955 font-black rounded-lg'
                 if (inRange) dayBg = 'bg-emerald-500/10 text-emerald-300 font-semibold'

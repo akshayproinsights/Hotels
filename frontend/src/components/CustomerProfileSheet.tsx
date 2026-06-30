@@ -346,8 +346,8 @@ export default function CustomerProfileSheet({ customer, onClose }: CustomerProf
             ) : bookings.length > 0 ? (
               <div className="flex flex-col gap-2.5 max-h-[30vh] overflow-y-auto pr-1 custom-scrollbar">
                 {bookings.map((booking) => {
-                  const checkInDate = format(parseISO(booking.check_in), 'dd MMM yyyy')
-                  const checkOutDate = format(parseISO(booking.check_out), 'dd MMM yyyy')
+                  const checkInDate = format(parseISO(booking.check_in), 'dd MMM yyyy, hh:mm a')
+                  const checkOutDate = format(parseISO(booking.check_out), 'dd MMM yyyy, hh:mm a')
                   const pending = booking.total_amount - booking.paid_amount
                   const isPaid = pending <= 0
 

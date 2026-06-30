@@ -26,7 +26,7 @@ def login(body: LoginRequest):
             )
 
         if "@" not in login_email:
-            login_email = f"{login_email}@snapkhata.com"
+            login_email = f"{login_email}@santosh.com"
 
         res = supabase.auth.sign_in_with_password({
             "email": login_email,
@@ -43,7 +43,7 @@ def login(body: LoginRequest):
                 "id": str(res.user.id),
                 "email": res.user.email,
                 "name": res.user.user_metadata.get("name", ""),
-                "role": "admin" if res.user.email == "admin@snapkhata.com" else "staff",
+                "role": "admin" if res.user.email == "admin@santosh.com" else "staff",
             }
         }
     except Exception as e:
@@ -74,5 +74,5 @@ def me(user=Depends(get_current_user)):
         "id":    user.get("sub"),
         "email": user.get("email"),
         "name":  user.get("user_metadata", {}).get("name", ""),
-        "role":  "admin" if user.get("email") == "admin@snapkhata.com" else "staff",
+        "role":  "admin" if user.get("email") == "admin@santosh.com" else "staff",
     }

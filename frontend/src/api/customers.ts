@@ -18,3 +18,9 @@ export async function updateCustomer(
   const res = await api.patch<Customer>(`/customers/${customerId}`, payload)
   return res.data
 }
+
+export async function deleteCustomer(customerId: string): Promise<{ message: string; id: string }> {
+  const res = await api.delete<{ message: string; id: string }>(`/customers/${customerId}`)
+  return res.data
+}
+

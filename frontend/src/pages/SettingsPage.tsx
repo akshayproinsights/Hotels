@@ -5,12 +5,74 @@ import { Plus, Edit3, X, Save, AlertCircle, RefreshCw, Hotel, Users, Search, Use
 import api from '../api/client'
 import { Room, Customer } from '../types'
 import toast from 'react-hot-toast'
-import { searchCustomers } from '../api/customers'
+import { searchCustomers, deleteCustomer } from '../api/customers'
+import useLongPress from '../hooks/useLongPress'
 import CustomerProfileSheet from '../components/CustomerProfileSheet'
 import NumericKeypad from '../components/NumericKeypad'
 import { format, parseISO } from 'date-fns'
 import { useLanguage } from '../context/LanguageContext'
 import { useAuth } from '../hooks/useAuth'
+
+interface CustomerCardProps {
+  customer: Customer
+  onClick: (customer: Customer) => void
+  onLongPress: (customer: Customer) => void
+  language: string
+}
+
+function CustomerCard({ customer, onClick, onLongPress, language }: CustomerCardProps) {
+  const longPressHandlers = useLongPress(
+    (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      onLongPress(customer)
+    },
+    () => {
+      onClick(customer)
+    }
+  )
+
+  return (
+    <div
+      {...longPressHandlers}
+      className="glass-panel cursor-pointer rounded-xl p-3.5 border border-emerald-500/10 hover:border-emerald-450/40 hover:scale-[1.01] transition-all duration-200 flex flex-col justify-between bg-slate-900/30 active:scale-[0.99]"
+    >
+      <div className="flex justify-between items-center gap-3">
+        <h3 className="text-base font-black text-slate-100 flex items-center gap-2 truncate">
+          <User className="h-4 w-4 text-emerald-400 flex-shrink-0" />
+          <span className="truncate">{customer.name}</span>
+        </h3>
+        <a
+          href={`tel:${customer.phone}`}
+          onClick={(e) => {
+            e.stopPropagation()
+          }}
+          className="text-xs text-slate-400 hover:text-emerald-400 font-bold flex items-center gap-1.5 transition flex-shrink-0"
+        >
+          <Phone className="h-3.5 w-3.5 text-slate-500" />
+          {customer.phone}
+        </a>
+      </div>
+      
+      <div className="mt-3 pt-2.5 border-t border-slate-800/40 flex justify-between items-center text-[11px] text-slate-400 font-semibold">
+        <span className="bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-md text-[10px]">
+          {customer.total_visits} {language === 'mr' ? 'भेटी' : (customer.total_visits === 1 ? 'visit' : 'visits')}
+        </span>
+        {customer.last_visit ? (
+          <span className="flex items-center gap-1 text-slate-400">
+            <Calendar className="h-3.5 w-3.5 text-slate-500" />
+            {language === 'mr' ? 'शेवटची भेट:' : 'Last:'} {format(parseISO(customer.last_visit + 'T00:00:00'), 'dd MMM yyyy')}
+          </span>
+        ) : customer.created_at ? (
+          <span className="flex items-center gap-1 text-slate-400">
+            <Calendar className="h-3.5 w-3.5 text-slate-500" />
+            {language === 'mr' ? 'चेक इन ::' : 'Check In ::'} {format(parseISO(customer.created_at), 'dd MMM yyyy')}
+          </span>
+        ) : null}
+      </div>
+    </div>
+  )
+}
 
 export default function SettingsPage() {
   const queryClient = useQueryClient()
@@ -99,6 +161,25 @@ export default function SettingsPage() {
   const [searchResults, setSearchResults] = useState<Customer[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
+  const [showDeleteCustomerConfirm, setShowDeleteCustomerConfirm] = useState(false)
+  const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null)
+  const [refreshTrigger, setRefreshTrigger] = useState(0)
+
+  const deleteCustomerMutation = useMutation({
+    mutationFn: async (customerId: string) => {
+      return await deleteCustomer(customerId)
+    },
+    onSuccess: () => {
+      toast.success(language === 'mr' ? 'ग्राहक यशस्वीरित्या डिलीट केला!' : 'Customer deleted successfully!')
+      setCustomerToDelete(null)
+      setShowDeleteCustomerConfirm(false)
+      setRefreshTrigger(prev => prev + 1)
+    },
+    onError: (err: any) => {
+      const msg = err.response?.data?.detail || (language === 'mr' ? 'ग्राहक डिलीट करण्यात अयशस्वी' : 'Failed to delete customer')
+      toast.error(msg)
+    }
+  })
 
   // Load default customer list on mount, or query debounced search
   useEffect(() => {
@@ -137,7 +218,7 @@ export default function SettingsPage() {
       active = false
       clearTimeout(delayDebounceFn)
     }
-  }, [searchQuery])
+  }, [searchQuery, refreshTrigger])
 
   // Fetch Rooms
   const { data: rooms = [], isLoading, isError, refetch } = useQuery<Room[]>({
@@ -482,43 +563,16 @@ export default function SettingsPage() {
           ) : searchResults.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 animate-fade-in">
               {searchResults.map((g) => (
-                <div
+                <CustomerCard
                   key={g.id}
-                  onClick={() => setSelectedCustomer(g)}
-                  className="glass-panel cursor-pointer rounded-xl p-3.5 border border-emerald-500/10 hover:border-emerald-450/40 hover:scale-[1.01] transition-all duration-200 flex flex-col justify-between bg-slate-900/30"
-                >
-                  <div className="flex justify-between items-center gap-3">
-                    <h3 className="text-base font-black text-slate-100 flex items-center gap-2 truncate">
-                      <User className="h-4 w-4 text-emerald-400 flex-shrink-0" />
-                      <span className="truncate">{g.name}</span>
-                    </h3>
-                    <a
-                      href={`tel:${g.phone}`}
-                      onClick={(e) => e.stopPropagation()}
-                      className="text-xs text-slate-400 hover:text-emerald-400 font-bold flex items-center gap-1.5 transition flex-shrink-0"
-                    >
-                      <Phone className="h-3.5 w-3.5 text-slate-500" />
-                      {g.phone}
-                    </a>
-                  </div>
-                  
-                  <div className="mt-3 pt-2.5 border-t border-slate-800/40 flex justify-between items-center text-[11px] text-slate-400 font-semibold">
-                    <span className="bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-md text-[10px]">
-                      {g.total_visits} {language === 'mr' ? 'भेटी' : (g.total_visits === 1 ? 'visit' : 'visits')}
-                    </span>
-                    {g.last_visit ? (
-                      <span className="flex items-center gap-1 text-slate-400">
-                        <Calendar className="h-3.5 w-3.5 text-slate-500" />
-                        {language === 'mr' ? 'शेवटची भेट:' : 'Last:'} {format(parseISO(g.last_visit + 'T00:00:00'), 'dd MMM yyyy')}
-                      </span>
-                    ) : g.created_at ? (
-                      <span className="flex items-center gap-1 text-slate-400">
-                        <Calendar className="h-3.5 w-3.5 text-slate-500" />
-                        {language === 'mr' ? 'चेक इन ::' : 'Check In ::'} {format(parseISO(g.created_at), 'dd MMM yyyy')}
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
+                  customer={g}
+                  language={language}
+                  onClick={(customer) => setSelectedCustomer(customer)}
+                  onLongPress={(customer) => {
+                    setCustomerToDelete(customer)
+                    setShowDeleteCustomerConfirm(true)
+                  }}
+                />
               ))}
             </div>
           ) : searchQuery.trim().length >= 2 ? (
@@ -623,7 +677,7 @@ export default function SettingsPage() {
                         <div className="flex justify-between text-[11px] font-semibold text-slate-400">
                           <span>{language === 'mr' ? 'कालावधी:' : 'Duration:'}</span>
                           <span className="text-slate-350">
-                            {format(parseISO(b.check_in.split('T')[0]), 'dd MMM')} - {format(parseISO(b.check_out.split('T')[0]), 'dd MMM')}
+                            {format(parseISO(b.check_in), 'dd MMM, hh:mm a')} - {format(parseISO(b.check_out), 'dd MMM, hh:mm a')}
                           </span>
                         </div>
                         <div className="flex justify-between text-[11px] font-semibold text-slate-400">
@@ -926,6 +980,53 @@ export default function SettingsPage() {
                 type="button"
                 onClick={() => deleteMutation.mutate(bookingToDelete.id)}
                 disabled={deleteMutation.isPending}
+                className="py-2.5 px-4 bg-rose-500 hover:bg-rose-400 active:bg-rose-500 text-slate-955 text-xs font-black rounded-xl transition shadow-lg shadow-rose-500/15"
+              >
+                {language === 'mr' ? 'होय, डिलीट करा' : 'Yes, Delete'}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Customer Deletion Confirmation Dialog */}
+      {showDeleteCustomerConfirm && customerToDelete && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-6 animate-fade-in">
+          <div className="glass-panel w-full max-w-xs rounded-3xl bg-slate-900 border-slate-800 p-5 flex flex-col gap-4 text-center shadow-2xl">
+            <div className="h-11 w-11 rounded-full flex items-center justify-center mx-auto border bg-rose-500/10 text-rose-450 border-rose-500/25">
+              <Trash2 className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-extrabold text-slate-100">
+                {language === 'mr' ? 'ग्राहक डिलीट करण्याची खात्री करा' : 'Confirm Customer Deletion'}
+              </h3>
+              <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
+                <span className="text-rose-400 font-bold block mb-1">
+                  {language === 'mr' ? '⚠️ ही क्रिया पूर्ववत केली जाऊ शकत नाही!' : '⚠️ This action CANNOT be undone!'}
+                </span>
+                {language === 'mr' ? (
+                  <>तुम्हाला खरोखर ग्राहक <span className="font-extrabold text-slate-200">{customerToDelete.name}</span> ला डिलीट करायचे आहे का?</>
+                ) : (
+                  <>Are you sure you want to delete customer <span className="font-extrabold text-slate-200">{customerToDelete.name}</span>?</>
+                )}
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 mt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setCustomerToDelete(null)
+                  setShowDeleteCustomerConfirm(false)
+                }}
+                className="py-2.5 px-4 bg-slate-955 border border-slate-800 text-slate-300 hover:text-slate-200 text-xs font-bold rounded-xl transition"
+              >
+                {language === 'mr' ? 'रद्द करा' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={() => deleteCustomerMutation.mutate(customerToDelete.id)}
+                disabled={deleteCustomerMutation.isPending}
                 className="py-2.5 px-4 bg-rose-500 hover:bg-rose-400 active:bg-rose-500 text-slate-955 text-xs font-black rounded-xl transition shadow-lg shadow-rose-500/15"
               >
                 {language === 'mr' ? 'होय, डिलीट करा' : 'Yes, Delete'}
