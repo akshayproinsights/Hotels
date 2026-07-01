@@ -38,6 +38,7 @@ export interface FinancialsResponse {
     booking_number: string
     customer_name: string
     customer_phone: string
+    customer_is_deleted?: boolean
     room_number: string
     room_type: string
     check_in: string

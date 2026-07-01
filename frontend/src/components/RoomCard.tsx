@@ -1,6 +1,9 @@
 import type { InventoryRoom } from '../types'
 import { useLanguage } from '../context/LanguageContext'
 import useLongPress from '../hooks/useLongPress'
+import { getMarathiName } from '../utils/nameHelper'
+import { getCustomerNameDisplay } from '../utils/customer'
+
 
 interface RoomCardProps {
   room: InventoryRoom
@@ -76,7 +79,19 @@ export default function RoomCard({ room, onClick, onLongPress }: RoomCardProps) 
       <div className="w-full mt-1.5 sm:mt-2">
         {room.booking?.customers?.name ? (
           <span className="text-[11px] sm:text-xs font-semibold text-slate-300 truncate block">
-            {room.room_status === 'reserved' ? '📅' : '👤'} {room.booking.customers.name}
+            {(() => {
+              const { name: cleanName, isDeleted } = getCustomerNameDisplay(room.booking.customers.name);
+              return (
+                <>
+                  {room.room_status === 'reserved' ? '📅' : '👤'} {getMarathiName(cleanName)}
+                  {isDeleted && (
+                    <span className="text-rose-455 ml-1 font-bold">
+                      ({language === 'mr' ? 'डिलीट' : 'Del'})
+                    </span>
+                  )}
+                </>
+              );
+            })()}
           </span>
         ) : (
           <span className="text-[11px] sm:text-xs font-semibold text-slate-500 block">

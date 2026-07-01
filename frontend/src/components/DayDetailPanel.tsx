@@ -11,6 +11,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { cancelBooking, restoreBooking } from '../api/bookings'
 import { useLanguage } from '../context/LanguageContext'
+import { getCustomerNameDisplay } from '../utils/customer'
 
 interface DayDetailPanelProps {
   dateStr: string
@@ -169,6 +170,7 @@ export default function DayDetailPanel({ dateStr, onClose }: DayDetailPanelProps
                   room={room}
                   onClick={handleRoomClick}
                   onLongPress={handleRoomLongPress}
+                  language={language}
                 />
               ))}
             </div>
@@ -218,8 +220,20 @@ export default function DayDetailPanel({ dateStr, onClose }: DayDetailPanelProps
               <h3 className="text-sm font-extrabold text-slate-100 uppercase tracking-wider">
                 {language === 'mr' ? `खोली ${quickActionRoom.number} - त्वरित कृती` : `Room ${quickActionRoom.number} - Quick Action`}
               </h3>
-              <p className="text-xs text-slate-455 mt-1 font-semibold">
-                👤 {quickActionRoom.booking?.customers?.name} ({language === 'mr' ? 'ग्राहक' : 'Customer'})
+              <p className="text-xs text-slate-455 mt-1 font-semibold flex items-center gap-1">
+                👤 {(() => {
+                  const { name: dName, isDeleted } = getCustomerNameDisplay(quickActionRoom.booking?.customers?.name);
+                  return (
+                    <>
+                      <span>{dName}</span>
+                      {isDeleted && (
+                        <span className="bg-rose-500/10 text-rose-400 px-1.5 py-0.5 rounded text-[9px] font-black border border-rose-500/20 ml-1">
+                          {language === 'mr' ? 'डिलीट केलेला' : 'Deleted'}
+                        </span>
+                      )}
+                    </>
+                  );
+                })()} ({language === 'mr' ? 'ग्राहक' : 'Customer'})
               </p>
             </div>
             <div className="flex flex-col gap-2 mt-2">
@@ -239,7 +253,7 @@ export default function DayDetailPanel({ dateStr, onClose }: DayDetailPanelProps
                   setCancelConfirmBooking({
                     id: quickActionRoom.booking!.id,
                     roomNumber: String(quickActionRoom.number),
-                    customerName: quickActionRoom.booking!.customers?.name || ""
+                    customerName: getCustomerNameDisplay(quickActionRoom.booking!.customers?.name).name || ""
                   })
                   setQuickActionRoom(null)
                 }}
@@ -304,9 +318,10 @@ interface DayPanelRoomButtonProps {
   room: InventoryRoom
   onClick: (room: InventoryRoom) => void
   onLongPress: (room: InventoryRoom) => void
+  language: string
 }
 
-function DayPanelRoomButton({ room, onClick, onLongPress }: DayPanelRoomButtonProps) {
+function DayPanelRoomButton({ room, onClick, onLongPress, language }: DayPanelRoomButtonProps) {
   const longPressHandlers = useLongPress(
     () => onLongPress(room),
     () => onClick(room)
@@ -335,8 +350,22 @@ function DayPanelRoomButton({ room, onClick, onLongPress }: DayPanelRoomButtonPr
           {statusLabel.text}
         </span>
       </div>
-      <span className="text-xs font-semibold text-slate-350 truncate mt-2">
-        {room.booking?.customers?.name || 'Available'}
+      <span className="text-xs font-semibold text-slate-350 truncate mt-2 flex items-center gap-1">
+        {room.booking?.customers?.name ? (
+          (() => {
+            const { name: dName, isDeleted } = getCustomerNameDisplay(room.booking.customers.name);
+            return (
+              <>
+                <span className="truncate">{dName}</span>
+                {isDeleted && (
+                  <span className="text-rose-455 font-bold shrink-0">
+                    ({language === 'mr' ? 'डिलीट' : 'Del'})
+                  </span>
+                )}
+              </>
+            );
+          })()
+        ) : 'Available'}
       </span>
     </button>
   )

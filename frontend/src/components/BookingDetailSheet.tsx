@@ -28,6 +28,7 @@ import { getBooking, updateBooking, cancelBooking, restoreBooking } from '../api
 import { getUploadUrl, uploadFileToR2, confirmUpload, listCustomerDocs, extractNameFromId } from '../api/documents'
 import { updateCustomer } from '../api/customers'
 import { listAvailableRooms } from '../api/rooms'
+import { getCustomerNameDisplay } from '../utils/customer'
 import { useLanguage } from '../context/LanguageContext'
 import { useVisualViewport } from '../hooks/useVisualViewport'
 import type { Room } from '../types'
@@ -784,7 +785,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') handleSaveCustomerName()
                           if (e.key === 'Escape') {
-                            setDraftCustomerName(booking.customers?.name || '')
+                            setDraftCustomerName(getCustomerNameDisplay(booking.customers?.name).name || '')
                             setIsEditingName(false)
                           }
                         }}
@@ -798,7 +799,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                       </button>
                       <button
                         onClick={() => {
-                          setDraftCustomerName(booking.customers?.name || '')
+                          setDraftCustomerName(getCustomerNameDisplay(booking.customers?.name).name || '')
                           setIsEditingName(false)
                         }}
                         className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-205 transition flex-shrink-0"
@@ -808,10 +809,24 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                     </div>
                   ) : (
                     <div className="flex items-center gap-2">
-                      <span className="text-slate-200 font-extrabold text-base truncate">{booking.customers?.name}</span>
+                      <span className="text-slate-200 font-extrabold text-base truncate flex items-center gap-1">
+                        {(() => {
+                          const { name: dName, isDeleted } = getCustomerNameDisplay(booking.customers?.name);
+                          return (
+                            <>
+                              <span className="truncate">{dName}</span>
+                              {isDeleted && (
+                                <span className="bg-rose-500/10 text-rose-400 px-1.5 py-0.5 rounded text-[9px] font-black border border-rose-500/20 ml-1 shrink-0 whitespace-nowrap">
+                                  {language === 'mr' ? 'डिलीट केलेले' : 'Deleted'}
+                                </span>
+                              )}
+                            </>
+                          );
+                        })()}
+                      </span>
                       <button
                         onClick={() => {
-                          setDraftCustomerName(booking.customers?.name || '')
+                          setDraftCustomerName(getCustomerNameDisplay(booking.customers?.name).name || '')
                           setIsEditingName(true)
                         }}
                         className="text-slate-500 hover:text-slate-350 transition"
@@ -1446,9 +1461,9 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                 </h3>
                 <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
                   {language === 'mr' ? (
-                    <>ग्राहक <span className="font-extrabold text-slate-200">{booking.customers?.name}</span> यांना खोली क्रमांक <span className="font-extrabold text-slate-200">{booking.rooms?.number || booking.room_id}</span> मधून चेकआऊट करायचे आहे का?</>
+                    <>ग्राहक <span className="font-extrabold text-slate-200">{getCustomerNameDisplay(booking.customers?.name).name}</span> यांना खोली क्रमांक <span className="font-extrabold text-slate-200">{booking.rooms?.number || booking.room_id}</span> मधून चेकआऊट करायचे आहे का?</>
                   ) : (
-                    <>Check out <span className="font-extrabold text-slate-200">{booking.customers?.name}</span> from Room <span className="font-extrabold text-slate-200">{booking.rooms?.number || booking.room_id}</span>?</>
+                    <>Check out <span className="font-extrabold text-slate-200">{getCustomerNameDisplay(booking.customers?.name).name}</span> from Room <span className="font-extrabold text-slate-200">{booking.rooms?.number || booking.room_id}</span>?</>
                   )}
                 </p>
 
@@ -1533,9 +1548,9 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
               </h3>
               <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
                 {language === 'mr' ? (
-                  <>खोली क्रमांक <span className="font-extrabold text-slate-200">{booking.rooms?.number || booking.room_id}</span> मधील ग्राहक <span className="font-extrabold text-slate-200">{booking.customers?.name}</span> यांचे बुकिंग रद्द करायचे आहे का? हे आपण नंतर Settings मधून पुनर्संचयित करू शकता.</>
+                  <>खोली क्रमांक <span className="font-extrabold text-slate-200">{booking.rooms?.number || booking.room_id}</span> मधील ग्राहक <span className="font-extrabold text-slate-200">{getCustomerNameDisplay(booking.customers?.name).name}</span> यांचे बुकिंग रद्द करायचे आहे का? हे आपण नंतर Settings मधून पुनर्संचयित करू शकता.</>
                 ) : (
-                  <>Cancel the booking for <span className="font-extrabold text-slate-200">{booking.customers?.name}</span> in Room <span className="font-extrabold text-slate-200">{booking.rooms?.number || booking.room_id}</span>? You can restore this later from Settings.</>
+                  <>Cancel the booking for <span className="font-extrabold text-slate-200">{getCustomerNameDisplay(booking.customers?.name).name}</span> in Room <span className="font-extrabold text-slate-200">{booking.rooms?.number || booking.room_id}</span>? You can restore this later from Settings.</>
                 )}
               </p>
             </div>

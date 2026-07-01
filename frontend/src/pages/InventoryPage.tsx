@@ -11,6 +11,7 @@ import { useLanguage } from '../context/LanguageContext'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { cancelBooking, restoreBooking } from '../api/bookings'
+import { getCustomerNameDisplay } from '../utils/customer'
 
 export default function InventoryPage() {
   const queryClient = useQueryClient()
@@ -287,7 +288,21 @@ export default function InventoryPage() {
                   {b.rooms?.number || b.room_id}
                 </span>
                 <div className="min-w-0">
-                  <p className={`text-xs font-black truncate ${isDone ? 'text-slate-400 line-through' : 'text-slate-200'}`}>{b.customers?.name}</p>
+                  <p className={`text-xs font-black truncate flex items-center gap-1 ${isDone ? 'text-slate-400 line-through' : 'text-slate-200'}`}>
+                    {(() => {
+                      const { name: dName, isDeleted } = getCustomerNameDisplay(b.customers?.name);
+                      return (
+                        <>
+                          <span className="truncate">{dName}</span>
+                          {isDeleted && (
+                            <span className="bg-rose-500/10 text-rose-455 px-1 rounded text-[8px] font-black border border-rose-500/20 shrink-0 whitespace-nowrap">
+                              {language === 'mr' ? 'डिलीट' : 'Deleted'}
+                            </span>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </p>
                   <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wider mt-0.5">
                     {b.room_type} · {subtitleLabel}
                   </p>
@@ -668,8 +683,20 @@ export default function InventoryPage() {
               <h3 className="text-sm font-extrabold text-slate-100 uppercase tracking-wider">
                 {language === 'mr' ? `खोली ${quickActionRoom.number} - त्वरित कृती` : `Room ${quickActionRoom.number} - Quick Action`}
               </h3>
-              <p className="text-xs text-slate-450 mt-1 font-semibold">
-                👤 {quickActionRoom.booking?.customers?.name} ({language === 'mr' ? 'ग्राहक' : 'Customer'})
+              <p className="text-xs text-slate-450 mt-1 font-semibold flex items-center gap-1">
+                👤 {(() => {
+                  const { name: dName, isDeleted } = getCustomerNameDisplay(quickActionRoom.booking?.customers?.name);
+                  return (
+                    <>
+                      <span>{dName}</span>
+                      {isDeleted && (
+                        <span className="bg-rose-500/10 text-rose-400 px-1.5 py-0.5 rounded text-[9px] font-black border border-rose-500/20 ml-1">
+                          {language === 'mr' ? 'डिलीट केलेला' : 'Deleted'}
+                        </span>
+                      )}
+                    </>
+                  );
+                })()} ({language === 'mr' ? 'ग्राहक' : 'Customer'})
               </p>
             </div>
             <div className="flex flex-col gap-2 mt-2">
@@ -689,7 +716,7 @@ export default function InventoryPage() {
                   setCancelConfirmBooking({
                     id: quickActionRoom.booking!.id,
                     roomNumber: String(quickActionRoom.number),
-                    customerName: quickActionRoom.booking!.customers?.name || ""
+                    customerName: getCustomerNameDisplay(quickActionRoom.booking!.customers?.name).name || ""
                   })
                   setQuickActionRoom(null)
                 }}

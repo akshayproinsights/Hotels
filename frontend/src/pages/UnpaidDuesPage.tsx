@@ -19,6 +19,7 @@ import {
 import { getUnpaidDues } from '../api/dues'
 import BookingDetailSheet from '../components/BookingDetailSheet'
 import { useLanguage } from '../context/LanguageContext'
+import { getCustomerNameDisplay, cleanPhoneDisplay } from '../utils/customer'
 import useLongPress from '../hooks/useLongPress'
 import { cancelBooking, restoreBooking } from '../api/bookings'
 import toast from 'react-hot-toast'
@@ -357,8 +358,20 @@ export default function UnpaidDuesPage() {
               <h3 className="text-sm font-extrabold text-slate-100 uppercase tracking-wider">
                 {language === 'mr' ? `खोली ${quickActionDue.rooms.number} - त्वरित कृती` : `Room ${quickActionDue.rooms.number} - Quick Action`}
               </h3>
-              <p className="text-xs text-slate-455 mt-1 font-semibold">
-                👤 {quickActionDue.customers?.name} ({language === 'mr' ? 'ग्राहक' : 'Customer'})
+              <p className="text-xs text-slate-455 mt-1 font-semibold flex items-center gap-1">
+                👤 {(() => {
+                  const { name: dName, isDeleted } = getCustomerNameDisplay(quickActionDue.customers?.name);
+                  return (
+                    <>
+                      <span>{dName}</span>
+                      {isDeleted && (
+                        <span className="bg-rose-500/10 text-rose-400 px-1.5 py-0.5 rounded text-[9px] font-black border border-rose-500/20 ml-1">
+                          {language === 'mr' ? 'डिलीट केलेला' : 'Deleted'}
+                        </span>
+                      )}
+                    </>
+                  );
+                })()} ({language === 'mr' ? 'ग्राहक' : 'Customer'})
               </p>
             </div>
             <div className="flex flex-col gap-2 mt-2">
@@ -378,7 +391,7 @@ export default function UnpaidDuesPage() {
                   setCancelConfirmBooking({
                     id: quickActionDue.id,
                     roomNumber: String(quickActionDue.rooms.number),
-                    customerName: quickActionDue.customers?.name || ""
+                    customerName: getCustomerNameDisplay(quickActionDue.customers?.name).name || ""
                   })
                   setQuickActionDue(null)
                 }}
@@ -468,7 +481,21 @@ function DueCard({ due, onClick, onLongPress, language, getStatusLabel, getCheck
       <div className="flex justify-between items-start gap-2">
         <div className="flex flex-col gap-0.5 min-w-0">
           <div className="text-slate-100 font-extrabold text-base group-hover:text-emerald-400 transition flex items-center gap-2 flex-wrap">
-            <span className="truncate">{due.customers?.name || due.customers?.phone}</span>
+            <span className="truncate flex items-center gap-1">
+              {(() => {
+                const { name: dName, isDeleted } = getCustomerNameDisplay(due.customers?.name || due.customers?.phone);
+                return (
+                  <>
+                    <span className="truncate">{dName}</span>
+                    {isDeleted && (
+                      <span className="bg-rose-500/10 text-rose-400 px-1.5 py-0.5 rounded text-[9px] font-black border border-rose-500/20 ml-1 whitespace-nowrap">
+                        {language === 'mr' ? 'डिलीट केलेले' : 'Deleted'}
+                      </span>
+                    )}
+                  </>
+                );
+              })()}
+            </span>
             <span className="bg-slate-800 border border-slate-700 px-2 py-0.5 rounded-md text-[10px] text-slate-300 font-bold shrink-0">
               {language === 'mr' ? 'खोली' : 'Room'} {due.rooms.number}
             </span>
@@ -476,12 +503,12 @@ function DueCard({ due, onClick, onLongPress, language, getStatusLabel, getCheck
 
           {/* Tap-to-call phone */}
           <a
-            href={`tel:${due.customers?.phone}`}
+            href={`tel:${cleanPhoneDisplay(due.customers?.phone)}`}
             onClick={(e) => e.stopPropagation()}
             className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-emerald-400 font-medium mt-0.5 transition w-fit"
           >
             <Phone className="h-3 w-3 shrink-0" />
-            {due.customers?.phone}
+            {cleanPhoneDisplay(due.customers?.phone)}
           </a>
         </div>
 

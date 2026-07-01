@@ -790,7 +790,14 @@ export default function ReportsPage() {
                         >
                           {/* Customer */}
                           <td className="py-3.5 px-4 truncate max-w-[140px] font-extrabold text-slate-200">
-                            {item.customer_name}
+                            <div className="flex items-center gap-1">
+                              <span className="truncate">{item.customer_name}</span>
+                              {item.customer_is_deleted && (
+                                <span className="bg-rose-500/10 text-rose-400 px-1.5 py-0.5 rounded text-[9px] font-black border border-rose-500/20 whitespace-nowrap">
+                                  {language === 'mr' ? 'डिलीट' : 'Deleted'}
+                                </span>
+                              )}
+                            </div>
                           </td>
 
                           {/* Room */}

@@ -94,11 +94,21 @@ def get_financials(
             r_info = b.get("rooms") or {}
             c_info = b.get("customers") or {}
             
+            c_name = c_info.get("name", "Unknown")
+            c_phone = c_info.get("phone", "")
+            c_is_deleted = False
+            if c_name.startswith("[DELETED] "):
+                c_is_deleted = True
+                c_name = c_name.replace("[DELETED] ", "")
+                phone_parts = c_phone.split("-deleted-")
+                c_phone = phone_parts[0] if phone_parts else c_phone
+            
             ledger_item = {
                 "id": b["id"],
                 "booking_number": b["booking_number"],
-                "customer_name": c_info.get("name", "Unknown"),
-                "customer_phone": c_info.get("phone", ""),
+                "customer_name": c_name,
+                "customer_phone": c_phone,
+                "customer_is_deleted": c_is_deleted,
                 "room_number": r_info.get("number", "N/A"),
                 "room_type": r_info.get("room_type", ""),
                 "check_in": b["check_in"],

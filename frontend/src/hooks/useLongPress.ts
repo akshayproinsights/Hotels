@@ -12,6 +12,7 @@ export default function useLongPress(
   const timeoutRef = useRef<any>(null)
   const isLongPressTriggered = useRef(false)
   const touchStartPos = useRef<{ x: number; y: number } | null>(null)
+  const isMoveThresholdExceeded = useRef(false)
 
   const start = useCallback(
     (e: any) => {
@@ -22,6 +23,7 @@ export default function useLongPress(
         }
       }
       isLongPressTriggered.current = false
+      isMoveThresholdExceeded.current = false
       if (timeoutRef.current) clearTimeout(timeoutRef.current)
       
       timeoutRef.current = setTimeout(() => {
@@ -37,6 +39,7 @@ export default function useLongPress(
     const dx = e.touches[0].clientX - touchStartPos.current.x
     const dy = e.touches[0].clientY - touchStartPos.current.y
     if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+      isMoveThresholdExceeded.current = true
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current)
         timeoutRef.current = null
@@ -51,12 +54,13 @@ export default function useLongPress(
         timeoutRef.current = null
       }
       
-      if (shouldTriggerClick && !isLongPressTriggered.current) {
+      if (shouldTriggerClick && !isLongPressTriggered.current && !isMoveThresholdExceeded.current) {
         onClick(e)
       }
       
       touchStartPos.current = null
       isLongPressTriggered.current = false
+      isMoveThresholdExceeded.current = false
     },
     [onClick]
   )

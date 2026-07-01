@@ -6,12 +6,13 @@ import api from '../api/client'
 import { Room, Customer } from '../types'
 import toast from 'react-hot-toast'
 import { searchCustomers, deleteCustomer } from '../api/customers'
-import useLongPress from '../hooks/useLongPress'
 import CustomerProfileSheet from '../components/CustomerProfileSheet'
 import NumericKeypad from '../components/NumericKeypad'
 import { format, parseISO } from 'date-fns'
 import { useLanguage } from '../context/LanguageContext'
 import { useAuth } from '../hooks/useAuth'
+import useLongPress from '../hooks/useLongPress'
+import { getCustomerNameDisplay, cleanPhoneDisplay } from '../utils/customer'
 
 interface CustomerCardProps {
   customer: Customer
@@ -22,15 +23,12 @@ interface CustomerCardProps {
 
 function CustomerCard({ customer, onClick, onLongPress, language }: CustomerCardProps) {
   const longPressHandlers = useLongPress(
-    (e) => {
-      e.preventDefault()
-      e.stopPropagation()
-      onLongPress(customer)
-    },
-    () => {
-      onClick(customer)
-    }
+    () => onLongPress(customer),
+    () => onClick(customer)
   )
+
+  const { name: displayName } = getCustomerNameDisplay(customer.name)
+  const displayPhone = cleanPhoneDisplay(customer.phone)
 
   return (
     <div
@@ -40,17 +38,15 @@ function CustomerCard({ customer, onClick, onLongPress, language }: CustomerCard
       <div className="flex justify-between items-center gap-3">
         <h3 className="text-base font-black text-slate-100 flex items-center gap-2 truncate">
           <User className="h-4 w-4 text-emerald-400 flex-shrink-0" />
-          <span className="truncate">{customer.name}</span>
+          <span className="truncate">{displayName}</span>
         </h3>
         <a
-          href={`tel:${customer.phone}`}
-          onClick={(e) => {
-            e.stopPropagation()
-          }}
+          href={`tel:${displayPhone}`}
+          onClick={(e) => e.stopPropagation()}
           className="text-xs text-slate-400 hover:text-emerald-400 font-bold flex items-center gap-1.5 transition flex-shrink-0"
         >
           <Phone className="h-3.5 w-3.5 text-slate-500" />
-          {customer.phone}
+          {displayPhone}
         </a>
       </div>
       
@@ -59,13 +55,13 @@ function CustomerCard({ customer, onClick, onLongPress, language }: CustomerCard
           {customer.total_visits} {language === 'mr' ? 'भेटी' : (customer.total_visits === 1 ? 'visit' : 'visits')}
         </span>
         {customer.last_visit ? (
-          <span className="flex items-center gap-1 text-slate-400">
-            <Calendar className="h-3.5 w-3.5 text-slate-500" />
+          <span className="flex items-center gap-1 text-slate-405">
+            <Calendar className="h-3.5 w-3.5 text-slate-550" />
             {language === 'mr' ? 'शेवटची भेट:' : 'Last:'} {format(parseISO(customer.last_visit + 'T00:00:00'), 'dd MMM yyyy')}
           </span>
         ) : customer.created_at ? (
-          <span className="flex items-center gap-1 text-slate-400">
-            <Calendar className="h-3.5 w-3.5 text-slate-500" />
+          <span className="flex items-center gap-1 text-slate-405">
+            <Calendar className="h-3.5 w-3.5 text-slate-550" />
             {language === 'mr' ? 'चेक इन ::' : 'Check In ::'} {format(parseISO(customer.created_at), 'dd MMM yyyy')}
           </span>
         ) : null}
@@ -91,6 +87,9 @@ export default function SettingsPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editingRoom, setEditingRoom] = useState<Room | null>(null)
   const [trashSearchQuery, setTrashSearchQuery] = useState('')
+  const [refreshTrigger, setRefreshTrigger] = useState(0)
+  const [showDeleteCustomerConfirm, setShowDeleteCustomerConfirm] = useState(false)
+  const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null)
 
   // Fetch Cancelled Bookings for Trash Bin
   const { data: cancelledBookings = [], isLoading: isTrashLoading, refetch: refetchTrash } = useQuery<any[]>({
@@ -161,25 +160,6 @@ export default function SettingsPage() {
   const [searchResults, setSearchResults] = useState<Customer[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
-  const [showDeleteCustomerConfirm, setShowDeleteCustomerConfirm] = useState(false)
-  const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null)
-  const [refreshTrigger, setRefreshTrigger] = useState(0)
-
-  const deleteCustomerMutation = useMutation({
-    mutationFn: async (customerId: string) => {
-      return await deleteCustomer(customerId)
-    },
-    onSuccess: () => {
-      toast.success(language === 'mr' ? 'ग्राहक यशस्वीरित्या डिलीट केला!' : 'Customer deleted successfully!')
-      setCustomerToDelete(null)
-      setShowDeleteCustomerConfirm(false)
-      setRefreshTrigger(prev => prev + 1)
-    },
-    onError: (err: any) => {
-      const msg = err.response?.data?.detail || (language === 'mr' ? 'ग्राहक डिलीट करण्यात अयशस्वी' : 'Failed to delete customer')
-      toast.error(msg)
-    }
-  })
 
   // Load default customer list on mount, or query debounced search
   useEffect(() => {
@@ -283,6 +263,23 @@ export default function SettingsPage() {
     },
     onError: (err: any) => {
       const msg = err.response?.data?.detail || (language === 'mr' ? 'खोली डिलीट करण्यात अयशस्वी' : 'Failed to delete room')
+      toast.error(msg)
+    }
+  })
+
+  // Delete Customer Mutation
+  const deleteCustomerMutation = useMutation({
+    mutationFn: async (customerId: string) => {
+      return deleteCustomer(customerId)
+    },
+    onSuccess: () => {
+      toast.success(language === 'mr' ? 'ग्राहक यशस्विरित्या डिलीट केला!' : 'Customer deleted successfully!')
+      setCustomerToDelete(null)
+      setShowDeleteCustomerConfirm(false)
+      setRefreshTrigger(prev => prev + 1)
+    },
+    onError: (err: any) => {
+      const msg = err.response?.data?.detail || (language === 'mr' ? 'ग्राहक डिलीट करण्यात अयशस्वी' : 'Failed to delete customer')
       toast.error(msg)
     }
   })
@@ -566,12 +563,12 @@ export default function SettingsPage() {
                 <CustomerCard
                   key={g.id}
                   customer={g}
-                  language={language}
-                  onClick={(customer) => setSelectedCustomer(customer)}
-                  onLongPress={(customer) => {
-                    setCustomerToDelete(customer)
+                  onClick={setSelectedCustomer}
+                  onLongPress={(c) => {
+                    setCustomerToDelete(c)
                     setShowDeleteCustomerConfirm(true)
                   }}
+                  language={language}
                 />
               ))}
             </div>
@@ -662,15 +659,27 @@ export default function SettingsPage() {
                   >
                     <div>
                       <div className="flex justify-between items-start">
-                        <h3 className="text-base font-extrabold text-slate-100 truncate pr-2">
-                          👤 {b.customers?.name}
+                        <h3 className="text-base font-extrabold text-slate-100 truncate pr-2 flex items-center gap-1">
+                          👤 {(() => {
+                            const { name: dName, isDeleted } = getCustomerNameDisplay(b.customers?.name);
+                            return (
+                              <>
+                                <span className="truncate">{dName}</span>
+                                {isDeleted && (
+                                  <span className="bg-rose-500/10 text-rose-400 px-1.5 py-0.5 rounded text-[9px] font-black border border-rose-500/20 ml-1 whitespace-nowrap">
+                                    {language === 'mr' ? 'डिलीट केलेले' : 'Deleted'}
+                                  </span>
+                                )}
+                              </>
+                            );
+                          })()}
                         </h3>
-                        <span className="bg-slate-950 border border-slate-850 px-2 py-0.5 rounded-md text-[10px] text-slate-400 font-extrabold whitespace-nowrap">
+                        <span className="bg-slate-955 border border-slate-850 px-2 py-0.5 rounded-md text-[10px] text-slate-400 font-extrabold whitespace-nowrap">
                           {language === 'mr' ? 'खोली' : 'Room'} {b.rooms?.number || b.room_id}
                         </span>
                       </div>
                       <p className="text-xs text-slate-500 font-medium mt-1">
-                        📞 {b.customers?.phone}
+                        📞 {cleanPhoneDisplay(b.customers?.phone)}
                       </p>
                       
                       <div className="mt-3.5 space-y-1.5 border-t border-slate-800/40 pt-3">
@@ -1006,9 +1015,9 @@ export default function SettingsPage() {
                   {language === 'mr' ? '⚠️ ही क्रिया पूर्ववत केली जाऊ शकत नाही!' : '⚠️ This action CANNOT be undone!'}
                 </span>
                 {language === 'mr' ? (
-                  <>तुम्हाला खरोखर ग्राहक <span className="font-extrabold text-slate-200">{customerToDelete.name}</span> ला डिलीट करायचे आहे का?</>
+                  <>तुम्हाला खरोखर ग्राहक <span className="font-extrabold text-slate-200">{getCustomerNameDisplay(customerToDelete.name).name}</span> डिलीट करायचे आहे का? त्यांचे रेकॉर्ड रिपोर्टमध्ये डिलीट चिन्हासह राहतील.</>
                 ) : (
-                  <>Are you sure you want to delete customer <span className="font-extrabold text-slate-200">{customerToDelete.name}</span>?</>
+                  <>Are you sure you want to delete customer <span className="font-extrabold text-slate-200">{getCustomerNameDisplay(customerToDelete.name).name}</span>? Their records will remain in history marked as deleted.</>
                 )}
               </p>
             </div>

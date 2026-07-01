@@ -20,37 +20,37 @@ export default function BottomNav() {
   const activePath = location.pathname
 
   return (
-    <nav className="glass-panel nav-safe fixed bottom-0 left-0 right-0 z-40 border-t border-slate-800/40 px-4 py-2 flex justify-around items-center">
+    <nav className="glass-panel nav-safe fixed bottom-0 left-0 right-0 z-40 border-t border-slate-800/40 px-2 py-1.5 flex justify-between items-stretch">
       {/* Bookings Tab */}
       <Link
         to="/"
-        className={`flex flex-col items-center py-1 px-3 rounded-2xl transition duration-200 ${
+        className={`flex flex-col items-center justify-center py-1.5 px-1 mx-0.5 rounded-xl transition duration-200 flex-1 min-w-0 text-center ${
           activePath === '/'
             ? 'text-emerald-400 bg-emerald-500/5'
             : 'text-slate-500 hover:text-slate-300'
         }`}
       >
         <Calendar className="h-5 w-5" />
-        <span className="text-[10px] font-bold mt-1 tracking-wider uppercase">{t('bookings')}</span>
+        <span className="text-[10px] font-bold mt-1 tracking-wider uppercase leading-tight">{t('bookings')}</span>
       </Link>
 
       {/* Rooms Tab */}
       <Link
         to="/inventory"
-        className={`flex flex-col items-center py-1 px-3 rounded-2xl transition duration-200 ${
+        className={`flex flex-col items-center justify-center py-1.5 px-1 mx-0.5 rounded-xl transition duration-200 flex-1 min-w-0 text-center ${
           activePath === '/inventory'
             ? 'text-emerald-400 bg-emerald-500/5'
             : 'text-slate-500 hover:text-slate-300'
         }`}
       >
         <Hotel className="h-5 w-5" />
-        <span className="text-[10px] font-bold mt-1 tracking-wider uppercase">{t('rooms')}</span>
+        <span className="text-[10px] font-bold mt-1 tracking-wider uppercase leading-tight">{t('rooms')}</span>
       </Link>
 
       {/* Dues Tab with Badge */}
       <Link
         to="/unpaid"
-        className={`flex flex-col items-center py-1 px-3 rounded-2xl transition duration-200 relative ${
+        className={`flex flex-col items-center justify-center py-1.5 px-1 mx-0.5 rounded-xl transition duration-200 flex-1 min-w-0 text-center relative ${
           activePath === '/unpaid'
             ? 'text-emerald-400 bg-emerald-500/5'
             : 'text-slate-500 hover:text-slate-300'
@@ -64,35 +64,35 @@ export default function BottomNav() {
             </span>
           )}
         </div>
-        <span className="text-[10px] font-bold mt-1 tracking-wider uppercase">{t('dues')}</span>
+        <span className="text-[10px] font-bold mt-1 tracking-wider uppercase leading-tight">{t('dues')}</span>
       </Link>
 
       {/* Reports Tab (Admin Only) */}
       {(user?.role === 'admin' || user?.email === 'admin@snapkhata.com') && (
         <Link
           to="/reports"
-          className={`flex flex-col items-center py-1 px-3 rounded-2xl transition duration-200 ${
+          className={`flex flex-col items-center justify-center py-1.5 px-1 mx-0.5 rounded-xl transition duration-200 flex-1 min-w-0 text-center ${
             activePath === '/reports'
               ? 'text-emerald-400 bg-emerald-500/5'
               : 'text-slate-500 hover:text-slate-300'
           }`}
         >
           <TrendingUp className="h-5 w-5" />
-          <span className="text-[10px] font-bold mt-1 tracking-wider uppercase">{t('reports_nav')}</span>
+          <span className="text-[10px] font-bold mt-1 tracking-wider uppercase leading-tight">{t('reports_nav')}</span>
         </Link>
       )}
 
       {/* Settings Tab */}
       <Link
         to="/settings"
-        className={`flex flex-col items-center py-1 px-3 rounded-2xl transition duration-200 ${
+        className={`flex flex-col items-center justify-center py-1.5 px-1 mx-0.5 rounded-xl transition duration-200 flex-1 min-w-0 text-center ${
           activePath === '/settings'
             ? 'text-emerald-400 bg-emerald-500/5'
             : 'text-slate-500 hover:text-slate-300'
         }`}
       >
         <Settings className="h-5 w-5" />
-        <span className="text-[10px] font-bold mt-1 tracking-wider uppercase">{t('app_settings')}</span>
+        <span className="text-[10px] font-bold mt-1 tracking-wider uppercase leading-tight">{t('app_settings')}</span>
       </Link>
     </nav>
   )
