@@ -374,8 +374,11 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
   const effectiveCheckInTime = checkInTime || '12:00'
   const effectiveCheckOutTime = checkOutTime || effectiveCheckInTime
   // Treat user-typed times as IST for all calculations
-  const checkinDateTime = new Date(toUTCfromIST(checkInDate, effectiveCheckInTime))
-  const checkoutDateTime = new Date(toUTCfromIST(checkOutDate, effectiveCheckOutTime))
+  // Guard: if checkOutDate is empty (user is mid-selection), fall back to check-in + 1 day
+  const effectiveCheckInDate = checkInDate || format(new Date(), 'yyyy-MM-dd')
+  const effectiveCheckOutDate = checkOutDate || format(addDays(parse(effectiveCheckInDate, 'yyyy-MM-dd', new Date()), 1), 'yyyy-MM-dd')
+  const checkinDateTime = new Date(toUTCfromIST(effectiveCheckInDate, effectiveCheckInTime))
+  const checkoutDateTime = new Date(toUTCfromIST(effectiveCheckOutDate, effectiveCheckOutTime))
   const nights = Math.max(1, differenceInCalendarDays(checkoutDateTime, checkinDateTime))
   // Check In Now button is only shown when check-in date is TODAY (walk-in or same-day arrival)
   const isCheckingInToday = checkInDate === format(new Date(), 'yyyy-MM-dd')
@@ -1193,23 +1196,42 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
                     </div>
                   </div>
 
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                      {language === 'mr' ? 'खोली भाडे (₹/रात्र)' : 'Room Price (₹/Night)'}
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => setActiveKeypad(`room_price_${config.id}`)}
-                      className={`w-full flex items-center gap-1.5 rounded-2xl px-3 py-2 border text-xs h-[38px] transition active:scale-[0.98] ${
-                        activeKeypad === `room_price_${config.id}`
-                          ? 'bg-emerald-500/10 border-emerald-400/60 ring-2 ring-emerald-500/20'
-                          : 'bg-slate-950 border-slate-800'
-                      }`}
-                    >
-                      <span className="text-emerald-400 font-black text-sm">₹</span>
-                      <span className="flex-1 text-left font-black text-slate-100">{config.room_price || 0}</span>
-                      <span className="text-[9px] text-slate-500 font-bold">EDIT</span>
-                    </button>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                        {language === 'mr' ? 'खोली भाडे (₹/रात्र)' : 'Room Price (₹/Night)'}
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setActiveKeypad(`room_price_${config.id}`)}
+                        className={`w-full flex items-center gap-1.5 rounded-2xl px-3 py-2 border text-xs h-[38px] transition active:scale-[0.98] ${
+                          activeKeypad === `room_price_${config.id}`
+                            ? 'bg-emerald-500/10 border-emerald-400/60 ring-2 ring-emerald-500/20'
+                            : 'bg-slate-950 border-slate-800'
+                        }`}
+                      >
+                        <span className="text-emerald-400 font-black text-sm">₹</span>
+                        <span className="flex-1 text-left font-black text-slate-100">{config.room_price || 0}</span>
+                        <span className="text-[9px] text-slate-500 font-bold">EDIT</span>
+                      </button>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                        {language === 'mr' ? 'एकूण खोली खर्च' : 'Total Room Cost'}
+                      </label>
+                      <div className="w-full flex items-center gap-1.5 rounded-2xl px-3.5 py-2 border border-slate-800 bg-slate-950/40 text-xs h-[38px]">
+                        <span className="text-emerald-400 font-black text-sm">₹</span>
+                        <span className="flex-1 text-left font-black text-slate-100">
+                          {calculateRoomTotal(config)}
+                        </span>
+                        {nights > 1 && (
+                          <span className="text-[9px] text-slate-500 font-bold uppercase">
+                            {nights} {language === 'mr' ? 'रात्री' : 'nights'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               )
@@ -1766,7 +1788,6 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
           availableRooms={availableRooms}
           partialRooms={partialRooms}
           currentSelectedIds={selectedRooms.filter(r => r.room_id).map(r => r.room_id)}
-          language={language}
           onConfirm={handleRoomPickerConfirm}
           onClose={() => setShowRoomPicker(false)}
         />
@@ -1858,18 +1879,17 @@ function RoomPickerModal({
   availableRooms,
   partialRooms,
   currentSelectedIds,
-  language,
   onConfirm,
   onClose,
 }: {
   availableRooms: Room[]
   partialRooms: PartialRoom[]
   currentSelectedIds: string[]
-  language: string
   onConfirm: (roomIds: string[], selectedPartialRooms: PartialRoom[]) => void
   onClose: () => void
 }) {
   const [pickedIds, setPickedIds] = React.useState<string[]>(currentSelectedIds)
+  const { t } = useLanguage()
 
   const allRooms: Room[] = [...availableRooms, ...partialRooms]
   const floors = Array.from(new Set(availableRooms.map(r => r.floor))).sort((a, b) => a - b)
@@ -1880,17 +1900,15 @@ function RoomPickerModal({
   }
 
   const typeBadge = (type: string) => {
-    if (type === 'VIP AC Suite')     return { bg: 'bg-amber-500/10 border-amber-500/30', text: 'text-amber-300', label: 'VIP AC' }
-    if (type === 'VIP Non AC Suite') return { bg: 'bg-amber-500/10 border-amber-500/30', text: 'text-amber-300', label: 'VIP Non-AC' }
-    if (type === 'Non AC Deluxe')    return { bg: 'bg-sky-500/10 border-sky-500/30', text: 'text-sky-300', label: 'Non-AC' }
-    return { bg: 'bg-emerald-500/10 border-emerald-500/30', text: 'text-emerald-300', label: 'AC' }
+    if (type === 'VIP AC Suite')     return { bg: 'bg-amber-500/10 border-amber-500/30', text: 'text-amber-300', label: t('vip_ac') }
+    if (type === 'VIP Non AC Suite') return { bg: 'bg-amber-500/10 border-amber-500/30', text: 'text-amber-300', label: t('vip_non_ac') }
+    if (type === 'Non AC Deluxe')    return { bg: 'bg-sky-500/10 border-sky-500/30', text: 'text-sky-300', label: t('non_ac') }
+    return { bg: 'bg-emerald-500/10 border-emerald-500/30', text: 'text-emerald-300', label: t('ac') }
   }
 
   const floorLabel = (floor: number) => {
     const suffixes: Record<number, string> = { 1: '1st', 2: '2nd', 3: '3rd' }
-    return language === 'mr'
-      ? `${suffixes[floor] ?? floor}${floor === 1 ? 'la' : 'ra'} Mala`
-      : `${suffixes[floor] ?? `${floor}th`} Floor`
+    return `${suffixes[floor] ?? `${floor}th`} Floor`
   }
 
   const renderCard = (r: Room, isPartial: boolean) => {
@@ -1929,11 +1947,11 @@ function RoomPickerModal({
           selected ? (isPartial ? 'text-amber-400' : 'text-emerald-400') : 'text-slate-500'
         }`}>
           Rs.{r.base_price}
-          <span className="text-[10px] font-normal text-slate-600">/night</span>
+          <span className="text-[10px] font-normal text-slate-600">{t('night_suffix')}</span>
         </span>
         {pr && (
           <span className="mt-2 text-[9px] font-bold text-amber-500/80 leading-tight">
-            Next guest: {pr.next_checkin}
+            {t('next_customer', { date: pr.next_checkin })}
           </span>
         )}
       </button>
@@ -1944,11 +1962,11 @@ function RoomPickerModal({
     <div className="fixed inset-0 z-[9999] flex flex-col bg-slate-950/95 backdrop-blur-sm animate-fade-in">
       <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-slate-800/60">
         <div>
-          <h2 className="text-base font-black text-slate-100">Select Rooms</h2>
+          <h2 className="text-base font-black text-slate-100">{t('select_rooms')}</h2>
           <p className="text-[11px] text-slate-500 mt-0.5">
             {pickedIds.length === 0
-              ? 'Tap any free room — multiselect supported'
-              : `${pickedIds.length} room(s) selected`
+              ? t('tap_free_room')
+              : t('rooms_selected', { count: pickedIds.length })
             }
           </p>
         </div>
@@ -1960,9 +1978,9 @@ function RoomPickerModal({
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
         {availableRooms.length === 0 && partialRooms.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-48 text-slate-500">
-            <div className="text-4xl mb-3">No Rooms</div>
-            <div className="text-sm font-bold">No rooms available for this period</div>
-            <div className="text-xs mt-1 text-slate-600">Try adjusting the check-in / check-out dates</div>
+            <div className="text-4xl mb-3">{t('no_rooms')}</div>
+            <div className="text-sm font-bold">{t('no_rooms_desc')}</div>
+            <div className="text-xs mt-1 text-slate-600">{t('adjust_dates')}</div>
           </div>
         ) : (
           <>
@@ -1975,7 +1993,7 @@ function RoomPickerModal({
                       <span className="text-[10px] font-black text-slate-300">{floor}</span>
                     </div>
                     <span className="text-[11px] font-black text-slate-300 uppercase tracking-widest">{floorLabel(floor)}</span>
-                    <span className="text-[10px] text-slate-600 ml-1">- {floorRooms.length} rooms</span>
+                    <span className="text-[10px] text-slate-600 ml-1">{t('rooms_suffix', { count: floorRooms.length })}</span>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     {floorRooms.map(r => renderCard(r, false))}
@@ -1987,13 +2005,10 @@ function RoomPickerModal({
             {partialRooms.length > 0 && (
               <div>
                 <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-amber-500/20 mb-4" style={{ background: 'rgba(245,158,11,0.05)' }}>
-                  <span className="text-base">Warning</span>
+                  <span className="text-base">{t('warning')}</span>
                   <div>
                     <div className="text-xs font-black text-amber-400 uppercase tracking-wider">
-                      Partially Available Rooms
-                    </div>
-                    <div className="text-[10px] text-amber-700 mt-0.5">
-                      Free now but next guest arrives soon - use with caution
+                      {t('partially_available_rooms')}
                     </div>
                   </div>
                 </div>
@@ -2006,7 +2021,7 @@ function RoomPickerModal({
                           <span className="text-[10px] font-black text-amber-400">{floor}</span>
                         </div>
                         <span className="text-[11px] font-black text-amber-400/80 uppercase tracking-widest">{floorLabel(floor)}</span>
-                        <span className="text-[10px] text-amber-900 ml-1">- {floorRooms.length} rooms</span>
+                        <span className="text-[10px] text-amber-900 ml-1">{t('rooms_suffix', { count: floorRooms.length })}</span>
                       </div>
                       <div className="grid grid-cols-2 gap-3">
                         {floorRooms.map(r => renderCard(r, true))}
@@ -2031,7 +2046,7 @@ function RoomPickerModal({
                   isPartial ? 'bg-amber-500/20 text-amber-300' : 'bg-emerald-500/20 text-emerald-300'
                 }`}>
                   {rm.number}
-                  {isPartial && <span className="text-[8px] opacity-70"> (partial)</span>}
+                  {isPartial && <span className="text-[8px] opacity-70"> ({t('partial_label')})</span>}
                   <button type="button" onClick={e => { e.stopPropagation(); toggle(id) }} className="hover:text-red-400 ml-0.5 transition">
                     <X className="h-3 w-3" />
                   </button>
@@ -2042,7 +2057,7 @@ function RoomPickerModal({
         )}
         <div className="flex gap-3">
           <button type="button" onClick={onClose} className="flex-1 py-3.5 rounded-2xl bg-slate-800 text-slate-300 text-sm font-bold hover:bg-slate-700 transition">
-            Cancel
+            {t('cancel')}
           </button>
           <button
             type="button"
@@ -2054,8 +2069,8 @@ function RoomPickerModal({
             className="flex-[2] py-3.5 rounded-2xl bg-emerald-500 text-white text-sm font-black disabled:opacity-40 disabled:cursor-not-allowed hover:bg-emerald-400 transition active:scale-[0.98] shadow-lg shadow-emerald-500/20"
           >
             {pickedIds.length === 0
-              ? 'Select a Room First'
-              : `Confirm - ${pickedIds.length} Room(s)`
+              ? t('select_room_first')
+              : t('confirm_rooms', { count: pickedIds.length })
             }
           </button>
         </div>

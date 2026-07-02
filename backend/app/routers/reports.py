@@ -65,7 +65,7 @@ def get_financials(
         
         # 3. Query bookings checking in within date range
         bookings_res = supabase.table("bookings") \
-            .select("id, booking_number, check_in, check_out, total_amount, paid_amount, payment_mode, payment_status, status, created_at, extra_bill_amount, rooms(room_type, number), customers(name, phone)") \
+            .select("id, booking_number, check_in, check_out, total_amount, paid_amount, payment_mode, payment_status, status, created_at, extra_bill_amount, notes, rooms(room_type, number), customers(name, phone)") \
             .gte("check_in", start_iso) \
             .lte("check_in", end_iso) \
             .order("check_in") \
@@ -117,7 +117,7 @@ def get_financials(
                 "check_out": b["check_out"],
                 "total_amount": float(b["total_amount"] or 0.0),
                 "paid_amount": float(b["paid_amount"] or 0.0),
-                "payment_mode": b.get("payment_mode") or "Pending",
+                "payment_mode": "IDFC" if (b.get("payment_mode") == "UPI" and ("[Paid via IDFC Bank]" in (b.get("notes") or "") or "[IDFC Bank]" in (b.get("notes") or ""))) else (b.get("payment_mode") or "Pending"),
                 "payment_status": b.get("payment_status") or "unpaid",
                 "status": b["status"],
                 "created_at": b["created_at"],
@@ -136,7 +136,7 @@ def get_financials(
             total_dues += max(0.0, total - paid)
             
             # Payment mode aggregation
-            mode = b.get("payment_mode") or "Pending"
+            mode = ledger_item["payment_mode"]
             if mode not in payment_modes:
                 payment_modes[mode] = 0.0
             payment_modes[mode] += paid

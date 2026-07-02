@@ -22,7 +22,7 @@ import { useLanguage } from '../context/LanguageContext'
 
 export default function ReportsPage() {
   const { t, language } = useLanguage()
-  const [filterType, setFilterType] = useState<'today' | 'yesterday' | 'week' | 'month' | 'last_month' | 'custom'>('month')
+  const [filterType, setFilterType] = useState<'today' | 'yesterday' | 'week' | 'month' | 'last_month' | 'custom'>('week')
   
   // Set initial custom date inputs to current month bounds
   const [customStart, setCustomStart] = useState<string>(() => {
