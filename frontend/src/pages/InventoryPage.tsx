@@ -12,6 +12,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { cancelBooking, restoreBooking } from '../api/bookings'
 import { getCustomerNameDisplay } from '../utils/customer'
+import { formatIST_AMPM } from '../utils/istTime'
 
 export default function InventoryPage() {
   const queryClient = useQueryClient()
@@ -194,10 +195,11 @@ export default function InventoryPage() {
     const daysMr = ['रविवार', 'सोमवार', 'मंगळवार', 'बुधवार', 'गुरुवार', 'शुक्रवार', 'शनिवार']
     const daysMrCompact = ['रवि', 'सोम', 'मंगळ', 'बुध', 'गुरु', 'शुक्र', 'शनि']
     const monthsMr = ['जानेवारी', 'फेब्रुवारी', 'मार्च', 'एप्रिल', 'मे', 'जून', 'जुलै', 'ऑगस्ट', 'सप्टेंबर', 'ऑक्टोबर', 'नोव्हेंबर', 'डिसेंबर']
+    const monthsMrCompact = ['जाने', 'फेब्रु', 'मार्च', 'एप्रि', 'मे', 'जून', 'जुलै', 'ऑग', 'सप्टें', 'ऑक्टो', 'नोव्हें', 'डिसें']
     const dayName = compact ? daysMrCompact[parsed.getDay()] : daysMr[parsed.getDay()]
     const monthName = monthsMr[parsed.getMonth()]
     return compact 
-      ? `${dayName}, ${parsed.getDate()} ${monthName.slice(0, 3)}`
+      ? `${dayName}, ${parsed.getDate()} ${monthsMrCompact[parsed.getMonth()]}`
       : `${dayName}, ${parsed.getDate()} ${monthName} ${parsed.getFullYear()}`
   }
 
@@ -219,12 +221,16 @@ export default function InventoryPage() {
         const dailyBookings = data.daily_bookings || []
 
         // Arrivals: check_in is on selected Date
-        const arrivals = dailyBookings.filter(b => b.check_in.startsWith(selectedDate))
+        const arrivals = dailyBookings
+          .filter(b => b.check_in.startsWith(selectedDate))
+          .sort((a, b) => a.check_in.localeCompare(b.check_in))
         // Pending arrivals = not yet checked in (and must be active)
         const arrivalsPending = arrivals.filter(b => b.status === 'active' && !b.is_checked_in)
 
         // Checkouts: check_out is on selected Date
-        const checkouts = dailyBookings.filter(b => b.check_out.startsWith(selectedDate))
+        const checkouts = dailyBookings
+          .filter(b => b.check_out.startsWith(selectedDate))
+          .sort((a, b) => b.check_out.localeCompare(a.check_out))
         // Pending checkouts = still active and not yet checked out
         const checkoutsPending = checkouts.filter(b => b.status === 'active')
         // Done checkouts = already checked out (room freed)
@@ -262,9 +268,9 @@ export default function InventoryPage() {
           }[variant]
 
           const badgeLabel = variant === 'arrival'
-            ? (isDone ? (language === 'mr' ? '✓ हजर' : '✓ In') : (language === 'mr' ? 'बाकी' : 'Pending'))
+            ? (isDone ? (language === 'mr' ? '✓ हजर' : '✓ In') : formatIST_AMPM(b.check_in))
             : variant === 'checkout'
-            ? (isDone ? (language === 'mr' ? '✓ गेले' : '✓ Out') : (language === 'mr' ? 'बाकी' : 'Pending'))
+            ? (isDone ? (language === 'mr' ? '✓ गेले' : '✓ Out') : formatIST_AMPM(b.check_out))
             : (language === 'mr' ? 'मुक्काम' : 'Staying')
 
           const subtitleLabel = variant === 'arrival'
@@ -309,25 +315,11 @@ export default function InventoryPage() {
                 </div>
               </div>
               <div className="flex items-center gap-1.5 flex-shrink-0">
-                {!isDone && variant === 'arrival' ? (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedBookingId(b.id);
-                    }}
-                    className="text-[10px] uppercase tracking-wider font-black px-2.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-500 text-slate-955 transition active:scale-95 flex items-center gap-1 shadow-sm"
-                  >
-                    <span>✓</span>
-                    <span>{language === 'mr' ? 'चेक-इन' : 'Check In'}</span>
-                  </button>
-                ) : (
-                  <span className={`text-[9px] uppercase tracking-wider font-extrabold px-2.5 py-0.5 rounded ${
-                    isDone ? colorSet.badge_done : colorSet.badge_pending
-                  }`}>
-                    {badgeLabel}
-                  </span>
-                )}
+                <span className={`text-[9px] uppercase tracking-wider font-extrabold px-2.5 py-0.5 rounded ${
+                  isDone ? colorSet.badge_done : colorSet.badge_pending
+                }`}>
+                  {badgeLabel}
+                </span>
               </div>
             </div>
           )

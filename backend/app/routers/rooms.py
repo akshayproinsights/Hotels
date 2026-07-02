@@ -33,26 +33,69 @@ def get_available_rooms(
     user=Depends(get_current_user)
 ):
     """
-    Get all active rooms available (not booked/blocked) for the given datetime range.
+    Get available rooms for the given datetime range.
+    Returns two lists:
+      - available: rooms with no overlapping bookings at all
+      - partial: rooms whose ONLY conflict is a future booking whose check-in
+        falls between our check-in and check-out (i.e., the room is free right now
+        but has a reservation starting before our proposed checkout).
+        Each partial room includes next_checkin (IST display) so the UI can warn staff.
     """
     try:
-        # Check active bookings overlapping with check_in and check_out
+        # All active bookings overlapping with the proposed window
         overlapping = supabase.table("bookings") \
-            .select("room_id") \
+            .select("room_id, check_in, check_out") \
             .eq("status", "active") \
             .lt("check_in", check_out.isoformat()) \
             .gt("check_out", check_in.isoformat()) \
             .execute()
-        
-        booked_room_ids = {b["room_id"] for b in overlapping.data}
-        
+
+        from datetime import timezone, timedelta
+        IST = timezone(timedelta(hours=5, minutes=30))
+
+        # Group conflicts by room_id
+        conflicts_by_room: dict[str, list[dict]] = {}
+        for b in overlapping.data:
+            rid = b["room_id"]
+            conflicts_by_room.setdefault(rid, []).append(b)
+
         # Fetch all active rooms
         rooms_res = supabase.table("rooms").select("*").eq("is_active", True).order("floor").order("number").execute()
-        
-        # Filter rooms not in booked_room_ids
-        available_rooms = [r for r in rooms_res.data if r["id"] not in booked_room_ids]
-        
-        return available_rooms
+
+        available = []
+        partial = []
+
+        for room in rooms_res.data:
+            rid = room["id"]
+            conflicts = conflicts_by_room.get(rid, [])
+
+            if not conflicts:
+                available.append(room)
+                continue
+
+            # A room is "partial" if ALL its conflicts are bookings that start
+            # AFTER our proposed check-in (future arrivals overlapping our checkout window).
+            # That means the room is physically free right now / from our check-in date,
+            # but the next guest arrives before we'd check out.
+            all_future = all(
+                datetime.fromisoformat(c["check_in"].replace("Z", "+00:00")) > check_in
+                for c in conflicts
+            )
+
+            if all_future:
+                # Find the earliest next check-in among conflicts
+                earliest = min(
+                    datetime.fromisoformat(c["check_in"].replace("Z", "+00:00"))
+                    for c in conflicts
+                )
+                earliest_ist = earliest.astimezone(IST)
+                room_copy = dict(room)
+                room_copy["next_checkin"] = earliest_ist.strftime("%d %b %I:%M %p IST")
+                room_copy["next_checkin_iso"] = earliest.isoformat()
+                partial.append(room_copy)
+            # else: room has a current/active conflict — skip entirely
+
+        return {"available": available, "partial": partial}
     except Exception as e:
         logging.error(f"Error fetching available rooms: {str(e)}")
         raise HTTPException(

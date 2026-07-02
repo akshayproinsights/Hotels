@@ -9,7 +9,6 @@ import {
 } from 'lucide-react'
 import { 
   format, 
-  parseISO, 
   parse, 
   differenceInCalendarDays,
   isAfter,
@@ -29,6 +28,7 @@ import { getUploadUrl, uploadFileToR2, confirmUpload, listCustomerDocs, extractN
 import { updateCustomer } from '../api/customers'
 import { listAvailableRooms } from '../api/rooms'
 import { getCustomerNameDisplay } from '../utils/customer'
+import { formatIST_AMPM, formatIST_Date, formatIST_HHmm, toUTCfromIST } from '../utils/istTime'
 import { useLanguage } from '../context/LanguageContext'
 import { useVisualViewport } from '../hooks/useVisualViewport'
 import type { Room } from '../types'
@@ -49,21 +49,30 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
   const monthsMr = ['जानेवारी', 'फेब्रुवारी', 'मार्च', 'एप्रिल', 'मे', 'जून', 'जुलै', 'ऑगस्ट', 'सप्टेंबर', 'ऑक्टोबर', 'नोव्हेंबर', 'डिसेंबर']
   const weekdaysMrShort = ['रवी', 'सोम', 'मं', 'बुध', 'गुरू', 'शुक्र', 'शनी']
 
-  // Utility to format date string to "Tue, Jun 30" style
+  // Utility: format a UTC ISO string as IST date display ("Tue, Jun 30")
   const formatFriendlyDate = (isoString: string) => {
     if (!isoString) return ''
-    const d = isoString.includes('T') ? parseISO(isoString) : parse(isoString.slice(0, 10), 'yyyy-MM-dd', new Date())
+    const istDate = formatIST_Date(isoString) // YYYY-MM-DD in IST
+    const d = parse(istDate, 'yyyy-MM-dd', new Date())
     if (language !== 'mr') {
       return format(d, 'EEE, MMM d')
     }
     return `${weekdaysMrShort[d.getDay()]}, ${d.getDate()} ${monthsMr[d.getMonth()]}`
   }
 
-  // Utility to format time to "12:00 PM" style
+  // Utility: format 24h IST string (HH:MM) to "hh:mm AM/PM"
+  const formatTimeAMPM = (time24: string) => {
+    if (!time24) return ''
+    const [hStr, mStr] = time24.split(':')
+    const h = parseInt(hStr, 10)
+    const ampm = h >= 12 ? 'PM' : 'AM'
+    const h12 = h % 12 || 12
+    return `${h12.toString().padStart(2, '0')}:${mStr} ${ampm}`
+  }
+
+  // Utility: format UTC ISO string → "hh:mm AM" in IST
   const formatFriendlyTime = (isoString: string) => {
-    if (!isoString) return ''
-    const d = isoString.includes('T') ? parseISO(isoString) : parse(isoString, 'yyyy-MM-dd HH:mm:ss', new Date())
-    return format(d, 'hh:mm a')
+    return formatIST_AMPM(isoString)
   }
 
   // Fetch full details of the booking
@@ -88,6 +97,8 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
   // Booking details drafts (for editing)
   const [draftCheckIn, setDraftCheckIn] = useState('')
   const [draftCheckOut, setDraftCheckOut] = useState('')
+  const [draftCheckInTime, setDraftCheckInTime] = useState('12:00')
+  const [draftCheckOutTime, setDraftCheckOutTime] = useState('11:00')
   const [draftRoomType, setDraftRoomType] = useState<'AC Deluxe' | 'Non AC Deluxe' | 'VIP AC Suite' | 'VIP Non AC Suite'>('AC Deluxe')
   const [draftRoomId, setDraftRoomId] = useState('')
   const [draftAdults, setDraftAdults] = useState(1)
@@ -117,8 +128,10 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
   // Initialize drafts when booking is loaded
   useEffect(() => {
     if (booking && !showDatePicker && !editRoomMode && !isEditingName && !activeKeypad) {
-      setDraftCheckIn(booking.check_in.slice(0, 10))
-      setDraftCheckOut(booking.check_out.slice(0, 10))
+      setDraftCheckIn(formatIST_Date(booking.check_in))
+      setDraftCheckOut(formatIST_Date(booking.check_out))
+      setDraftCheckInTime(formatIST_HHmm(booking.check_in))
+      setDraftCheckOutTime(formatIST_HHmm(booking.check_out))
       setDraftRoomType(booking.room_type || booking.rooms?.room_type || 'AC Deluxe')
       setDraftRoomId(booking.room_id)
       setDraftAdults(booking.adults)
@@ -129,7 +142,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
       setEditingPaid(booking.paid_amount)
       setEditingExtraAmount(booking.extra_bill_amount || 0)
       setEditingExtraNote(booking.extra_bill_note || '')
-      setPickerMonth(parseISO(booking.check_in))
+      setPickerMonth(parse(formatIST_Date(booking.check_in), 'yyyy-MM-dd', new Date()))
       if (booking.customers?.name) {
         setDraftCustomerName(booking.customers.name)
       }
@@ -144,16 +157,16 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
     const fetchRooms = async () => {
       setIsLoadingAvailableRooms(true)
       try {
-        const startISO = parse(`${draftCheckIn} 12:00`, 'yyyy-MM-dd HH:mm', new Date()).toISOString()
-        const endISO = parse(`${draftCheckOut} 11:00`, 'yyyy-MM-dd HH:mm', new Date()).toISOString()
-        const res = await listAvailableRooms(startISO, endISO)
+        const startISO = toUTCfromIST(draftCheckIn, '12:00')
+        const endISO = toUTCfromIST(draftCheckOut, '11:00')
+        const { available } = await listAvailableRooms(startISO, endISO)
         if (active) {
           // Make sure current booked room is always in the options list so it doesn't disappear
           if (booking?.rooms) {
-            const hasCurrentRoom = res.some(r => r.id === booking.rooms?.id)
-            setAvailableRooms(hasCurrentRoom ? res : [booking.rooms, ...res])
+            const hasCurrentRoom = available.some(r => r.id === booking.rooms?.id)
+            setAvailableRooms(hasCurrentRoom ? available : [booking.rooms, ...available])
           } else {
-            setAvailableRooms(res)
+            setAvailableRooms(available)
           }
         }
       } catch (err) {
@@ -503,15 +516,8 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
     const newNights = differenceInCalendarDays(new Date(draftCheckOut), new Date(draftCheckIn))
     const recalculatedTotal = (draftRoomPrice * newNights) + (draftExtraBeds * 500 * newNights) + (booking.extra_bill_amount || 0)
 
-    const currentTimeStr = format(new Date(), 'HH:mm')
-
-    const finalCheckIn = draftCheckIn === booking.check_in.slice(0, 10)
-      ? booking.check_in
-      : parse(`${draftCheckIn} ${currentTimeStr}`, 'yyyy-MM-dd HH:mm', new Date()).toISOString()
-
-    const finalCheckOut = draftCheckOut === booking.check_out.slice(0, 10)
-      ? booking.check_out
-      : parse(`${draftCheckOut} ${currentTimeStr}`, 'yyyy-MM-dd HH:mm', new Date()).toISOString()
+    const finalCheckIn = toUTCfromIST(draftCheckIn, draftCheckInTime)
+    const finalCheckOut = toUTCfromIST(draftCheckOut, draftCheckOutTime)
 
     updateMutation.mutate({
       check_in: finalCheckIn,
@@ -559,6 +565,50 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
       "July", "August", "September", "October", "November", "December"
     ]
 
+
+    // Parsed states for check-in time selectors
+    const [ciHourStr, ciMinStr] = (draftCheckInTime || '12:00').split(':')
+    const ciHourVal = parseInt(ciHourStr, 10)
+    const ciHour12 = ciHourVal % 12 || 12
+    const ciAmPm = ciHourVal >= 12 ? 'PM' : 'AM'
+    const ciMin = ciMinStr
+
+    // Parsed states for check-out time selectors
+    const [coHourStr, coMinStr] = (draftCheckOutTime || '11:00').split(':')
+    const coHourVal = parseInt(coHourStr, 10)
+    const coHour12 = coHourVal % 12 || 12
+    const coAmPm = coHourVal >= 12 ? 'PM' : 'AM'
+    const coMin = coMinStr
+
+    const updateCheckInTimeStr = (h12: string, min: string, ampm: string) => {
+      let h24 = parseInt(h12, 10)
+      if (ampm === 'PM' && h24 < 12) h24 += 12
+      if (ampm === 'AM' && h24 === 12) h24 = 0
+      const newTime = `${h24.toString().padStart(2, '0')}:${min}`
+      setDraftCheckInTime(newTime)
+    }
+
+    const updateCheckOutTimeStr = (h12: string, min: string, ampm: string) => {
+      let h24 = parseInt(h12, 10)
+      if (ampm === 'PM' && h24 < 12) h24 += 12
+      if (ampm === 'AM' && h24 === 12) h24 = 0
+      const newTime = `${h24.toString().padStart(2, '0')}:${min}`
+      setDraftCheckOutTime(newTime)
+    }
+
+    // Generate 5-minute increments for minutes, but ensure the exact minutes are options
+    const minutesOptions = Array.from({ length: 12 }, (_, i) => (i * 5).toString().padStart(2, '0'))
+    if (!minutesOptions.includes(ciMin)) {
+      minutesOptions.push(ciMin)
+      minutesOptions.sort((a, b) => parseInt(a, 10) - parseInt(b, 10))
+    }
+
+    const coMinutesOptions = Array.from({ length: 12 }, (_, i) => (i * 5).toString().padStart(2, '0'))
+    if (!coMinutesOptions.includes(coMin)) {
+      coMinutesOptions.push(coMin)
+      coMinutesOptions.sort((a, b) => parseInt(a, 10) - parseInt(b, 10))
+    }
+
     return (
       <div className="fixed inset-0 z-55 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-fade-in">
         <div className="glass-panel relative w-full max-w-sm bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-2xl flex flex-col gap-4" onClick={e => e.stopPropagation()}>
@@ -570,15 +620,17 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
             <button onClick={() => {
               setShowDatePicker(false)
               if (booking) {
-                setDraftCheckIn(booking.check_in.slice(0, 10))
-                setDraftCheckOut(booking.check_out.slice(0, 10))
+                setDraftCheckIn(formatIST_Date(booking.check_in))
+                setDraftCheckOut(formatIST_Date(booking.check_out))
+                setDraftCheckInTime(formatIST_HHmm(booking.check_in))
+                setDraftCheckOutTime(formatIST_HHmm(booking.check_out))
               }
             }} className="p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-slate-200">
               <X className="h-4 w-4" />
             </button>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 bg-slate-955/60 p-3 rounded-2xl border border-slate-850">
+          <div className="grid grid-cols-2 gap-2 bg-slate-950/60 p-3 rounded-2xl border border-slate-850">
             <div>
               <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold">{language === 'mr' ? 'चेक-इन' : 'Check-in'}</span>
               <div className="text-xs font-bold text-emerald-400">
@@ -641,6 +693,86 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
             </div>
           </div>
 
+          {/* Time Picker Section */}
+          <div className="border-t border-slate-800/80 pt-3 flex flex-col gap-2">
+            <h5 className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase px-1">
+              {language === 'mr' ? 'चेक-इन आणि चेक-आउट वेळ' : 'Check-in & Check-out Times'}
+            </h5>
+            <div className="grid grid-cols-2 gap-3">
+              {/* Check-In Time */}
+              <div className="flex flex-col gap-1">
+                <span className="text-[9px] font-bold text-slate-505 uppercase tracking-wider px-1">
+                  {language === 'mr' ? 'चेक-इन वेळ' : 'Check-in Time'}
+                </span>
+                <div className="flex items-center gap-1 bg-slate-955/60 p-1.5 rounded-xl border border-slate-800/80">
+                  <select
+                    value={ciHour12}
+                    onChange={(e) => updateCheckInTimeStr(e.target.value, ciMin, ciAmPm)}
+                    className="flex-1 bg-transparent text-slate-200 text-xs font-black rounded-lg focus:outline-none cursor-pointer appearance-none text-center"
+                  >
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map(h => (
+                      <option key={h} value={h} className="bg-slate-900 text-slate-200">{h.toString().padStart(2, '0')}</option>
+                    ))}
+                  </select>
+                  <span className="text-slate-600 font-bold self-center text-xs">:</span>
+                  <select
+                    value={ciMin}
+                    onChange={(e) => updateCheckInTimeStr(ciHour12.toString(), e.target.value, ciAmPm)}
+                    className="flex-1 bg-transparent text-slate-200 text-xs font-black rounded-lg focus:outline-none cursor-pointer appearance-none text-center"
+                  >
+                    {minutesOptions.map(m => (
+                      <option key={m} value={m} className="bg-slate-900 text-slate-200">{m}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={ciAmPm}
+                    onChange={(e) => updateCheckInTimeStr(ciHour12.toString(), ciMin, e.target.value)}
+                    className="flex-1 bg-transparent text-emerald-400 text-xs font-black rounded-lg focus:outline-none cursor-pointer appearance-none text-center"
+                  >
+                    <option value="AM" className="bg-slate-900 text-slate-200">AM</option>
+                    <option value="PM" className="bg-slate-900 text-slate-200">PM</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Check-Out Time */}
+              <div className="flex flex-col gap-1">
+                <span className="text-[9px] font-bold text-slate-550 uppercase tracking-wider px-1">
+                  {language === 'mr' ? 'चेक-आउट वेळ' : 'Check-out Time'}
+                </span>
+                <div className="flex items-center gap-1 bg-slate-955/60 p-1.5 rounded-xl border border-slate-800/80">
+                  <select
+                    value={coHour12}
+                    onChange={(e) => updateCheckOutTimeStr(e.target.value, coMin, coAmPm)}
+                    className="flex-1 bg-transparent text-slate-200 text-xs font-black rounded-lg focus:outline-none cursor-pointer appearance-none text-center"
+                  >
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map(h => (
+                      <option key={h} value={h} className="bg-slate-900 text-slate-200">{h.toString().padStart(2, '0')}</option>
+                    ))}
+                  </select>
+                  <span className="text-slate-600 font-bold self-center text-xs">:</span>
+                  <select
+                    value={coMin}
+                    onChange={(e) => updateCheckOutTimeStr(coHour12.toString(), e.target.value, coAmPm)}
+                    className="flex-1 bg-transparent text-slate-200 text-xs font-black rounded-lg focus:outline-none cursor-pointer appearance-none text-center"
+                  >
+                    {coMinutesOptions.map(m => (
+                      <option key={m} value={m} className="bg-slate-900 text-slate-200">{m}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={coAmPm}
+                    onChange={(e) => updateCheckOutTimeStr(coHour12.toString(), coMin, e.target.value)}
+                    className="flex-1 bg-transparent text-amber-400 text-xs font-black rounded-lg focus:outline-none cursor-pointer appearance-none text-center"
+                  >
+                    <option value="AM" className="bg-slate-900 text-slate-200">AM</option>
+                    <option value="PM" className="bg-slate-900 text-slate-200">PM</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="flex gap-3 pt-2">
             <button
               type="button"
@@ -649,6 +781,8 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                 if (booking) {
                   setDraftCheckIn(booking.check_in.slice(0, 10))
                   setDraftCheckOut(booking.check_out.slice(0, 10))
+                  setDraftCheckInTime(booking.check_in.slice(11, 16))
+                  setDraftCheckOutTime(booking.check_out.slice(11, 16))
                 }
               }}
               className="flex-1 py-2.5 bg-slate-850 hover:bg-slate-800 text-slate-350 text-xs font-bold rounded-xl border border-slate-800"
@@ -721,16 +855,22 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
           <div className="glass-panel p-4 rounded-2xl bg-slate-955/40 border border-slate-800/80 flex flex-col gap-3 flex-shrink-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-6 flex-1">
-                <div className="flex flex-col">
+                <div 
+                  onClick={() => booking.status === 'active' && setShowDatePicker(true)}
+                  className={`flex flex-col ${booking.status === 'active' ? 'cursor-pointer hover:opacity-80 transition' : ''}`}
+                >
                   <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold">{language === 'mr' ? 'चेक-इन' : 'CHECK-IN'}</span>
                   <span className="text-base font-black text-slate-100 mt-0.5">{formatFriendlyDate(draftCheckIn)}</span>
-                  <span className="text-xs font-bold text-emerald-400 mt-0.5">{formatFriendlyTime(booking.check_in)}</span>
+                  <span className="text-xs font-bold text-emerald-400 mt-0.5 animate-fade-in">{formatTimeAMPM(draftCheckInTime)}</span>
                 </div>
                 <div className="text-slate-700 font-black text-lg">➔</div>
-                <div className="flex flex-col">
+                <div 
+                  onClick={() => booking.status === 'active' && setShowDatePicker(true)}
+                  className={`flex flex-col ${booking.status === 'active' ? 'cursor-pointer hover:opacity-80 transition' : ''}`}
+                >
                   <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold">{language === 'mr' ? 'चेक-आउट' : 'CHECK-OUT'}</span>
                   <span className="text-base font-black text-slate-100 mt-0.5">{formatFriendlyDate(draftCheckOut)}</span>
-                  <span className="text-xs font-bold text-amber-500 mt-0.5">{formatFriendlyTime(booking.check_out)}</span>
+                  <span className="text-xs font-bold text-amber-500 mt-0.5 animate-fade-in">{formatTimeAMPM(draftCheckOutTime)}</span>
                 </div>
               </div>
               <div className="bg-slate-850 border border-slate-805 rounded-xl px-3 py-2 text-center flex flex-col justify-center items-center flex-shrink-0">

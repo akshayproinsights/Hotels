@@ -28,11 +28,13 @@ export async function updateRoom(
   return res.data
 }
 
-/** Fetch available rooms for check-in and check-out range */
-export async function listAvailableRooms(checkIn: string, checkOut: string): Promise<Room[]> {
-  const res = await api.get<Room[]>('/rooms/available', {
+/** Fetch available and partially-available rooms for the given check-in/out range */
+export async function listAvailableRooms(
+  checkIn: string,
+  checkOut: string
+): Promise<{ available: Room[]; partial: (Room & { next_checkin: string; next_checkin_iso: string })[] }> {
+  const res = await api.get<{ available: Room[]; partial: (Room & { next_checkin: string; next_checkin_iso: string })[] }>('/rooms/available', {
     params: { check_in: checkIn, check_out: checkOut }
   })
   return res.data
 }
-

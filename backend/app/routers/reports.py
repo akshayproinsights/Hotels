@@ -47,7 +47,9 @@ def get_financials(
             except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid end_date format. Use YYYY-MM-DD")
         else:
-            end_date_dt = datetime.combine(today, datetime.min.time())
+            import calendar
+            last_day = calendar.monthrange(today.year, today.month)[1]
+            end_date_dt = datetime.combine(today.replace(day=last_day), datetime.min.time())
             
         # Guarantee date time bounds
         start_iso = start_date_dt.isoformat()

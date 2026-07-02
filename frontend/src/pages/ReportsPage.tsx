@@ -67,7 +67,7 @@ export default function ReportsPage() {
         break
       case 'month':
         start = new Date(today.getFullYear(), today.getMonth(), 1)
-        end = today
+        end = new Date(today.getFullYear(), today.getMonth() + 1, 0)
         break
       case 'last_month':
         start = new Date(today.getFullYear(), today.getMonth() - 1, 1)
@@ -132,7 +132,10 @@ export default function ReportsPage() {
     const maxRevenue = Math.max(...reportData.trend.map(t => t.revenue), 1000)
 
     const points = reportData.trend.map((item, idx) => {
-      const x = paddingLeft + (idx / Math.max(1, reportData.trend.length - 1)) * chartWidth
+      const divisor = reportData.trend.length - 1
+      const x = divisor > 0 
+        ? paddingLeft + (idx / divisor) * chartWidth
+        : paddingLeft + chartWidth / 2
       const y = paddingTop + chartHeight - (item.revenue / maxRevenue) * chartHeight
       return { x, y, ...item }
     })
@@ -143,13 +146,17 @@ export default function ReportsPage() {
       return { y, val }
     })
 
-    const linePath = points.length > 0
+    const linePath = points.length > 1
       ? `M ${points[0].x} ${points[0].y} ` + points.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ')
-      : ''
+      : points.length === 1
+        ? `M ${paddingLeft} ${points[0].y} L ${paddingLeft + chartWidth} ${points[0].y}`
+        : ''
 
-    const areaPath = points.length > 0
+    const areaPath = points.length > 1
       ? `${linePath} L ${points[points.length - 1].x} ${paddingTop + chartHeight} L ${points[0].x} ${paddingTop + chartHeight} Z`
-      : ''
+      : points.length === 1
+        ? `M ${paddingLeft} ${points[0].y} L ${paddingLeft + chartWidth} ${points[0].y} L ${paddingLeft + chartWidth} ${paddingTop + chartHeight} L ${paddingLeft} ${paddingTop + chartHeight} Z`
+        : ''
 
     return {
       width,
@@ -510,7 +517,7 @@ export default function ReportsPage() {
 
               {/* SVG Chart area */}
               <div className="flex-1 mt-4 relative">
-                {chartSvg && chartSvg.points.length > 1 ? (
+                {chartSvg && chartSvg.points.length > 0 ? (
                   <div className="w-full h-full relative">
                     <svg
                       viewBox={`0 0 ${chartSvg.width} ${chartSvg.height}`}

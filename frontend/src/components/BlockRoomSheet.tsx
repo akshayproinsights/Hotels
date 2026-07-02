@@ -27,6 +27,7 @@ import { createBookingsBatch } from '../api/bookings'
 import { getUploadUrl, uploadFileToR2, confirmUpload, listCustomerDocs, extractNameFromId } from '../api/documents'
 import { compressImage, compressImages } from '../utils/imageCompressor'
 import { listAvailableRooms } from '../api/rooms'
+import { toUTCfromIST } from '../utils/istTime'
 import { useLanguage } from '../context/LanguageContext'
 import { useVisualViewport } from '../hooks/useVisualViewport'
 import DocumentLightbox from './DocumentLightbox'
@@ -115,7 +116,9 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
   ])
 
   const [availableRooms, setAvailableRooms] = useState<Room[]>([])
+  const [partialRooms, setPartialRooms] = useState<(Room & { next_checkin: string; next_checkin_iso: string })[]>([])
   const [isLoadingAvailableRooms, setIsLoadingAvailableRooms] = useState(false)
+  const [showRoomPicker, setShowRoomPicker] = useState(false)
 
   const updateRoomConfig = (id: string, updates: Partial<SelectedRoomConfig>) => {
     setSelectedRooms(prev => prev.map(r => {
@@ -146,38 +149,57 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
     }))
   }
 
-  const addRoomConfig = () => {
-    const selectedIds = selectedRooms.map(r => r.room_id)
-    const nextAvail = availableRooms.find(r => !selectedIds.includes(r.id))
-    const type = nextAvail?.room_type ?? 'AC Deluxe'
-    const id = nextAvail?.id ?? ''
-    const price = nextAvail?.base_price ?? 0
-    
-    setSelectedRooms(prev => [
-      ...prev,
-      {
-        id: Math.random().toString(36).substring(2, 9),
-        room_type: type,
-        room_id: id,
-        adults: 1,
-        children: 0,
-        extra_beds: 0,
-        room_price: price,
-        notes: ''
-      }
-    ])
-  }
+
 
   const removeRoomConfig = (id: string) => {
     if (selectedRooms.length <= 1) return
     setSelectedRooms(prev => prev.filter(r => r.id !== id))
   }
 
-  const getRoomOptions = (configId: string) => {
-    const selectedIds = selectedRooms
-      .filter(r => r.id !== configId && r.room_id)
-      .map(r => r.room_id)
-    return availableRooms.filter(r => !selectedIds.includes(r.id))
+  // Handle room picker confirmation — converts picked room IDs to SelectedRoomConfig entries
+  const handleRoomPickerConfirm = (pickedRoomIds: string[], selectedPartialRooms: (Room & { next_checkin: string; next_checkin_iso: string })[]) => {
+    const newConfigs = pickedRoomIds.map(roomId => {
+      const existing = selectedRooms.find(c => c.room_id === roomId)
+      if (existing) return existing
+      // Search both available and partial rooms
+      const foundRoom = availableRooms.find(r => r.id === roomId) || partialRooms.find(r => r.id === roomId)
+      return {
+        id: Math.random().toString(36).substring(2, 9),
+        room_type: (foundRoom?.room_type ?? 'AC Deluxe') as 'AC Deluxe' | 'Non AC Deluxe' | 'VIP AC Suite' | 'VIP Non AC Suite',
+        room_id: roomId,
+        adults: 1,
+        children: 0,
+        extra_beds: 0,
+        room_price: foundRoom?.base_price ?? 0,
+        notes: ''
+      }
+    })
+    setSelectedRooms(newConfigs.length > 0 ? newConfigs : [{
+      id: Math.random().toString(36).substring(2, 9),
+      room_type: 'AC Deluxe',
+      room_id: '',
+      adults: 1,
+      children: 0,
+      extra_beds: 0,
+      room_price: 0,
+      notes: ''
+    }])
+
+    // If any partial room selected, set checkout to the earliest next_checkin_iso
+    if (selectedPartialRooms.length > 0) {
+      const isoStrings = selectedPartialRooms.map(r => r.next_checkin_iso).filter(Boolean)
+      if (isoStrings.length > 0) {
+        // Pick the earliest next check-in time
+        const earliest = isoStrings.reduce((a, b) => (a < b ? a : b))
+        const dt = new Date(earliest)
+        const newDate = format(dt, 'yyyy-MM-dd')
+        const newTime = format(dt, 'HH:mm')
+        setCheckOutDate(newDate)
+        setCheckOutTime(newTime)
+      }
+    }
+
+    setShowRoomPicker(false)
   }
 
   // Dates — use initialDate (calendar-selected day) if provided, otherwise default to today
@@ -197,7 +219,7 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
   // Additional Fields
   const [occupation, setOccupation] = useState('')
   const [notes, setNotes] = useState('')
-  const [paymentMode, setPaymentMode] = useState<'Cash' | 'UPI' | 'IDFC' | 'Pending'>('Pending')
+  const [paymentMode, setPaymentMode] = useState<'Cash' | 'UPI' | 'IDFC' | 'Pending'>('IDFC')
   const [depositAmount, setDepositAmount] = useState<string | number>(0)
   
   // Documents
@@ -287,17 +309,18 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
       try {
         const effectiveCheckInTime = checkInTime || '12:00'
         const effectiveCheckOutTime = checkOutTime || effectiveCheckInTime
-        const startISO = parse(`${checkInDate} ${effectiveCheckInTime}`, 'yyyy-MM-dd HH:mm', new Date()).toISOString()
-        const endISO = parse(`${checkOutDate} ${effectiveCheckOutTime}`, 'yyyy-MM-dd HH:mm', new Date()).toISOString()
+        const startISO = toUTCfromIST(checkInDate, effectiveCheckInTime)
+        const endISO = toUTCfromIST(checkOutDate, effectiveCheckOutTime)
         const res = await listAvailableRooms(startISO, endISO)
         if (active) {
+          const { available, partial } = res
           if (room) {
-            const containsRoom = res.some(r => r.id === room.id)
-            const updatedRooms = containsRoom ? res : [room, ...res.filter(r => r.id !== room.id)]
-            setAvailableRooms(updatedRooms)
+            const containsRoom = available.some(r => r.id === room.id)
+            setAvailableRooms(containsRoom ? available : [room, ...available.filter(r => r.id !== room.id)])
           } else {
-            setAvailableRooms(res)
+            setAvailableRooms(available)
           }
+          setPartialRooms(partial)
         }
       } catch (err) {
         console.error('Error fetching available rooms', err)
@@ -350,8 +373,9 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
 
   const effectiveCheckInTime = checkInTime || '12:00'
   const effectiveCheckOutTime = checkOutTime || effectiveCheckInTime
-  const checkinDateTime = parse(`${checkInDate} ${effectiveCheckInTime}`, 'yyyy-MM-dd HH:mm', new Date())
-  const checkoutDateTime = parse(`${checkOutDate} ${effectiveCheckOutTime}`, 'yyyy-MM-dd HH:mm', new Date())
+  // Treat user-typed times as IST for all calculations
+  const checkinDateTime = new Date(toUTCfromIST(checkInDate, effectiveCheckInTime))
+  const checkoutDateTime = new Date(toUTCfromIST(checkOutDate, effectiveCheckOutTime))
   const nights = Math.max(1, differenceInCalendarDays(checkoutDateTime, checkinDateTime))
   // Check In Now button is only shown when check-in date is TODAY (walk-in or same-day arrival)
   const isCheckingInToday = checkInDate === format(new Date(), 'yyyy-MM-dd')
@@ -546,6 +570,49 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
 
     const tempNights = selCheckIn && selCheckOut ? Math.max(1, differenceInCalendarDays(selCheckOut, selCheckIn)) : 0
 
+    // Parsed states for check-in time selectors
+    const [ciHourStr, ciMinStr] = (checkInTime || '12:00').split(':')
+    const ciHourVal = parseInt(ciHourStr, 10)
+    const ciHour12 = ciHourVal % 12 || 12
+    const ciAmPm = ciHourVal >= 12 ? 'PM' : 'AM'
+    const ciMin = ciMinStr
+
+    // Parsed states for check-out time selectors
+    const [coHourStr, coMinStr] = (checkOutTime || '11:00').split(':')
+    const coHourVal = parseInt(coHourStr, 10)
+    const coHour12 = coHourVal % 12 || 12
+    const coAmPm = coHourVal >= 12 ? 'PM' : 'AM'
+    const coMin = coMinStr
+
+    const updateCheckInTimeStr = (h12: string, min: string, ampm: string) => {
+      let h24 = parseInt(h12, 10)
+      if (ampm === 'PM' && h24 < 12) h24 += 12
+      if (ampm === 'AM' && h24 === 12) h24 = 0
+      const newTime = `${h24.toString().padStart(2, '0')}:${min}`
+      setCheckInTime(newTime)
+    }
+
+    const updateCheckOutTimeStr = (h12: string, min: string, ampm: string) => {
+      let h24 = parseInt(h12, 10)
+      if (ampm === 'PM' && h24 < 12) h24 += 12
+      if (ampm === 'AM' && h24 === 12) h24 = 0
+      const newTime = `${h24.toString().padStart(2, '0')}:${min}`
+      setCheckOutTime(newTime)
+    }
+
+    // Generate 5-minute increments for minutes, but ensure the exact minutes are options
+    const minutesOptions = Array.from({ length: 12 }, (_, i) => (i * 5).toString().padStart(2, '0'))
+    if (!minutesOptions.includes(ciMin)) {
+      minutesOptions.push(ciMin)
+      minutesOptions.sort((a, b) => parseInt(a, 10) - parseInt(b, 10))
+    }
+
+    const coMinutesOptions = Array.from({ length: 12 }, (_, i) => (i * 5).toString().padStart(2, '0'))
+    if (!coMinutesOptions.includes(coMin)) {
+      coMinutesOptions.push(coMin)
+      coMinutesOptions.sort((a, b) => parseInt(a, 10) - parseInt(b, 10))
+    }
+
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-fade-in">
         <div className="glass-panel relative w-full max-w-sm bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-2xl flex flex-col gap-4">
@@ -587,7 +654,7 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
               <button
                 type="button"
                 onClick={handleNextMonth}
-                className="p-1.5 rounded-lg bg-slate-950 border border-slate-800 hover:bg-slate-850 text-slate-400 hover:text-slate-200 transition"
+                className="p-1.5 rounded-lg bg-slate-955 border border-slate-800 hover:bg-slate-855 text-slate-400 hover:text-slate-200 transition"
               >
                 <ChevronRight className="h-4 w-4" />
               </button>
@@ -619,7 +686,7 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
                 if (isPast) {
                   btnClass = 'text-slate-600 opacity-20 cursor-not-allowed'
                 } else if (isCi || isCo) {
-                  btnClass = 'bg-emerald-500 text-slate-950 font-black rounded-xl shadow-lg shadow-emerald-500/20'
+                  btnClass = 'bg-emerald-500 text-slate-955 font-black rounded-xl shadow-lg shadow-emerald-500/20'
                 } else if (isInRange) {
                   btnClass = 'bg-emerald-500/10 text-emerald-400 font-bold border border-emerald-500/20 rounded-none'
                 } else if (!isCurrentMonth) {
@@ -645,6 +712,86 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
             </div>
           </div>
 
+          {/* Time Picker Section */}
+          <div className="border-t border-slate-800/80 pt-3 flex flex-col gap-2">
+            <h5 className="text-[10px] font-extrabold text-slate-400 tracking-wider uppercase px-1">
+              {language === 'mr' ? 'चेक-इन आणि चेक-आउट वेळ' : 'Check-in & Check-out Times'}
+            </h5>
+            <div className="grid grid-cols-2 gap-3">
+              {/* Check-In Time */}
+              <div className="flex flex-col gap-1">
+                <span className="text-[9px] font-bold text-slate-505 uppercase tracking-wider px-1">
+                  {language === 'mr' ? 'चेक-इन वेळ' : 'Check-in Time'}
+                </span>
+                <div className="flex items-center gap-1 bg-slate-950/60 p-1.5 rounded-xl border border-slate-800/80">
+                  <select
+                    value={ciHour12}
+                    onChange={(e) => updateCheckInTimeStr(e.target.value, ciMin, ciAmPm)}
+                    className="flex-1 bg-transparent text-slate-200 text-xs font-black rounded-lg focus:outline-none cursor-pointer appearance-none text-center"
+                  >
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map(h => (
+                      <option key={h} value={h} className="bg-slate-900 text-slate-200">{h.toString().padStart(2, '0')}</option>
+                    ))}
+                  </select>
+                  <span className="text-slate-600 font-bold self-center text-xs">:</span>
+                  <select
+                    value={ciMin}
+                    onChange={(e) => updateCheckInTimeStr(ciHour12.toString(), e.target.value, ciAmPm)}
+                    className="flex-1 bg-transparent text-slate-200 text-xs font-black rounded-lg focus:outline-none cursor-pointer appearance-none text-center"
+                  >
+                    {minutesOptions.map(m => (
+                      <option key={m} value={m} className="bg-slate-900 text-slate-200">{m}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={ciAmPm}
+                    onChange={(e) => updateCheckInTimeStr(ciHour12.toString(), ciMin, e.target.value)}
+                    className="flex-1 bg-transparent text-emerald-400 text-xs font-black rounded-lg focus:outline-none cursor-pointer appearance-none text-center"
+                  >
+                    <option value="AM" className="bg-slate-900 text-slate-200">AM</option>
+                    <option value="PM" className="bg-slate-900 text-slate-200">PM</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Check-Out Time */}
+              <div className="flex flex-col gap-1">
+                <span className="text-[9px] font-bold text-slate-550 uppercase tracking-wider px-1">
+                  {language === 'mr' ? 'चेक-आउट वेळ' : 'Check-out Time'}
+                </span>
+                <div className="flex items-center gap-1 bg-slate-950/60 p-1.5 rounded-xl border border-slate-800/80">
+                  <select
+                    value={coHour12}
+                    onChange={(e) => updateCheckOutTimeStr(e.target.value, coMin, coAmPm)}
+                    className="flex-1 bg-transparent text-slate-200 text-xs font-black rounded-lg focus:outline-none cursor-pointer appearance-none text-center"
+                  >
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map(h => (
+                      <option key={h} value={h} className="bg-slate-900 text-slate-200">{h.toString().padStart(2, '0')}</option>
+                    ))}
+                  </select>
+                  <span className="text-slate-600 font-bold self-center text-xs">:</span>
+                  <select
+                    value={coMin}
+                    onChange={(e) => updateCheckOutTimeStr(coHour12.toString(), e.target.value, coAmPm)}
+                    className="flex-1 bg-transparent text-slate-200 text-xs font-black rounded-lg focus:outline-none cursor-pointer appearance-none text-center"
+                  >
+                    {coMinutesOptions.map(m => (
+                      <option key={m} value={m} className="bg-slate-900 text-slate-200">{m}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={coAmPm}
+                    onChange={(e) => updateCheckOutTimeStr(coHour12.toString(), coMin, e.target.value)}
+                    className="flex-1 bg-transparent text-amber-400 text-xs font-black rounded-lg focus:outline-none cursor-pointer appearance-none text-center"
+                  >
+                    <option value="AM" className="bg-slate-900 text-slate-200">AM</option>
+                    <option value="PM" className="bg-slate-900 text-slate-200">PM</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <button
             type="button"
             onClick={() => {
@@ -654,13 +801,12 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
               }
               setShowDatePicker(false)
             }}
-            className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 active:scale-[0.98] text-sm font-black text-slate-950 rounded-2xl transition duration-150 text-center shadow-lg shadow-emerald-500/20"
+            className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 active:scale-[0.98] text-sm font-black text-slate-955 rounded-2xl transition duration-150 text-center shadow-lg shadow-emerald-500/20"
           >
             {language === 'mr' 
               ? `पूर्ण (${tempNights || 1} रात्र)` 
               : `Done (${tempNights || 1} ${(tempNights || 1) === 1 ? 'Night' : 'Nights'})`}
           </button>
-
         </div>
       </div>
     )
@@ -685,8 +831,8 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
     setIsSubmitting(true)
 
     try {
-      const checkInISO = checkinDateTime.toISOString()
-      const checkOutISO = checkoutDateTime.toISOString()
+      const checkInISO = toUTCfromIST(checkInDate, effectiveCheckInTime)
+      const checkOutISO = toUTCfromIST(checkOutDate, effectiveCheckOutTime)
 
       const payload = {
         rooms: selectedRooms.map(r => ({
@@ -707,9 +853,7 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
         check_out: checkOutISO,
         payment_mode: paymentMode,
         payment_status: paymentStatus,
-        deposit_amount: (paymentStatus === 'partial' || paymentMode === 'Pending' || paymentStatus === 'reserved')
-          ? (Number(depositAmount) || 0)
-          : 0,
+        deposit_amount: Number(depositAmount) || 0,
         occupation: occupation || undefined,
         notes: notes || undefined,
         total_amount: Number(totalAmount) || 0,
@@ -806,7 +950,7 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
           <div className="flex items-center justify-between p-3 bg-slate-950/60 rounded-2xl border border-slate-800/80 select-none">
             {/* Check-In Column */}
             <div className="flex-1 flex flex-col items-start min-w-0">
-              <span className="text-[9px] text-slate-500 font-extrabold uppercase tracking-wider">
+              <span className="text-[9px] text-slate-505 font-extrabold uppercase tracking-wider">
                 {language === 'mr' ? 'चेक-इन' : 'CHECK-IN'}
               </span>
               <button
@@ -816,22 +960,13 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
               >
                 {formatCardDate(checkInDate)}
               </button>
-              <div className="relative mt-0.5 cursor-pointer flex items-center gap-1 group">
-                <span className="text-emerald-400 font-extrabold text-xs group-hover:text-emerald-350 transition">
-                  {formatTimeAMPM(checkInTime)}
-                </span>
-                <input
-                  type="time"
-                  value={checkInTime}
-                  onChange={(e) => {
-                    const val = e.target.value
-                    setCheckInTime(val)
-                    setCheckOutTime(val)
-                  }}
-                  style={{ colorScheme: 'dark' }}
-                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                />
-              </div>
+              <button
+                type="button"
+                onClick={() => setShowDatePicker(true)}
+                className="mt-0.5 font-extrabold text-emerald-400 text-xs hover:text-emerald-350 transition cursor-pointer text-left focus:outline-none animate-fade-in"
+              >
+                {formatTimeAMPM(checkInTime)}
+              </button>
             </div>
 
             {/* Arrow Spacer */}
@@ -841,7 +976,7 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
 
             {/* Check-Out Column */}
             <div className="flex-1 flex flex-col items-start min-w-0">
-              <span className="text-[9px] text-slate-500 font-extrabold uppercase tracking-wider">
+              <span className="text-[9px] text-slate-505 font-extrabold uppercase tracking-wider">
                 {language === 'mr' ? 'चेक-आउट' : 'CHECK-OUT'}
               </span>
               <button
@@ -851,18 +986,13 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
               >
                 {formatCardDate(checkOutDate)}
               </button>
-              <div className="relative mt-0.5 cursor-pointer flex items-center gap-1 group">
-                <span className="text-amber-400 font-extrabold text-xs group-hover:text-amber-350 transition">
-                  {formatTimeAMPM(checkOutTime)}
-                </span>
-                <input
-                  type="time"
-                  value={checkOutTime}
-                  onChange={(e) => setCheckOutTime(e.target.value)}
-                  style={{ colorScheme: 'dark' }}
-                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                />
-              </div>
+              <button
+                type="button"
+                onClick={() => setShowDatePicker(true)}
+                className="mt-0.5 font-extrabold text-amber-400 text-xs hover:text-amber-350 transition cursor-pointer text-left focus:outline-none animate-fade-in"
+              >
+                {formatTimeAMPM(checkOutTime)}
+              </button>
             </div>
 
             {/* Vertical Separator */}
@@ -885,22 +1015,63 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
 
           {/* Dynamic Room Configuration List */}
           <div className="flex flex-col gap-4">
+
+            {/* ── Choose Rooms Trigger Button ── */}
+            <button
+              type="button"
+              onClick={() => setShowRoomPicker(true)}
+              disabled={isLoadingAvailableRooms}
+              className="w-full flex items-center justify-between px-4 py-3.5 bg-slate-950 border-2 border-dashed border-emerald-500/40 hover:border-emerald-400/70 hover:bg-emerald-500/5 rounded-2xl transition-all active:scale-[0.99] disabled:opacity-60 group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/15 flex items-center justify-center group-hover:bg-emerald-500/25 transition flex-shrink-0">
+                  {isLoadingAvailableRooms
+                    ? <Loader2 className="h-4 w-4 text-emerald-400 animate-spin" />
+                    : <Plus className="h-4 w-4 text-emerald-400" />
+                  }
+                </div>
+                <div className="text-left">
+                  <div className="text-sm font-bold text-slate-200">
+                    {isLoadingAvailableRooms
+                      ? (language === 'mr' ? 'खोल्या लोड होत आहेत...' : 'Loading rooms...')
+                      : selectedRooms.some(r => r.room_id)
+                        ? (language === 'mr' ? 'खोल्या बदला / जोडा' : 'Change / Add Rooms')
+                        : (language === 'mr' ? 'खोली निवडा' : 'Choose Rooms')
+                    }
+                  </div>
+                  <div className="text-[11px] text-slate-500 font-medium mt-0.5">
+                    {selectedRooms.some(r => r.room_id)
+                      ? `${selectedRooms.filter(r => r.room_id).length} ${language === 'mr' ? 'खोली निवडल्या · बदलण्यासाठी टॅप करा' : 'room(s) selected · Tap to change'}`
+                      : (language === 'mr'
+                          ? `${availableRooms.length} खोल्या उपलब्ध आहेत`
+                          : `${availableRooms.length} free rooms available`)
+                    }
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 flex-wrap justify-end max-w-[40%]">
+                {selectedRooms.filter(r => r.room_id).map(r => {
+                  const rm = availableRooms.find(a => a.id === r.room_id)
+                  return rm ? (
+                    <span key={r.id} className="px-2.5 py-1 bg-emerald-500/20 text-emerald-300 text-xs font-black rounded-lg">
+                      {rm.number}
+                    </span>
+                  ) : null
+                })}
+                {!selectedRooms.some(r => r.room_id) && (
+                  <ChevronRight className="h-4 w-4 text-emerald-400" />
+                )}
+              </div>
+            </button>
+
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
                 {language === 'mr' ? 'खोल्यांची निवड' : 'Rooms Selected'} ({selectedRooms.length})
               </span>
-              <button
-                type="button"
-                onClick={addRoomConfig}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-extrabold rounded-xl transition border border-emerald-500/20"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                {language === 'mr' ? 'खोली जोडा' : 'Add Room'}
-              </button>
             </div>
 
             {selectedRooms.map((config, index) => {
-              const options = getRoomOptions(config.id)
+              const roomInfo = availableRooms.find(r => r.id === config.room_id)
               return (
                 <div key={config.id} className="relative flex flex-col gap-3.5 p-4 bg-slate-950/20 rounded-2xl border border-slate-800/80">
                   {selectedRooms.length > 1 && (
@@ -918,35 +1089,37 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
                     {language === 'mr' ? `खोली ${index + 1}` : `Room ${index + 1}`}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="flex flex-col gap-1.5">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{t('room_type')}</span>
-                      <select
-                        value={config.room_type}
-                        onChange={(e) => updateRoomConfig(config.id, { room_type: e.target.value as any })}
-                        className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-sm font-semibold h-[46px] select-dark"
+                  {/* Room Info Badge */}
+                  {roomInfo ? (
+                    <div className="flex items-center gap-3 p-2.5 bg-emerald-500/8 rounded-xl border border-emerald-500/20">
+                      <div className="flex flex-col items-center justify-center w-12 h-12 rounded-xl bg-emerald-500/15 border border-emerald-500/25 flex-shrink-0">
+                        <span className="text-base font-black text-emerald-300 leading-none">{roomInfo.number}</span>
+                        <span className="text-[8px] text-emerald-600 font-bold uppercase mt-0.5">{language === 'mr' ? 'खोली' : 'Room'}</span>
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-bold text-slate-100 truncate">{roomInfo.room_type}</div>
+                        <div className="text-[11px] text-slate-400">{language === 'mr' ? 'मजला' : 'Floor'} {roomInfo.floor}</div>
+                        <div className="text-[11px] text-emerald-400 font-bold">₹{roomInfo.base_price}<span className="text-slate-600 font-normal">/{language === 'mr' ? 'रात्र' : 'night'}</span></div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowRoomPicker(true)}
+                        className="ml-auto text-[10px] text-slate-500 hover:text-emerald-400 font-bold underline underline-offset-2 flex-shrink-0 transition"
                       >
-                        <option value="AC Deluxe">AC Deluxe</option>
-                        <option value="Non AC Deluxe">Non AC Deluxe</option>
-                        <option value="VIP AC Suite">VIP AC Suite</option>
-                        <option value="VIP Non AC Suite">VIP Non AC Suite</option>
-                      </select>
+                        {language === 'mr' ? 'बदला' : 'Change'}
+                      </button>
                     </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setShowRoomPicker(true)}
+                      className="flex items-center gap-2 px-3 py-2.5 bg-slate-900 border border-dashed border-slate-700 rounded-xl text-xs text-slate-400 hover:border-emerald-500/60 hover:text-emerald-400 transition w-full"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      {language === 'mr' ? 'वरील बटणावर क्लिक करून खोली निवडा' : 'Tap "Choose Rooms" above to select'}
+                    </button>
+                  )}
 
-                    <div className="flex flex-col gap-1.5">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                        {language === 'mr' ? 'खोली क्रमांक' : 'Room Number'}
-                      </span>
-                      <SearchableRoomSelect
-                        value={config.room_id}
-                        options={options}
-                        isLoading={isLoadingAvailableRooms}
-                        onChange={(roomId) => updateRoomConfig(config.id, { room_id: roomId })}
-                        placeholder={language === 'mr' ? 'खोली निवडा' : 'Select room'}
-                        language={language}
-                      />
-                    </div>
-                  </div>
 
                   {/* Steppers & Price for this Room */}
                   <div className="grid grid-cols-2 gap-4">
@@ -1334,9 +1507,8 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
           {/* ——— Billing & Book Room Section (Inline at end of all boxes) ——— */}
           {(() => {
             const total = Number(totalAmount) || 0
-            const paid = paymentMode !== 'Pending' && Number(depositAmount) === 0
-              ? total
-              : Math.min(Number(depositAmount) || 0, total)
+            const depositAmt = Number(depositAmount) || 0
+            const paid = depositAmt === 0 ? 0 : Math.min(depositAmt, total)
             const due = Math.max(0, total - paid)
 
             // Dynamic payment status label
@@ -1400,111 +1572,105 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
                     </div>
                   </div>
 
-                  {/* Row 2: Payment Method */}
+                  {/* Row 2: Payment Method — 3 real modes, no Pending */}
                   <div className="flex flex-col gap-2">
                     <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
                       {language === 'mr' ? 'पेमेंट कसे?' : 'Payment Method'}
                     </span>
-                    <div className="grid grid-cols-4 gap-1.5">
-                      {(['Cash', 'UPI', 'IDFC', 'Pending'] as const).map((mode) => {
-                        let activeStyle = ''
-                        let modeIcon = ''
-                        let modeLabel: string = mode
-
-                        if (mode === 'Cash') {
-                          modeIcon = '💵'
-                          modeLabel = language === 'mr' ? 'कॅश' : 'Cash'
-                          activeStyle = 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40'
-                        } else if (mode === 'UPI') {
-                          modeIcon = '📱'
-                          modeLabel = 'UPI'
-                          activeStyle = 'bg-blue-500/15 text-blue-400 border-blue-500/40'
-                        } else if (mode === 'IDFC') {
-                          modeIcon = '🏦'
-                          modeLabel = 'IDFC'
-                          activeStyle = 'bg-purple-500/15 text-purple-400 border-purple-500/40'
-                        } else {
-                          modeIcon = '⏳'
-                          modeLabel = language === 'mr' ? 'बाकी' : 'Pending'
-                          activeStyle = 'bg-amber-500/15 text-amber-400 border-amber-500/40'
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {(['Cash', 'UPI', 'IDFC'] as const).map((mode) => {
+                        const styles: Record<string, { icon: string; label: string; active: string }> = {
+                          Cash: { icon: '💵', label: language === 'mr' ? 'कॅश' : 'Cash', active: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40' },
+                          UPI:  { icon: '📱', label: 'UPI',  active: 'bg-blue-500/15 text-blue-400 border-blue-500/40' },
+                          IDFC: { icon: '🏦', label: 'IDFC', active: 'bg-purple-500/15 text-purple-400 border-purple-500/40' },
                         }
-
+                        const { icon, label, active } = styles[mode]
                         return (
                           <button
                             key={mode}
                             type="button"
-                            onClick={() => {
-                              setPaymentMode(mode)
-                              if (mode !== 'Pending') setDepositAmount(0)
-                            }}
-                            className={`py-2 rounded-xl border text-[10px] font-black transition-all duration-200 flex flex-col items-center gap-1 justify-center ${
+                            onClick={() => setPaymentMode(mode)}
+                            className={`py-2.5 rounded-xl border text-[10px] font-black transition-all duration-200 flex flex-col items-center gap-1 justify-center ${
                               paymentMode === mode
-                                ? activeStyle
+                                ? active
                                 : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300'
                             }`}
                           >
-                            <span className="text-sm">{modeIcon}</span>
-                            <span>{modeLabel}</span>
+                            <span className="text-sm">{icon}</span>
+                            <span>{label}</span>
                           </button>
                         )
                       })}
                     </div>
                   </div>
 
-                  {/* Row 3: Advance Received Input */}
-                  <div className="grid grid-cols-2 gap-3 items-center">
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                        {language === 'mr' ? 'जमा रक्कम (₹)' : 'Advance Paid (₹)'}
-                      </label>
+                  {/* Row 3: Quick Payment Chips — non-technical friendly */}
+                  <div className="flex flex-col gap-2">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                      {language === 'mr' ? 'किती भरले?' : 'Amount Received'}
+                    </span>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {/* Chip 1: Pay Later */}
+                      <button
+                        type="button"
+                        onClick={() => { setDepositAmount(0); setActiveKeypad(null) }}
+                        className={`py-2.5 px-2 rounded-xl border text-[10px] font-black transition-all duration-200 flex flex-col items-center gap-1 justify-center ${
+                          depositAmt === 0
+                            ? 'bg-amber-500/15 text-amber-400 border-amber-500/40'
+                            : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300'
+                        }`}
+                      >
+                        <span className="text-sm">⏳</span>
+                        <span>{language === 'mr' ? 'नंतर देणे' : 'Pay Later'}</span>
+                      </button>
+
+                      {/* Chip 2: Partial */}
                       <button
                         type="button"
                         onClick={() => setActiveKeypad('deposit')}
-                        className={`w-full flex items-center gap-2 rounded-2xl px-3 py-3 border transition active:scale-[0.98] ${
-                          activeKeypad === 'deposit'
-                            ? paymentMode === 'Pending'
-                              ? 'bg-amber-500/10 border-amber-400/60 ring-2 ring-amber-500/20'
-                              : 'bg-emerald-500/10 border-emerald-400/60 ring-2 ring-emerald-500/20'
-                            : paymentMode === 'Pending'
-                            ? 'bg-slate-900 border-amber-500/30'
-                            : 'bg-slate-900 border-emerald-500/20'
+                        className={`py-2.5 px-2 rounded-xl border text-[10px] font-black transition-all duration-200 flex flex-col items-center gap-1 justify-center ${
+                          depositAmt > 0 && depositAmt < total
+                            ? 'bg-blue-500/15 text-blue-400 border-blue-500/40'
+                            : activeKeypad === 'deposit'
+                            ? 'bg-blue-500/10 border-blue-400/60 ring-2 ring-blue-500/20 text-blue-400'
+                            : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300'
                         }`}
                       >
-                        <span className={`text-sm font-black ${paymentMode === 'Pending' ? 'text-amber-400' : 'text-emerald-400'}`}>₹</span>
-                        <span className="flex-1 text-left text-sm font-black text-slate-100">
-                          {depositAmount === 0 || depositAmount === '' ? (
-                            <span className="text-slate-500 font-medium text-xs">
-                              {paymentMode !== 'Pending' ? String(totalAmount || 0) : (language === 'mr' ? 'रक्कम टाका' : 'Enter amount')}
-                            </span>
-                          ) : depositAmount}
-                        </span>
-                        <span className="text-[9px] text-slate-500 font-bold">{language === 'mr' ? 'बदला' : 'EDIT'}</span>
+                        <span className="text-sm">✏️</span>
+                        <span>{depositAmt > 0 && depositAmt < total ? `₹${depositAmt}` : (language === 'mr' ? 'अंशतः' : 'Partial')}</span>
+                      </button>
+
+                      {/* Chip 3: Full Paid */}
+                      <button
+                        type="button"
+                        onClick={() => { setDepositAmount(total); setActiveKeypad(null) }}
+                        disabled={total === 0}
+                        className={`py-2.5 px-2 rounded-xl border text-[10px] font-black transition-all duration-200 flex flex-col items-center gap-1 justify-center disabled:opacity-40 ${
+                          total > 0 && depositAmt >= total
+                            ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40'
+                            : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300'
+                        }`}
+                      >
+                        <span className="text-sm">✅</span>
+                        <span>{total > 0 ? `₹${total}` : (language === 'mr' ? 'पूर्ण' : 'Full')}</span>
                       </button>
                     </div>
 
-                    {/* Due/Remaining Summary */}
-                    <div className="flex flex-col justify-end h-full">
-                      <div className="flex justify-between text-[10px] font-bold text-slate-500 mb-1">
-                        <span>{language === 'mr' ? 'भरले: ' : 'Paid: '}₹{paid}</span>
-                        <span>{language === 'mr' ? 'बाकी: ' : 'Due: '}₹{due}</span>
-                      </div>
-                      <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden mb-1">
-                        <div
-                          className="h-full rounded-full bg-emerald-400 transition-all duration-300"
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
-                      <div className="text-right">
-                        {due > 0 ? (
-                          <span className="text-[10px] font-black text-rose-400">
-                            ₹{due} {language === 'mr' ? 'देणे बाकी' : 'Remaining Due'}
-                          </span>
-                        ) : (
-                          <span className="text-[10px] font-black text-emerald-400">
-                            ✓ {language === 'mr' ? 'पूर्ण भरले' : 'Fully Settled'}
-                          </span>
-                        )}
-                      </div>
+                    {/* Progress bar */}
+                    <div className="flex justify-between text-[10px] font-bold text-slate-500">
+                      <span>{language === 'mr' ? 'भरले: ' : 'Paid: '}₹{paid}</span>
+                      <span className={due > 0 ? 'text-rose-400' : 'text-emerald-400'}>
+                        {due > 0
+                          ? `${language === 'mr' ? 'बाकी: ' : 'Due: '}₹${due}`
+                          : `✓ ${language === 'mr' ? 'पूर्ण भरले' : 'Fully Settled'}`
+                        }
+                      </span>
+                    </div>
+                    <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-emerald-400 transition-all duration-300"
+                        style={{ width: `${pct}%` }}
+                      />
                     </div>
                   </div>
                 </div>
@@ -1521,11 +1687,7 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
                           const depositAmt = Number(depositAmount) || 0
                           const totalAmt = Number(totalAmount) || 0
                           const isPartial = depositAmt > 0 && depositAmt < totalAmt
-                          if (paymentMode === 'Pending') {
-                            handleSubmit(isPartial ? 'partial' : 'unpaid')
-                          } else {
-                            handleSubmit(isPartial ? 'partial' : 'paid')
-                          }
+                          handleSubmit(depositAmt === 0 ? 'unpaid' : isPartial ? 'partial' : 'paid')
                         }}
                         className="w-full py-4 px-4 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.99] text-slate-950 rounded-2xl transition disabled:opacity-50 flex items-center gap-3 shadow-xl shadow-emerald-500/20"
                       >
@@ -1539,8 +1701,8 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
                             {language === 'mr' ? 'ब्लॉक & चेक-इन करा' : 'Block & Check In'}
                           </span>
                           <span className="text-[10px] text-emerald-950 font-bold uppercase tracking-wider">
-                            {paymentMode === 'Pending'
-                              ? (language === 'mr' ? `→ जमा रक्कम: ₹${paid} · देणे बाकी: ₹${due}` : `→ Advance: ₹${paid} · Due: ₹${due}`)
+                            {paid === 0
+                              ? (language === 'mr' ? `→ आगाऊ नाही · देणे बाकी: ₹${due}` : `→ No Advance · Due: ₹${due}`)
                               : due > 0
                               ? (language === 'mr' ? `→ ${paymentMode} द्वारे जमा ₹${paid} · बाकी ₹${due}` : `→ Advance ₹${paid} via ${paymentMode} · Due ₹${due}`)
                               : (language === 'mr' ? `→ ${paymentMode} द्वारे पूर्ण भरले (₹${total})` : `→ Fully Paid via ${paymentMode} (₹${total})`)}
@@ -1577,8 +1739,8 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
                             {language === 'mr' ? 'खोली बुक करा' : 'Book Room Now'}
                           </span>
                           <span className="text-[10px] text-emerald-950 font-bold uppercase tracking-wider">
-                            {paymentMode === 'Pending'
-                              ? (language === 'mr' ? `→ जमा रक्कम: ₹${paid} · देणे बाकी: ₹${due}` : `→ Advance: ₹${paid} · Due: ₹${due}`)
+                            {paid === 0
+                              ? (language === 'mr' ? `→ आगाऊ नाही · देणे बाकी: ₹${due}` : `→ No Advance · Due: ₹${due}`)
                               : due > 0
                               ? (language === 'mr' ? `→ ${paymentMode} द्वारे जमा ₹${paid} · बाकी ₹${due}` : `→ Advance ₹${paid} via ${paymentMode} · Due ₹${due}`)
                               : (language === 'mr' ? `→ ${paymentMode} द्वारे पूर्ण भरले (₹${total})` : `→ Fully Paid via ${paymentMode} (₹${total})`)}
@@ -1599,6 +1761,16 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
         </div> {/* End of scrollable body */}
       </div>
       {renderDatePickerModal()}
+      {showRoomPicker && (
+        <RoomPickerModal
+          availableRooms={availableRooms}
+          partialRooms={partialRooms}
+          currentSelectedIds={selectedRooms.filter(r => r.room_id).map(r => r.room_id)}
+          language={language}
+          onConfirm={handleRoomPickerConfirm}
+          onClose={() => setShowRoomPicker(false)}
+        />
+      )}
       {selectedDoc && (
         <DocumentLightbox
           docUrl={selectedDoc.public_url || ''}
@@ -1678,89 +1850,217 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
   )
 }
 
-function SearchableRoomSelect({
-  value,
-  options,
-  onChange,
-  isLoading,
-  placeholder,
-  language
+
+// ─── Room Picker Modal ────────────────────────────────────────────────────────
+type PartialRoom = Room & { next_checkin: string; next_checkin_iso: string }
+
+function RoomPickerModal({
+  availableRooms,
+  partialRooms,
+  currentSelectedIds,
+  language,
+  onConfirm,
+  onClose,
 }: {
-  value: string
-  options: Room[]
-  onChange: (id: string) => void
-  isLoading: boolean
-  placeholder: string
+  availableRooms: Room[]
+  partialRooms: PartialRoom[]
+  currentSelectedIds: string[]
   language: string
+  onConfirm: (roomIds: string[], selectedPartialRooms: PartialRoom[]) => void
+  onClose: () => void
 }) {
-  const [isOpen, setIsOpen] = useState(false)
-  const [searchTerm, setSearchTerm] = useState('')
-  const containerRef = useRef<HTMLDivElement>(null)
+  const [pickedIds, setPickedIds] = React.useState<string[]>(currentSelectedIds)
 
-  const selectedRoom = options.find(o => o.id === value)
+  const allRooms: Room[] = [...availableRooms, ...partialRooms]
+  const floors = Array.from(new Set(availableRooms.map(r => r.floor))).sort((a, b) => a - b)
+  const partialFloors = Array.from(new Set(partialRooms.map(r => r.floor))).sort((a, b) => a - b)
 
-  useEffect(() => {
-    if (selectedRoom) {
-      setSearchTerm(selectedRoom.number)
-    } else {
-      setSearchTerm('')
-    }
-  }, [value, selectedRoom])
+  const toggle = (id: string) => {
+    setPickedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  }
 
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setIsOpen(false)
-        setSearchTerm(selectedRoom?.number ?? '')
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [selectedRoom])
+  const typeBadge = (type: string) => {
+    if (type === 'VIP AC Suite')     return { bg: 'bg-amber-500/10 border-amber-500/30', text: 'text-amber-300', label: 'VIP AC' }
+    if (type === 'VIP Non AC Suite') return { bg: 'bg-amber-500/10 border-amber-500/30', text: 'text-amber-300', label: 'VIP Non-AC' }
+    if (type === 'Non AC Deluxe')    return { bg: 'bg-sky-500/10 border-sky-500/30', text: 'text-sky-300', label: 'Non-AC' }
+    return { bg: 'bg-emerald-500/10 border-emerald-500/30', text: 'text-emerald-300', label: 'AC' }
+  }
 
-  const filteredOptions = options.filter(o => 
-    o.number.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  const floorLabel = (floor: number) => {
+    const suffixes: Record<number, string> = { 1: '1st', 2: '2nd', 3: '3rd' }
+    return language === 'mr'
+      ? `${suffixes[floor] ?? floor}${floor === 1 ? 'la' : 'ra'} Mala`
+      : `${suffixes[floor] ?? `${floor}th`} Floor`
+  }
 
-  return (
-    <div className="relative w-full" ref={containerRef}>
-      <input
-        type="text"
-        placeholder={isLoading ? (language === 'mr' ? 'लोड होत आहे...' : 'Loading...') : placeholder}
-        value={searchTerm}
-        disabled={isLoading}
-        onFocus={() => setIsOpen(true)}
-        onChange={(e) => {
-          setSearchTerm(e.target.value)
-          setIsOpen(true)
-        }}
-        className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-sm font-semibold h-[46px] select-dark disabled:opacity-50"
-      />
-      {isOpen && (
-        <div className="absolute top-[50px] left-0 z-50 w-full max-h-48 overflow-y-auto bg-slate-950 border border-slate-800 rounded-2xl shadow-xl">
-          {isLoading ? (
-            <div className="px-4 py-3 text-xs text-slate-500">{language === 'mr' ? 'लोड होत आहे...' : 'Loading...'}</div>
-          ) : filteredOptions.length === 0 ? (
-            <div className="px-4 py-3 text-xs text-slate-500">{language === 'mr' ? 'कोणतीही खोली उपलब्ध नाही' : 'No rooms available'}</div>
-          ) : (
-            filteredOptions.map(r => (
-              <button
-                key={r.id}
-                type="button"
-                onClick={() => {
-                  onChange(r.id)
-                  setSearchTerm(r.number)
-                  setIsOpen(false)
-                }}
-                className="w-full px-4 py-2.5 text-left text-sm text-slate-300 hover:bg-slate-900 transition flex justify-between items-center"
-              >
-                <span className="font-bold">{r.number}</span>
-                <span className="text-[10px] text-slate-500">{r.room_type}</span>
-              </button>
-            ))
-          )}
+  const renderCard = (r: Room, isPartial: boolean) => {
+    const pr = isPartial ? (r as PartialRoom) : null
+    const selected = pickedIds.includes(r.id)
+    const badge = typeBadge(r.room_type)
+    return (
+      <button
+        key={r.id}
+        type="button"
+        onClick={() => toggle(r.id)}
+        className={`relative flex flex-col p-4 rounded-2xl border-2 text-left transition-all duration-150 active:scale-[0.96] ${
+          selected
+            ? isPartial
+              ? 'border-amber-400 bg-amber-500/10 shadow-lg shadow-amber-500/10'
+              : 'border-emerald-400 bg-emerald-500/10 shadow-lg shadow-emerald-500/10'
+            : isPartial
+              ? 'border-amber-900/60 bg-amber-950/30 hover:border-amber-700/60'
+              : 'border-slate-800 bg-slate-950/70 hover:border-slate-700'
+        }`}
+      >
+        <div className={`absolute top-2.5 right-2.5 w-5 h-5 rounded-full flex items-center justify-center transition-all ${
+          selected ? (isPartial ? 'bg-amber-500 shadow' : 'bg-emerald-500 shadow') : 'bg-slate-800'
+        }`}>
+          <svg className={`w-3 h-3 transition-opacity ${selected ? 'opacity-100 text-white' : 'opacity-0'}`} viewBox="0 0 12 12" fill="none">
+            <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
         </div>
-      )}
-    </div>
+        <span className={`text-2xl font-black leading-none mb-1.5 ${
+          selected ? (isPartial ? 'text-amber-300' : 'text-emerald-300') : 'text-slate-100'
+        }`}>{r.number}</span>
+        <span className={`inline-flex self-start px-2 py-0.5 rounded-lg border text-[9px] font-bold mb-2 ${badge.bg} ${badge.text}`}>
+          {badge.label}
+        </span>
+        <span className={`text-xs font-bold ${
+          selected ? (isPartial ? 'text-amber-400' : 'text-emerald-400') : 'text-slate-500'
+        }`}>
+          Rs.{r.base_price}
+          <span className="text-[10px] font-normal text-slate-600">/night</span>
+        </span>
+        {pr && (
+          <span className="mt-2 text-[9px] font-bold text-amber-500/80 leading-tight">
+            Next guest: {pr.next_checkin}
+          </span>
+        )}
+      </button>
+    )
+  }
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex flex-col bg-slate-950/95 backdrop-blur-sm animate-fade-in">
+      <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-slate-800/60">
+        <div>
+          <h2 className="text-base font-black text-slate-100">Select Rooms</h2>
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            {pickedIds.length === 0
+              ? 'Tap any free room — multiselect supported'
+              : `${pickedIds.length} room(s) selected`
+            }
+          </p>
+        </div>
+        <button type="button" onClick={onClose} className="p-2 rounded-xl bg-slate-800/60 hover:bg-slate-700 text-slate-400 transition">
+          <X className="h-5 w-5" />
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
+        {availableRooms.length === 0 && partialRooms.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-48 text-slate-500">
+            <div className="text-4xl mb-3">No Rooms</div>
+            <div className="text-sm font-bold">No rooms available for this period</div>
+            <div className="text-xs mt-1 text-slate-600">Try adjusting the check-in / check-out dates</div>
+          </div>
+        ) : (
+          <>
+            {floors.map(floor => {
+              const floorRooms = availableRooms.filter(r => r.floor === floor)
+              return (
+                <div key={`avail-${floor}`}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-6 h-6 rounded-lg bg-slate-800 flex items-center justify-center flex-shrink-0">
+                      <span className="text-[10px] font-black text-slate-300">{floor}</span>
+                    </div>
+                    <span className="text-[11px] font-black text-slate-300 uppercase tracking-widest">{floorLabel(floor)}</span>
+                    <span className="text-[10px] text-slate-600 ml-1">- {floorRooms.length} rooms</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    {floorRooms.map(r => renderCard(r, false))}
+                  </div>
+                </div>
+              )
+            })}
+
+            {partialRooms.length > 0 && (
+              <div>
+                <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-amber-500/20 mb-4" style={{ background: 'rgba(245,158,11,0.05)' }}>
+                  <span className="text-base">Warning</span>
+                  <div>
+                    <div className="text-xs font-black text-amber-400 uppercase tracking-wider">
+                      Partially Available Rooms
+                    </div>
+                    <div className="text-[10px] text-amber-700 mt-0.5">
+                      Free now but next guest arrives soon - use with caution
+                    </div>
+                  </div>
+                </div>
+                {partialFloors.map(floor => {
+                  const floorRooms = partialRooms.filter(r => r.floor === floor)
+                  return (
+                    <div key={`partial-${floor}`} className="mb-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="w-6 h-6 rounded-lg bg-amber-900/40 flex items-center justify-center flex-shrink-0">
+                          <span className="text-[10px] font-black text-amber-400">{floor}</span>
+                        </div>
+                        <span className="text-[11px] font-black text-amber-400/80 uppercase tracking-widest">{floorLabel(floor)}</span>
+                        <span className="text-[10px] text-amber-900 ml-1">- {floorRooms.length} rooms</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        {floorRooms.map(r => renderCard(r, true))}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      <div className="px-5 pb-6 pt-3 border-t border-slate-800/60 bg-slate-950/90 flex-shrink-0">
+        {pickedIds.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            {pickedIds.map(id => {
+              const rm = allRooms.find(r => r.id === id)
+              const isPartial = partialRooms.some(r => r.id === id)
+              return rm ? (
+                <span key={id} className={`flex items-center gap-1 px-2.5 py-1 text-xs font-black rounded-lg ${
+                  isPartial ? 'bg-amber-500/20 text-amber-300' : 'bg-emerald-500/20 text-emerald-300'
+                }`}>
+                  {rm.number}
+                  {isPartial && <span className="text-[8px] opacity-70"> (partial)</span>}
+                  <button type="button" onClick={e => { e.stopPropagation(); toggle(id) }} className="hover:text-red-400 ml-0.5 transition">
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ) : null
+            })}
+          </div>
+        )}
+        <div className="flex gap-3">
+          <button type="button" onClick={onClose} className="flex-1 py-3.5 rounded-2xl bg-slate-800 text-slate-300 text-sm font-bold hover:bg-slate-700 transition">
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={pickedIds.length === 0}
+            onClick={() => {
+              const selectedPartials = partialRooms.filter(r => pickedIds.includes(r.id))
+              onConfirm(pickedIds, selectedPartials)
+            }}
+            className="flex-[2] py-3.5 rounded-2xl bg-emerald-500 text-white text-sm font-black disabled:opacity-40 disabled:cursor-not-allowed hover:bg-emerald-400 transition active:scale-[0.98] shadow-lg shadow-emerald-500/20"
+          >
+            {pickedIds.length === 0
+              ? 'Select a Room First'
+              : `Confirm - ${pickedIds.length} Room(s)`
+            }
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
   )
 }
