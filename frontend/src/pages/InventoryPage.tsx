@@ -12,7 +12,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { cancelBooking, restoreBooking } from '../api/bookings'
 import { getCustomerNameDisplay } from '../utils/customer'
-import { formatIST_AMPM } from '../utils/istTime'
+import { formatIST_AMPM, formatIST_Date } from '../utils/istTime'
 
 export default function InventoryPage() {
   const queryClient = useQueryClient()
@@ -23,6 +23,7 @@ export default function InventoryPage() {
   const [selectedDate, setSelectedDate] = useState(initialDate)
   const [selectedRoomForBooking, setSelectedRoomForBooking] = useState<InventoryRoom | null>(null)
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null)
+  const [bookingCheckInISO, setBookingCheckInISO] = useState<string | undefined>(undefined)
   const [briefTab, setBriefTab] = useState<'arrivals' | 'checkouts' | 'staying'>('arrivals')
   const [quickActionRoom, setQuickActionRoom] = useState<InventoryRoom | null>(null)
   const [cancelConfirmBooking, setCancelConfirmBooking] = useState<{ id: string; roomNumber: string; customerName: string } | null>(null)
@@ -121,6 +122,23 @@ export default function InventoryPage() {
 
   const { data, isLoading, isError, refetch } = useInventory(selectedDate)
 
+  const formatFriendlyDateTime = (isoString: string) => {
+    if (!isoString) return ''
+    const istDate = formatIST_Date(isoString) // YYYY-MM-DD
+    const d = parseISO(istDate)
+    const timeStr = formatIST_AMPM(isoString) // hh:mm AM/PM
+    const monthsMr = ['जानेवारी', 'फेब्रुवारी', 'मार्च', 'एप्रिल', 'मे', 'जून', 'जुलै', 'ऑगस्ट', 'सप्टेंबर', 'ऑक्टोबर', 'नोव्हेंबर', 'डिसेंबर']
+    const monthsEn = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    
+    if (language === 'mr') {
+      const monthStr = monthsMr[d.getMonth()]
+      return `${d.getDate()} ${monthStr}, ${timeStr}`
+    } else {
+      const monthStr = monthsEn[d.getMonth()]
+      return `${d.getDate()} ${monthStr}, ${timeStr}`
+    }
+  }
+
   const handlePrevDay = () => {
     const newDate = format(subDays(parseISO(selectedDate), 1), 'yyyy-MM-dd')
     setSelectedDate(newDate)
@@ -143,7 +161,7 @@ export default function InventoryPage() {
     if (room.room_status === 'vacant') {
       setSelectedRoomForBooking(room)
     } else if (room.booking) {
-      setSelectedBookingId(room.booking.id)
+      setQuickActionRoom(room)
     }
   }
 
@@ -627,6 +645,8 @@ export default function InventoryPage() {
                     room={room}
                     onClick={handleRoomClick}
                     onLongPress={handleRoomLongPress}
+                    dailyBookings={data.daily_bookings}
+                    selectedDate={selectedDate}
                   />
                 ))}
               </div>
@@ -640,9 +660,14 @@ export default function InventoryPage() {
         <BlockRoomSheet
           room={selectedRoomForBooking}
           initialDate={selectedDate}
-          onClose={() => setSelectedRoomForBooking(null)}
+          initialCheckInISO={bookingCheckInISO}
+          onClose={() => {
+            setSelectedRoomForBooking(null)
+            setBookingCheckInISO(undefined)
+          }}
           onSuccess={() => {
             setSelectedRoomForBooking(null)
+            setBookingCheckInISO(undefined)
             refetch()
           }}
         />
@@ -662,64 +687,133 @@ export default function InventoryPage() {
       )}
 
       {/* Quick Action Context Menu Modal */}
-      {quickActionRoom && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-xs p-6 animate-fade-in">
-          <div className="glass-panel w-full max-w-xs rounded-3xl bg-slate-900 border-slate-800 p-5 flex flex-col gap-4 text-center shadow-2xl relative">
-            <button
-              onClick={() => setQuickActionRoom(null)}
-              className="absolute top-4 right-4 text-slate-500 hover:text-slate-350 transition animate-pulse"
-            >
-              <X className="h-4.5 w-4.5" />
-            </button>
-            <div className="text-left mt-2">
-              <h3 className="text-sm font-extrabold text-slate-100 uppercase tracking-wider">
-                {language === 'mr' ? `खोली ${quickActionRoom.number} - त्वरित कृती` : `Room ${quickActionRoom.number} - Quick Action`}
-              </h3>
-              <p className="text-xs text-slate-450 mt-1 font-semibold flex items-center gap-1">
-                👤 {(() => {
-                  const { name: dName, isDeleted } = getCustomerNameDisplay(quickActionRoom.booking?.customers?.name);
-                  return (
-                    <>
-                      <span>{dName}</span>
-                      {isDeleted && (
-                        <span className="bg-rose-500/10 text-rose-400 px-1.5 py-0.5 rounded text-[9px] font-black border border-rose-500/20 ml-1">
-                          {language === 'mr' ? 'डिलीट केलेला' : 'Deleted'}
-                        </span>
-                      )}
-                    </>
-                  );
-                })()} ({language === 'mr' ? 'ग्राहक' : 'Customer'})
-              </p>
-            </div>
-            <div className="flex flex-col gap-2 mt-2">
+      {quickActionRoom && (() => {
+        const dailyBookings = data.daily_bookings || []
+        const roomBookings = dailyBookings.filter(
+          (b: any) => b.room_id === quickActionRoom.id && (b.status === 'active' || b.status === 'checked_out')
+        ).sort((a: any, b: any) => a.check_in.localeCompare(b.check_in))
+
+        const latestBooking = roomBookings.length > 0
+          ? [...roomBookings].sort((a: any, b: any) => b.check_out.localeCompare(a.check_out))[0]
+          : null
+
+        return (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-xs p-6 animate-fade-in">
+            <div className="glass-panel w-full max-w-sm rounded-3xl bg-slate-900 border-slate-800 p-5 flex flex-col gap-4 text-center shadow-2xl relative">
               <button
-                type="button"
-                onClick={() => {
-                  setSelectedBookingId(quickActionRoom.booking!.id)
-                  setQuickActionRoom(null)
-                }}
-                className="w-full py-3.5 px-4 bg-slate-955 hover:bg-slate-850 text-slate-200 text-xs font-black rounded-2xl transition flex items-center justify-start gap-3 border border-slate-850"
+                onClick={() => setQuickActionRoom(null)}
+                className="absolute top-4 right-4 text-slate-500 hover:text-slate-350 transition animate-pulse"
               >
-                📋 {language === 'mr' ? 'तपशील पहा (View Details)' : 'View Booking Details'}
+                <X className="h-4.5 w-4.5" />
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setCancelConfirmBooking({
-                    id: quickActionRoom.booking!.id,
-                    roomNumber: String(quickActionRoom.number),
-                    customerName: getCustomerNameDisplay(quickActionRoom.booking!.customers?.name).name || ""
+              <div className="text-left mt-2">
+                <h3 className="text-sm font-extrabold text-slate-100 uppercase tracking-wider">
+                  {language === 'mr' ? `खोली ${quickActionRoom.number} - त्वरित कृती` : `Room ${quickActionRoom.number} - Quick Action`}
+                </h3>
+                <p className="text-[10px] text-slate-500 font-bold uppercase mt-1">
+                  {language === 'mr' ? 'आजचे बुकिंग (Today\'s Bookings):' : 'Today\'s Bookings:'}
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-2.5 max-h-[260px] overflow-y-auto pr-1">
+                {roomBookings.length === 0 ? (
+                  <p className="text-xs text-slate-500 py-4 italic">
+                    {language === 'mr' ? 'कोणतेही बुकिंग नाही' : 'No bookings found'}
+                  </p>
+                ) : (
+                  roomBookings.map((b: any) => {
+                    const { name: dName, isDeleted } = getCustomerNameDisplay(b.customers?.name);
+                    const checkInFormatted = formatFriendlyDateTime(b.check_in);
+                    const checkOutFormatted = formatFriendlyDateTime(b.check_out);
+                    const isCheckedOut = b.status === 'checked_out';
+
+                    return (
+                      <div key={b.id} className="text-left bg-slate-955/40 border border-slate-850 p-3 rounded-2xl flex flex-col gap-2 hover:border-slate-800 transition">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-black text-slate-150 flex items-center gap-1">
+                            👤 {dName}
+                            {isDeleted && (
+                              <span className="bg-rose-500/10 text-rose-400 px-1 py-0.5 rounded text-[8px] font-black border border-rose-500/20">
+                                {language === 'mr' ? 'डिलीट' : 'Del'}
+                              </span>
+                            )}
+                          </span>
+                          <span className={`text-[9px] px-2 py-0.5 rounded-full font-black border uppercase tracking-wider ${
+                            isCheckedOut
+                              ? 'bg-slate-800/40 text-slate-550 border-slate-750/30'
+                              : b.is_checked_in
+                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25'
+                                : 'bg-amber-500/10 text-amber-400 border-amber-500/25'
+                          }`}>
+                            {isCheckedOut
+                              ? (language === 'mr' ? 'चेकआऊट' : 'Checked Out')
+                              : b.is_checked_in
+                                ? (language === 'mr' ? 'आत आहेत' : 'Checked In')
+                                : (language === 'mr' ? 'आरक्षित' : 'Reserved')}
+                          </span>
+                        </div>
+
+                        <div className="text-[10px] text-slate-400 font-semibold leading-relaxed">
+                          <div>📅 {language === 'mr' ? 'चेक-इन:' : 'In:'} {checkInFormatted}</div>
+                          <div>📅 {language === 'mr' ? 'चेक-आउट:' : 'Out:'} {checkOutFormatted}</div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 mt-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedBookingId(b.id)
+                              setQuickActionRoom(null)
+                            }}
+                            className="py-2 px-2.5 bg-slate-850 hover:bg-slate-800 text-slate-200 text-[10px] font-bold rounded-xl transition flex items-center justify-center gap-1 border border-slate-750"
+                          >
+                            📋 {language === 'mr' ? 'तपशील' : 'Details'}
+                          </button>
+
+                          {!isCheckedOut && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCancelConfirmBooking({
+                                  id: b.id,
+                                  roomNumber: String(quickActionRoom.number),
+                                  customerName: dName
+                                })
+                                setQuickActionRoom(null)
+                              }}
+                              className="py-2 px-2.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-450 text-[10px] font-bold rounded-xl transition flex items-center justify-center gap-1 border border-rose-500/20"
+                            >
+                              ❌ {language === 'mr' ? 'रद्द करा' : 'Cancel'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
                   })
-                  setQuickActionRoom(null)
-                }}
-                className="w-full py-3.5 px-4 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs font-black rounded-2xl transition flex items-center justify-start gap-3 border border-rose-500/25"
-              >
-                ❌ {language === 'mr' ? 'बुकिंग रद्द करा (Cancel Booking)' : 'Cancel Booking'}
-              </button>
+                )}
+              </div>
+
+              {latestBooking?.check_out && (
+                <div className="border-t border-slate-850 pt-3 mt-1 flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBookingCheckInISO(latestBooking.check_out)
+                      setSelectedRoomForBooking(quickActionRoom)
+                      setQuickActionRoom(null)
+                    }}
+                    className="w-full py-3.5 px-4 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.99] text-slate-950 text-xs font-black rounded-2xl transition flex items-center justify-center gap-1.5 shadow-lg"
+                  >
+                    ➕ {language === 'mr'
+                      ? `पुढील बुकिंग करा (${formatFriendlyDateTime(latestBooking.check_out)} पासून)`
+                      : `Book Next Guest (from ${formatFriendlyDateTime(latestBooking.check_out)})`}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Cancellation Confirmation Modal */}
       {cancelConfirmBooking && (

@@ -14,7 +14,8 @@ import {
   CheckCircle2,
   XCircle,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Download
 } from 'lucide-react'
 import { getFinancials } from '../api/reports'
 import BookingDetailSheet from '../components/BookingDetailSheet'
@@ -100,20 +101,91 @@ export default function ReportsPage() {
     enabled: filterType !== 'custom' || (!!customStart && !!customEnd)
   })
 
-  // Filter ledger list based on search query
+  // Filter ledger list based on search query and sort by stay duration descending
   const filteredLedger = useMemo(() => {
     if (!reportData?.ledger) return []
-    if (!searchQuery.trim()) return reportData.ledger
+    
+    let list = reportData.ledger
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase()
+      list = list.filter(item => 
+        item.booking_number.toLowerCase().includes(q) ||
+        item.customer_name.toLowerCase().includes(q) ||
+        item.customer_phone.includes(q) ||
+        item.room_number.toLowerCase().includes(q) ||
+        item.room_type.toLowerCase().includes(q)
+      )
+    }
 
-    const q = searchQuery.toLowerCase()
-    return reportData.ledger.filter(item => 
-      item.booking_number.toLowerCase().includes(q) ||
-      item.customer_name.toLowerCase().includes(q) ||
-      item.customer_phone.includes(q) ||
-      item.room_number.toLowerCase().includes(q) ||
-      item.room_type.toLowerCase().includes(q)
-    )
+    // Sort by stay duration (checkout - checkin) descending.
+    // If durations are equal, fallback to checking-in date descending for a stable sort.
+    return [...list].sort((a, b) => {
+      const durA = parseISO(a.check_out).getTime() - parseISO(a.check_in).getTime()
+      const durB = parseISO(b.check_out).getTime() - parseISO(b.check_in).getTime()
+      if (durB !== durA) {
+        return durB - durA
+      }
+      return parseISO(b.check_in).getTime() - parseISO(a.check_in).getTime()
+    })
   }, [reportData?.ledger, searchQuery])
+
+  // Download filtered ledger as CSV
+  const downloadCSV = () => {
+    const headers = [
+      'Customer Name',
+      'Room Number',
+      'Room Type',
+      'Check In',
+      'Check Out',
+      'Mobile Number',
+      'Total Bill',
+      'Extra',
+      'Paid',
+      'Pay Mode',
+      'Payment Status',
+      'Booking No'
+    ]
+
+    const safeCell = (val: string | number | undefined | null) => {
+      if (val === undefined || val === null) return '""'
+      let str = String(val).replace(/"/g, '""')
+      if (str.startsWith('=') || str.startsWith('+') || str.startsWith('-') || str.startsWith('@')) {
+        // Prevent formula injection
+        str = `'` + str
+      }
+      return `"${str}"`
+    }
+
+    const rows = filteredLedger.map(item => [
+      safeCell(item.customer_name),
+      safeCell(item.room_number),
+      safeCell(item.room_type),
+      safeCell(item.check_in),
+      safeCell(item.check_out),
+      safeCell(item.customer_phone),
+      item.total_amount,
+      item.extra_bill_amount,
+      item.paid_amount,
+      safeCell(item.payment_mode),
+      safeCell(item.payment_status),
+      safeCell(item.booking_number)
+    ])
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.join(','))
+    ].join('\n')
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.setAttribute('href', url)
+    link.setAttribute('download', `transaction_ledger_${dateRange.start}_to_${dateRange.end}.csv`)
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
 
   // custom SVG Chart Constants & Calculations
   const chartSvg = useMemo(() => {
@@ -741,10 +813,10 @@ export default function ReportsPage() {
               </div>
 
               {/* Actions */}
-              <div className="flex flex-col sm:flex-row items-center gap-3">
+              <div className="flex flex-row items-center gap-2 w-full sm:w-auto">
                 
                 {/* Search */}
-                <div className="relative w-full sm:w-64">
+                <div className="relative flex-1 sm:flex-initial sm:w-64">
                   <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-500" />
                   <input
                     type="text"
@@ -754,6 +826,15 @@ export default function ReportsPage() {
                     className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs font-semibold text-slate-200 placeholder-slate-500 outline-none focus:border-emerald-500/40 focus:ring-1 focus:ring-emerald-500/20"
                   />
                 </div>
+
+                {/* CSV Download */}
+                <button
+                  onClick={downloadCSV}
+                  title={language === 'mr' ? 'डेटा डाउनलोड करा (.csv)' : 'Download LEDGER CSV'}
+                  className="flex items-center justify-center p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-emerald-400 hover:border-emerald-500/30 active:scale-95 transition-all"
+                >
+                  <Download className="h-4 w-4" />
+                </button>
 
               </div>
             </div>

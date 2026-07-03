@@ -894,7 +894,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
           {/* 2. Guest Card */}
           <div className="glass-panel p-4 rounded-2xl flex flex-col gap-3 bg-slate-955/40 border border-slate-800/80 flex-shrink-0">
             <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-1 min-w-0">
                 {customerPhotoDoc ? (
                   <div className="relative group w-12 h-12 flex-shrink-0">
                     <img
@@ -948,28 +948,28 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                       </button>
                     </div>
                   ) : (
-                    <div className="flex items-center gap-2">
-                      <span className="text-slate-200 font-extrabold text-base truncate flex items-center gap-1">
+                    <div className="flex items-start gap-1.5">
+                      <div className="text-slate-200 font-extrabold text-base break-words leading-tight flex-1">
                         {(() => {
                           const { name: dName, isDeleted } = getCustomerNameDisplay(booking.customers?.name);
                           return (
                             <>
-                              <span className="truncate">{dName}</span>
+                              <span>{dName}</span>
                               {isDeleted && (
-                                <span className="bg-rose-500/10 text-rose-400 px-1.5 py-0.5 rounded text-[9px] font-black border border-rose-500/20 ml-1 shrink-0 whitespace-nowrap">
+                                <span className="bg-rose-500/10 text-rose-400 px-1.5 py-0.5 rounded text-[9px] font-black border border-rose-500/20 ml-1.5 inline-block whitespace-nowrap align-middle">
                                   {language === 'mr' ? 'डिलीट केलेले' : 'Deleted'}
                                 </span>
                               )}
                             </>
                           );
                         })()}
-                      </span>
+                      </div>
                       <button
                         onClick={() => {
                           setDraftCustomerName(getCustomerNameDisplay(booking.customers?.name).name || '')
                           setIsEditingName(true)
                         }}
-                        className="text-slate-500 hover:text-slate-350 transition"
+                        className="text-slate-500 hover:text-slate-350 transition mt-0.5 flex-shrink-0"
                         title={language === 'mr' ? 'नाव बदला' : 'Edit Name'}
                       >
                         <Edit2 className="h-3.5 w-3.5" />
@@ -1182,29 +1182,33 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
               </span>
             </div>
 
-            <div className="px-5 py-3.5 flex items-center justify-between bg-slate-900/10">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{language === 'mr' ? 'पेमेंट पद्धत' : 'PAYMENT MODE'}</span>
-              <div className="flex gap-2">
-                {(['Cash', 'UPI', 'IDFC', 'Pending'] as const).map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    onClick={() => handleSavePaymentMode(mode)}
-                    className={`px-3 py-2 rounded-xl text-xs font-black transition-all ${
-                      booking.payment_mode === mode
-                        ? mode === 'Cash'
-                          ? 'bg-emerald-500 text-slate-955'
-                          : mode === 'UPI'
-                          ? 'bg-blue-500 text-white'
-                          : mode === 'IDFC'
-                          ? 'bg-purple-500 text-white'
-                          : 'bg-amber-500 text-slate-955'
-                        : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    {mode === 'Cash' ? '💵 Cash' : mode === 'UPI' ? '📱 UPI' : mode === 'IDFC' ? '🏦 IDFC' : '⏳ Pending'}
-                  </button>
-                ))}
+            <div className="px-5 py-4 flex flex-col gap-2.5 bg-slate-900/10">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{language === 'mr' ? 'पेमेंट पद्धत' : 'PAYMENT MODE'}</span>
+              <div className="grid grid-cols-3 gap-1.5">
+                {(['Cash', 'UPI', 'IDFC'] as const).map((mode) => {
+                  const styles: Record<string, { icon: string; label: string; active: string }> = {
+                    Cash: { icon: '💵', label: language === 'mr' ? 'कॅश' : 'Cash', active: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40' },
+                    UPI:  { icon: '📱', label: 'UPI',  active: 'bg-blue-500/15 text-blue-400 border-blue-500/40' },
+                    IDFC: { icon: '🏦', label: 'IDFC', active: 'bg-purple-500/15 text-purple-400 border-purple-500/40' },
+                  }
+                  const { icon, label, active } = styles[mode]
+                  const isSelected = booking.payment_mode === mode
+                  return (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => handleSavePaymentMode(mode)}
+                      className={`py-2.5 rounded-xl border text-[10px] font-black transition-all duration-200 flex flex-col items-center gap-1 justify-center ${
+                        isSelected
+                          ? active
+                          : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-350'
+                      }`}
+                    >
+                      <span className="text-sm">{icon}</span>
+                      <span>{label}</span>
+                    </button>
+                  )
+                })}
               </div>
             </div>
           </div>

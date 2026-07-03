@@ -75,9 +75,16 @@ def get_financials(
         
         # 4. Compute metrics
         total_revenue = 0.0
-        total_dues = 0.0
         total_bookings = 0
         occupied_nights = 0
+        
+        # Calculate total outstanding dues globally (across all non-cancelled bookings with unpaid/partial/reserved payment status)
+        dues_res = supabase.table("bookings") \
+            .select("total_amount, paid_amount") \
+            .neq("status", "cancelled") \
+            .in_("payment_status", ["unpaid", "partial", "reserved"]) \
+            .execute()
+        total_dues = sum(max(0.0, float(b["total_amount"] or 0.0) - float(b["paid_amount"] or 0.0)) for b in (dues_res.data or []))
         
         payment_modes = {"Cash": 0.0, "UPI": 0.0, "IDFC": 0.0, "Pending": 0.0}
         room_types = {"AC Deluxe": 0.0, "Non AC Deluxe": 0.0, "VIP AC Suite": 0.0, "VIP Non AC Suite": 0.0}
@@ -133,7 +140,6 @@ def get_financials(
             total = float(b["total_amount"] or 0.0)
             
             total_revenue += paid
-            total_dues += max(0.0, total - paid)
             
             # Payment mode aggregation
             mode = ledger_item["payment_mode"]

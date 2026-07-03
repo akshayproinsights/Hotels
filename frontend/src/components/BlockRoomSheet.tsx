@@ -27,7 +27,7 @@ import { createBookingsBatch } from '../api/bookings'
 import { getUploadUrl, uploadFileToR2, confirmUpload, listCustomerDocs, extractNameFromId } from '../api/documents'
 import { compressImage, compressImages } from '../utils/imageCompressor'
 import { listAvailableRooms } from '../api/rooms'
-import { toUTCfromIST } from '../utils/istTime'
+import { toUTCfromIST, formatIST_Date, formatIST_HHmm } from '../utils/istTime'
 import { useLanguage } from '../context/LanguageContext'
 import { useVisualViewport } from '../hooks/useVisualViewport'
 import DocumentLightbox from './DocumentLightbox'
@@ -40,6 +40,7 @@ interface BlockRoomSheetProps {
   onClose: () => void
   onSuccess: () => void
   initialDate?: string // yyyy-MM-dd — pre-fill check-in to this date when opened from a calendar day
+  initialCheckInISO?: string
 }
 
 interface LocalFile {
@@ -47,7 +48,7 @@ interface LocalFile {
   preview: string
 }
 
-export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }: BlockRoomSheetProps) {
+export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, initialCheckInISO }: BlockRoomSheetProps) {
   const { language, t } = useLanguage()
   const viewport = useVisualViewport()
   const monthsMr = ['जानेवारी', 'फेब्रुवारी', 'मार्च', 'एप्रिल', 'मे', 'जून', 'जुलै', 'ऑगस्ट', 'सप्टेंबर', 'ऑक्टोबर', 'नोव्हेंबर', 'डिसेंबर']
@@ -209,12 +210,16 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate }
   const initialCheckInDateStr = format(startDate, 'yyyy-MM-dd')
   const isInitialToday = initialCheckInDateStr === todayStr
 
-  const [checkInDate, setCheckInDate] = useState(initialCheckInDateStr)
-  const [checkInTime, setCheckInTime] = useState(isInitialToday ? format(now, 'HH:mm') : '12:00')
+  const checkInDateVal = initialCheckInISO ? formatIST_Date(initialCheckInISO) : initialCheckInDateStr
+  const checkInTimeVal = initialCheckInISO ? formatIST_HHmm(initialCheckInISO) : (isInitialToday ? format(now, 'HH:mm') : '12:00')
+
+  const [checkInDate, setCheckInDate] = useState(checkInDateVal)
+  const [checkInTime, setCheckInTime] = useState(checkInTimeVal)
   
-  const defaultCheckOut = addDays(startDate, 1)
+  const parsedCheckInDate = parse(checkInDateVal, 'yyyy-MM-dd', new Date())
+  const defaultCheckOut = addDays(parsedCheckInDate, 1)
   const [checkOutDate, setCheckOutDate] = useState(format(defaultCheckOut, 'yyyy-MM-dd'))
-  const [checkOutTime, setCheckOutTime] = useState(isInitialToday ? format(now, 'HH:mm') : '11:00')
+  const [checkOutTime, setCheckOutTime] = useState(isInitialToday && !initialCheckInISO ? format(now, 'HH:mm') : '11:00')
 
   // Additional Fields
   const [occupation, setOccupation] = useState('')

@@ -3,15 +3,17 @@ import { useLanguage } from '../context/LanguageContext'
 import useLongPress from '../hooks/useLongPress'
 import { getMarathiName } from '../utils/nameHelper'
 import { getCustomerNameDisplay } from '../utils/customer'
-
+import { formatIST_AMPM } from '../utils/istTime'
 
 interface RoomCardProps {
   room: InventoryRoom
   onClick: (room: InventoryRoom) => void
   onLongPress?: (room: InventoryRoom) => void
+  dailyBookings?: any[]
+  selectedDate: string
 }
 
-export default function RoomCard({ room, onClick, onLongPress }: RoomCardProps) {
+export default function RoomCard({ room, onClick, onLongPress, dailyBookings, selectedDate }: RoomCardProps) {
   const { language } = useLanguage()
 
   const longPressHandlers = useLongPress(
@@ -77,27 +79,65 @@ export default function RoomCard({ room, onClick, onLongPress }: RoomCardProps) 
       </div>
 
       <div className="w-full mt-1.5 sm:mt-2">
-        {room.booking?.customers?.name ? (
-          <span className="text-[11px] sm:text-xs font-semibold text-slate-300 truncate block">
-            {(() => {
-              const { name: cleanName, isDeleted } = getCustomerNameDisplay(room.booking.customers.name);
-              return (
-                <>
-                  {room.room_status === 'reserved' ? '📅' : '👤'} {getMarathiName(cleanName)}
-                  {isDeleted && (
-                    <span className="text-rose-455 ml-1 font-bold">
-                      ({language === 'mr' ? 'डिलीट' : 'Del'})
-                    </span>
-                  )}
-                </>
-              );
-            })()}
-          </span>
-        ) : (
-          <span className="text-[11px] sm:text-xs font-semibold text-slate-500 block">
-            {language === 'mr' ? 'उपलब्ध' : 'Available'}
-          </span>
-        )}
+        {(() => {
+          // Find all bookings for this room today
+          const roomBookings = (dailyBookings || []).filter(
+            (b: any) => b.room_id === room.id && (b.status === 'active' || b.status === 'checked_out')
+          ).sort((a: any, b: any) => a.check_in.localeCompare(b.check_in))
+
+          if (roomBookings.length > 1) {
+            // Handoff day! Multiple bookings.
+            const b1 = roomBookings[0]
+            const b2 = roomBookings[1]
+            const name1 = getMarathiName(getCustomerNameDisplay(b1.customers?.name).name)
+            const name2 = getMarathiName(getCustomerNameDisplay(b2.customers?.name).name)
+            const t1 = formatIST_AMPM(b1.check_out)
+            const t2 = formatIST_AMPM(b2.check_in)
+
+            return (
+              <div className="flex flex-col gap-0.5">
+                <span className="text-[10px] sm:text-[11px] font-bold text-slate-300 truncate block">
+                  🔄 {name1} ({t1})
+                </span>
+                <span className="text-[9px] sm:text-[10px] font-medium text-slate-400 truncate block">
+                  ➡️ {name2} ({t2})
+                </span>
+              </div>
+            )
+          }
+
+          // Single booking
+          if (roomBookings.length === 1) {
+            const b = roomBookings[0]
+            const name = getMarathiName(getCustomerNameDisplay(b.customers?.name).name)
+            
+            // Check if check_out is today
+            const isCheckingOutToday = b.check_out.startsWith(selectedDate)
+            const isCheckingInToday = b.check_in.startsWith(selectedDate)
+
+            let timeSuffix = ""
+            if (isCheckingOutToday) {
+              const coTime = formatIST_AMPM(b.check_out)
+              timeSuffix = ` (${language === 'mr' ? 'प्रस्थान' : 'Out'} ${coTime})`
+            } else if (isCheckingInToday) {
+              const ciTime = formatIST_AMPM(b.check_in)
+              timeSuffix = ` (${language === 'mr' ? 'आगमन' : 'In'} ${ciTime})`
+            }
+
+            return (
+              <span className="text-[11px] sm:text-xs font-semibold text-slate-300 truncate block">
+                {room.room_status === 'reserved' ? '📅' : '👤'} {name}{timeSuffix}
+              </span>
+            )
+          }
+
+          // Vacant
+          return (
+            <span className="text-[11px] sm:text-xs font-semibold text-slate-500 block">
+              {language === 'mr' ? 'उपलब्ध' : 'Available'}
+            </span>
+          )
+        })()}
       </div>
     </button>
   )
