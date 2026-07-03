@@ -38,12 +38,11 @@ def get_available_rooms(
 ):
     """
     Get available rooms for the given datetime range.
-    Returns two lists:
-      - available: rooms with no overlapping bookings at all
-      - partial: rooms whose ONLY conflict is a future booking whose check-in
-        falls between our check-in and check-out (i.e., the room is free right now
-        but has a reservation starting before our proposed checkout).
-        Each partial room includes next_checkin (IST display) so the UI can warn staff.
+    Returns three lists:
+      - available: rooms with no overlapping bookings at all (or whose only conflicts have already ended)
+      - partial: rooms that are free right now but have a future booking starting before our checkout
+      - freeing_soon: rooms with active bookings whose checkout is within 48 hours from now,
+        so staff can tell guests "this room will be free at [time]"
     """
     try:
         # All active bookings overlapping with the proposed window
@@ -55,7 +54,9 @@ def get_available_rooms(
             .execute()
 
         from datetime import timezone, timedelta
+        now = datetime.now(timezone.utc)
         IST = timezone(timedelta(hours=5, minutes=30))
+        cutoff_48h = now + timedelta(hours=48)
 
         # Group conflicts by room_id
         conflicts_by_room: dict[str, list[dict]] = {}
@@ -68,6 +69,7 @@ def get_available_rooms(
 
         available = []
         partial = []
+        freeing_soon = []
 
         for room in rooms_res.data:
             rid = room["id"]
@@ -75,6 +77,17 @@ def get_available_rooms(
 
             if not conflicts:
                 available.append(room)
+                continue
+
+            # If all conflicting bookings have already ended (check_out <= now), room is free now
+            all_checked_out = all(
+                datetime.fromisoformat(c["check_out"].replace("Z", "+00:00")) <= now
+                for c in conflicts
+            )
+            if all_checked_out:
+                room_copy = dict(room)
+                room_copy["checking_out_now"] = True  # flag for UI to show special badge
+                available.append(room_copy)
                 continue
 
             # A room is "partial" if ALL its conflicts are bookings that start
@@ -97,9 +110,23 @@ def get_available_rooms(
                 room_copy["next_checkin"] = earliest_ist.strftime("%d %b %I:%M %p IST")
                 room_copy["next_checkin_iso"] = earliest.isoformat()
                 partial.append(room_copy)
-            # else: room has a current/active conflict — skip entirely
+                continue
 
-        return {"available": available, "partial": partial}
+            # NEW: "Freeing Soon" — room is currently occupied but ALL conflicts end within 48h.
+            # Show to staff so they can inform walk-in guests when the room will be ready.
+            latest_checkout = max(
+                datetime.fromisoformat(c["check_out"].replace("Z", "+00:00"))
+                for c in conflicts
+            )
+            if latest_checkout <= cutoff_48h:
+                latest_ist = latest_checkout.astimezone(IST)
+                room_copy = dict(room)
+                room_copy["frees_at"] = latest_ist.strftime("%d %b %I:%M %p")
+                room_copy["frees_at_iso"] = latest_checkout.isoformat()
+                freeing_soon.append(room_copy)
+            # else: room is booked far into the future — completely skip
+
+        return {"available": available, "partial": partial, "freeing_soon": freeing_soon}
     except Exception as e:
         logging.error(f"Error fetching available rooms: {str(e)}")
         raise HTTPException(

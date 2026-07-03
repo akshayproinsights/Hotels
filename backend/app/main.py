@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
 from app.routers import auth, rooms, customers, bookings, inventory, calendar, documents, reports
 
 app = FastAPI(
@@ -8,6 +9,45 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc"
 )
+
+@app.exception_handler(RequestValidationError)
+async def bookings_validation_exception_handler(request: Request, exc: RequestValidationError):
+    # Check if this is a bookings-related endpoint
+    if "/bookings" in request.url.path:
+        try:
+            from app.routers.bookings import log_booking_failure
+            # Get request body safely
+            body = None
+            try:
+                body = await request.json()
+            except Exception:
+                try:
+                    raw_body = await request.body()
+                    if raw_body:
+                        body = raw_body.decode("utf-8", errors="ignore")
+                except Exception:
+                    pass
+            
+            # Determine the action based on path and method
+            action = "create_booking"
+            if request.url.path.endswith("/batch"):
+                action = "create_bookings_batch"
+            elif request.method == "PATCH":
+                action = "update_booking"
+
+            log_booking_failure(
+                error_message=f"Validation Error: {exc.errors()}",
+                payload=body,
+                user=None,
+                error_type="RequestValidationError",
+                action=action
+            )
+        except Exception as log_err:
+            import logging
+            logging.error(f"Error logging validation failure: {str(log_err)}")
+
+    from fastapi.exception_handlers import request_validation_exception_handler
+    return await request_validation_exception_handler(request, exc)
 
 app.add_middleware(
     CORSMiddleware,

@@ -8,6 +8,9 @@ export interface Room {
   non_ac_price: number
   non_ac_extra_bed_price: number
   is_active: boolean
+  checking_out_now?: boolean
+  frees_at?: string       // e.g. "04 Jul 11:00 AM" — for freeing_soon rooms
+  frees_at_iso?: string   // ISO string for freeing_soon checkout time
   created_at: string
 }
 

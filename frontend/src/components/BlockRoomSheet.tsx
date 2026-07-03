@@ -119,6 +119,7 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
 
   const [availableRooms, setAvailableRooms] = useState<Room[]>([])
   const [partialRooms, setPartialRooms] = useState<(Room & { next_checkin: string; next_checkin_iso: string })[]>([])
+  const [freeingSoonRooms, setFreeingSoonRooms] = useState<(Room & { frees_at: string; frees_at_iso: string })[]>([])
   const [isLoadingAvailableRooms, setIsLoadingAvailableRooms] = useState(false)
   const [showRoomPicker, setShowRoomPicker] = useState(false)
 
@@ -339,7 +340,7 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
         const endISO = toUTCfromIST(checkOutDate, effectiveCheckOutTime)
         const res = await listAvailableRooms(startISO, endISO)
         if (active) {
-          const { available, partial } = res
+          const { available, partial, freeing_soon } = res
           if (room) {
             const containsRoom = available.some(r => r.id === room.id)
             setAvailableRooms(containsRoom ? available : [room, ...available.filter(r => r.id !== room.id)])
@@ -347,6 +348,7 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
             setAvailableRooms(available)
           }
           setPartialRooms(partial)
+          setFreeingSoonRooms(freeing_soon || [])
         }
       } catch (err) {
         console.error('Error fetching available rooms', err)
@@ -1838,6 +1840,7 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
         <RoomPickerModal
           availableRooms={availableRooms}
           partialRooms={partialRooms}
+          freeingSoonRooms={freeingSoonRooms}
           currentSelectedIds={selectedRooms.filter(r => r.room_id).map(r => {
             const nonAcTypes = ['Non AC Deluxe', 'VIP Non AC Suite']
             const isNonAc = nonAcTypes.includes(r.room_type)
@@ -1933,16 +1936,19 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
 
 // ─── Room Picker Modal ────────────────────────────────────────────────────────
 type PartialRoom = Room & { next_checkin: string; next_checkin_iso: string }
+type FreeingSoonRoom = Room & { frees_at: string; frees_at_iso: string }
 
 function RoomPickerModal({
   availableRooms,
   partialRooms,
+  freeingSoonRooms,
   currentSelectedIds,
   onConfirm,
   onClose,
 }: {
   availableRooms: Room[]
   partialRooms: PartialRoom[]
+  freeingSoonRooms: FreeingSoonRoom[]
   currentSelectedIds: string[]
   onConfirm: (roomIds: string[], selectedPartialRooms: PartialRoom[]) => void
   onClose: () => void
@@ -1950,35 +1956,23 @@ function RoomPickerModal({
   const [pickedIds, setPickedIds] = React.useState<string[]>(currentSelectedIds)
   const { t } = useLanguage()
 
-  const allRooms: Room[] = [...availableRooms, ...partialRooms]
-  const floors = Array.from(new Set(availableRooms.map(r => r.floor))).sort((a, b) => a - b)
-  const partialFloors = Array.from(new Set(partialRooms.map(r => r.floor))).sort((a, b) => a - b)
+  // Filter: 'ac' | 'non_ac' (Default to AC Deluxe)
+  const [acFilter, setAcFilter] = React.useState<'ac' | 'non_ac'>('ac')
 
-  // Mutual-exclusion toggle: picking AC de-selects Non-AC of same room and vice versa
-  const toggle = (key: string) => {
-    const [roomId, acMode] = key.split(':')
-    const oppositeKey = `${roomId}:${acMode === 'ac' ? 'non_ac' : 'ac'}`
+  const allRooms: Room[] = [...availableRooms, ...partialRooms, ...freeingSoonRooms]
+  const floors = Array.from(
+    new Set([...availableRooms, ...partialRooms, ...freeingSoonRooms].map(r => r.floor))
+  ).sort((a, b) => a - b)
+
+  const toggle = (roomId: string) => {
+    const isNonAc = acFilter === 'non_ac'
+    const key = `${roomId}:${isNonAc ? 'non_ac' : 'ac'}`
+    const oppositeKey = `${roomId}:${isNonAc ? 'ac' : 'non_ac'}`
     setPickedIds(prev =>
       prev.includes(key)
-        ? prev.filter(x => x !== key)                          // deselect current
-        : [...prev.filter(x => x !== oppositeKey), key]        // deselect opposite, add this
+        ? prev.filter(x => x !== key)
+        : [...prev.filter(x => x !== oppositeKey), key]
     )
-  }
-
-  // Filter: 'all' | 'ac' | 'non_ac'
-  const [acFilter, setAcFilter] = React.useState<'all' | 'ac' | 'non_ac'>('all')
-
-  const filterCard = (isNonAc: boolean) => {
-    if (acFilter === 'ac') return !isNonAc
-    if (acFilter === 'non_ac') return isNonAc
-    return true
-  }
-
-  const typeBadge = (type: string) => {
-    if (type === 'VIP AC Suite')     return { bg: 'bg-amber-500/10 border-amber-500/30', text: 'text-amber-300', label: t('vip_ac') }
-    if (type === 'VIP Non AC Suite') return { bg: 'bg-amber-500/10 border-amber-500/30', text: 'text-amber-355', label: t('vip_non_ac') }
-    if (type === 'Non AC Deluxe')    return { bg: 'bg-sky-500/10 border-sky-500/30', text: 'text-sky-300', label: t('non_ac') }
-    return { bg: 'bg-emerald-500/10 border-emerald-500/30', text: 'text-emerald-300', label: t('ac') }
   }
 
   const floorLabel = (floor: number) => {
@@ -1986,69 +1980,29 @@ function RoomPickerModal({
     return `${suffixes[floor] ?? `${floor}th`} Floor`
   }
 
-  const renderCard = (r: Room, isPartial: boolean, isNonAc: boolean) => {
-    const pr = isPartial ? (r as PartialRoom) : null
-    const key = `${r.id}:${isNonAc ? 'non_ac' : 'ac'}`
-    const selected = pickedIds.includes(key)
-    const cardRoomType = isNonAc
-      ? (r.room_type.includes('VIP') ? 'VIP Non AC Suite' : 'Non AC Deluxe')
-      : (r.room_type.includes('VIP') ? 'VIP AC Suite' : 'AC Deluxe')
-    const badge = typeBadge(cardRoomType)
-    const price = isNonAc ? (r.non_ac_price || 0) : r.base_price
+  // Friendly date formatter for non-technical users
+  const formatFriendlyTime = (dateStr?: string) => {
+    if (!dateStr) return ''
+    const today = new Date()
+    const tomorrow = new Date()
+    tomorrow.setDate(today.getDate() + 1)
 
-    return (
-      <button
-        key={key}
-        type="button"
-        onClick={() => toggle(key)}
-        className={`relative flex flex-col p-3 rounded-2xl border-2 text-left transition-all duration-150 active:scale-[0.96] ${
-          selected
-            ? isPartial
-              ? 'border-amber-400 bg-amber-500/10 shadow-lg shadow-amber-500/10'
-              : 'border-emerald-400 bg-emerald-500/10 shadow-lg shadow-emerald-500/10'
-            : isPartial
-              ? 'border-amber-900/60 bg-amber-950/30 hover:border-amber-700/60'
-              : 'border-slate-800 bg-slate-950/70 hover:border-slate-700'
-        }`}
-      >
-        {/* Checkmark */}
-        <div className={`absolute top-2 right-2 w-4 h-4 rounded-full flex items-center justify-center transition-all ${
-          selected ? (isPartial ? 'bg-amber-500' : 'bg-emerald-500') : 'bg-slate-800'
-        }`}>
-          <svg className={`w-2.5 h-2.5 transition-opacity ${selected ? 'opacity-100 text-white' : 'opacity-0'}`} viewBox="0 0 12 12" fill="none">
-            <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </div>
+    const options: Intl.DateTimeFormatOptions = { day: '2-digit', month: 'short' }
+    // Using GB locale for "DD MMM" output format matching the database representation (e.g. "03 Jul")
+    const todayStr = today.toLocaleDateString('en-GB', options)
+    const tomorrowStr = tomorrow.toLocaleDateString('en-GB', options)
 
-        {/* Room number + badge inline */}
-        <div className="flex items-center gap-1.5 pr-5 mb-1.5">
-          <span className={`text-xl font-black leading-none ${
-            selected ? (isPartial ? 'text-amber-300' : 'text-emerald-300') : 'text-slate-100'
-          }`}>{r.number}</span>
-          <span className={`inline-flex px-1.5 py-0.5 rounded-md border text-[8px] font-bold ${badge.bg} ${badge.text}`}>
-            {badge.label}
-          </span>
-        </div>
-
-        {/* Price */}
-        <span className={`text-xs font-bold ${
-          selected ? (isPartial ? 'text-amber-400' : 'text-emerald-400') : 'text-slate-500'
-        }`}>
-          ₹{price}
-          <span className="text-[10px] font-normal text-slate-600">{t('night_suffix')}</span>
-        </span>
-
-        {pr && (
-          <span className="mt-1.5 text-[9px] font-bold text-amber-500/80 leading-tight">
-            {t('next_customer', { date: pr.next_checkin })}
-          </span>
-        )}
-      </button>
-    )
+    if (dateStr.startsWith(todayStr)) {
+      return dateStr.replace(todayStr, 'today')
+    }
+    if (dateStr.startsWith(tomorrowStr)) {
+      return dateStr.replace(tomorrowStr, 'tomorrow')
+    }
+    return dateStr
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex flex-col bg-slate-955/95 backdrop-blur-sm animate-fade-in">
+    <div className="fixed inset-0 z-[9999] flex flex-col bg-slate-950/95 backdrop-blur-sm animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-800/60">
         <div>
@@ -2065,9 +2019,9 @@ function RoomPickerModal({
         </button>
       </div>
 
-      {/* AC / Non-AC Filter Bar */}
+      {/* AC / Non-AC Toggle Bar */}
       <div className="flex gap-2 px-4 py-2.5 border-b border-slate-800/40 flex-shrink-0">
-        {(['all', 'ac', 'non_ac'] as const).map(f => (
+        {(['ac', 'non_ac'] as const).map(f => (
           <button
             key={f}
             type="button"
@@ -2076,84 +2030,164 @@ function RoomPickerModal({
               acFilter === f
                 ? f === 'non_ac'
                   ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
-                  : f === 'ac'
-                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                  : 'bg-slate-700 text-slate-100 border border-slate-600'
+                  : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
                 : 'bg-slate-900 text-slate-500 border border-slate-800 hover:text-slate-300'
             }`}
           >
-            {f === 'all' ? 'All' : f === 'ac' ? '❄️ AC Only' : '🌬️ Non-AC Only'}
+            {f === 'ac' ? '❄️ AC Only' : '🌬️ Non-AC Only'}
           </button>
         ))}
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
-        {availableRooms.length === 0 && partialRooms.length === 0 ? (
+        {allRooms.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-48 text-slate-500">
             <div className="text-4xl mb-3">{t('no_rooms')}</div>
             <div className="text-sm font-bold">{t('no_rooms_desc')}</div>
             <div className="text-xs mt-1 text-slate-600">{t('adjust_dates')}</div>
           </div>
         ) : (
-          <>
-            {floors.map(floor => {
-              const floorRooms = availableRooms.filter(r => r.floor === floor)
-              return (
-                <div key={`avail-${floor}`}>
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className="w-6 h-6 rounded-lg bg-slate-800 flex items-center justify-center flex-shrink-0">
-                      <span className="text-[10px] font-black text-slate-300">{floor}</span>
-                    </div>
-                    <span className="text-[11px] font-black text-slate-300 uppercase tracking-widest">{floorLabel(floor)}</span>
-                    <span className="text-[10px] text-slate-600 ml-1">{t('rooms_suffix', { count: floorRooms.length })}</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    {floorRooms.flatMap(r => {
-                      const cards: React.ReactNode[] = []
-                      if (filterCard(false)) cards.push(renderCard(r, false, false))
-                      if (r.non_ac_price > 0 && filterCard(true)) cards.push(renderCard(r, false, true))
-                      return cards
-                    })}
-                  </div>
-                </div>
-              )
-            })}
+          floors.map(floor => {
+            // Find rooms for this floor from each status group
+            const floorAvail = availableRooms
+              .filter(r => r.floor === floor)
+              .map(r => ({ ...r, status: 'available' as const }))
 
-            {partialRooms.length > 0 && (
-              <div>
-                <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-amber-500/20 mb-4" style={{ background: 'rgba(245,158,11,0.05)' }}>
-                  <span className="text-base">{t('warning')}</span>
-                  <div>
-                    <div className="text-xs font-black text-amber-400 uppercase tracking-wider">
-                      {t('partially_available_rooms')}
-                    </div>
+            const floorPartial = partialRooms
+              .filter(r => r.floor === floor)
+              .map(r => ({ ...r, status: 'partial' as const }))
+
+            const floorFreeing = freeingSoonRooms
+              .filter(r => r.floor === floor)
+              .map(r => ({ ...r, status: 'freeing' as const }))
+
+            // Unified list: sort Available first, then Partial, then Freeing soon
+            const allFloorRooms = [...floorAvail, ...floorPartial, ...floorFreeing]
+            
+            // Filter by AC/Non-AC selection
+            const filteredRooms = allFloorRooms.filter(r => {
+              if (acFilter === 'non_ac') {
+                return r.non_ac_price > 0
+              }
+              return true
+            })
+
+            if (filteredRooms.length === 0) return null
+
+            return (
+              <div key={`floor-${floor}`}>
+                {/* Floor Header */}
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-6 h-6 rounded-lg bg-slate-800 flex items-center justify-center flex-shrink-0">
+                    <span className="text-[10px] font-black text-slate-300">{floor}</span>
                   </div>
+                  <span className="text-[11px] font-black text-slate-300 uppercase tracking-widest">{floorLabel(floor)}</span>
+                  <span className="text-[10px] text-slate-600 ml-1">
+                    {t('rooms_suffix', { count: filteredRooms.length })}
+                  </span>
                 </div>
-                {partialFloors.map(floor => {
-                  const floorRooms = partialRooms.filter(r => r.floor === floor)
-                  return (
-                    <div key={`partial-${floor}`} className="mb-4">
-                      <div className="flex items-center gap-2 mb-3">
-                        <div className="w-6 h-6 rounded-lg bg-amber-900/40 flex items-center justify-center flex-shrink-0">
-                          <span className="text-[10px] font-black text-amber-400">{floor}</span>
+
+                {/* Grid of rooms */}
+                <div className="grid grid-cols-2 gap-3">
+                  {filteredRooms.map(r => {
+                    const isNonAc = acFilter === 'non_ac'
+                    const key = `${r.id}:${isNonAc ? 'non_ac' : 'ac'}`
+                    const selected = pickedIds.includes(key)
+                    const price = isNonAc ? (r.non_ac_price || 0) : r.base_price
+
+                    if (r.status === 'freeing') {
+                      // FREEING SOON: Occupied, non-clickable
+                      const fr = r as FreeingSoonRoom
+                      return (
+                        <div
+                          key={`${r.id}:freeing`}
+                          className="relative flex flex-col p-3 rounded-2xl border border-slate-800 bg-slate-900/25 opacity-60 text-left cursor-not-allowed"
+                        >
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <span className="text-lg font-black text-slate-500">{r.number}</span>
+                            <span className="text-[8px] px-1 py-0.5 rounded bg-slate-800 text-slate-500 font-bold uppercase">
+                              Occupied
+                            </span>
+                          </div>
+                          <span className="text-xs font-bold text-slate-600">₹{price}</span>
+                          <div className="mt-2.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-800/40 text-[9px] font-bold text-slate-400">
+                            <span>🕐</span>
+                            Free {formatFriendlyTime(fr.frees_at)}
+                          </div>
                         </div>
-                        <span className="text-[11px] font-black text-amber-400/80 uppercase tracking-widest">{floorLabel(floor)}</span>
-                        <span className="text-[10px] text-amber-900 ml-1">{t('rooms_suffix', { count: floorRooms.length })}</span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        {floorRooms.flatMap(r => {
-                          const cards: React.ReactNode[] = []
-                          if (filterCard(false)) cards.push(renderCard(r, true, false))
-                          if (r.non_ac_price > 0 && filterCard(true)) cards.push(renderCard(r, true, true))
-                          return cards
-                        })}
-                      </div>
-                    </div>
-                  )
-                })}
+                      )
+                    }
+
+                    // AVAILABLE OR PARTIALLY AVAILABLE: Clickable
+                    const isPartial = r.status === 'partial'
+                    const pr = isPartial ? (r as PartialRoom) : null
+
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => toggle(r.id)}
+                        className={`relative flex flex-col p-3 rounded-2xl border-2 text-left transition-all duration-150 active:scale-[0.96] ${
+                          selected
+                            ? isPartial
+                              ? 'border-amber-500 bg-amber-500/10 shadow-lg shadow-amber-500/5'
+                              : 'border-emerald-500 bg-emerald-500/10 shadow-lg shadow-emerald-500/5'
+                            : isPartial
+                            ? 'border-amber-900/30 bg-amber-950/10 hover:border-amber-700/40'
+                            : 'border-slate-800 bg-slate-950/70 hover:border-slate-700'
+                        }`}
+                      >
+                        {/* Checkmark indicator */}
+                        <div className={`absolute top-2 right-2 w-4 h-4 rounded-full flex items-center justify-center transition-all ${
+                          selected ? (isPartial ? 'bg-amber-500' : 'bg-emerald-500') : 'bg-slate-850'
+                        }`}>
+                          <svg className={`w-2.5 h-2.5 transition-opacity ${selected ? 'opacity-100 text-white' : 'opacity-0'}`} viewBox="0 0 12 12" fill="none">
+                            <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        </div>
+
+                        {/* Room Number & Badge */}
+                        <div className="flex items-center gap-1.5 mb-1 pr-6">
+                          <span className={`text-lg font-black leading-none ${
+                            selected ? (isPartial ? 'text-amber-300' : 'text-emerald-300') : 'text-slate-200'
+                          }`}>
+                            {r.number}
+                          </span>
+                          {r.checking_out_now && (
+                            <span className="text-[8px] px-1 py-0.5 rounded bg-amber-500/15 text-amber-400 font-bold uppercase animate-pulse">
+                              Vacating
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Price */}
+                        <span className={`text-xs font-bold ${
+                          selected ? (isPartial ? 'text-amber-400' : 'text-emerald-400') : 'text-slate-400'
+                        }`}>
+                          ₹{price}
+                          <span className="text-[10px] font-normal text-slate-500">{t('night_suffix')}</span>
+                        </span>
+
+                        {/* Status Label */}
+                        {pr && (
+                          <div className="mt-2.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/10 text-[9px] font-bold text-amber-400">
+                            <span>⚡</span>
+                            Next guest {formatFriendlyTime(pr.next_checkin)}
+                          </div>
+                        )}
+                        {r.checking_out_now && !pr && (
+                          <div className="mt-2.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/10 text-[9px] font-bold text-emerald-400">
+                            <span>🔄</span>
+                            Vacating now
+                          </div>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
-            )}
-          </>
+            )
+          })
         )}
       </div>
 
@@ -2170,8 +2204,7 @@ function RoomPickerModal({
                   isPartial ? 'bg-amber-500/20 text-amber-300' : 'bg-emerald-500/20 text-emerald-300'
                 }`}>
                   {rm.number} ({isNonAc ? 'Non-AC' : 'AC'})
-                  {isPartial && <span className="text-[8px] opacity-70"> ({t('partial_label')})</span>}
-                  <button type="button" onClick={e => { e.stopPropagation(); toggle(key) }} className="hover:text-red-400 ml-0.5 transition">
+                  <button type="button" onClick={e => { e.stopPropagation(); toggle(roomId) }} className="hover:text-red-400 ml-0.5 transition">
                     <X className="h-3 w-3" />
                   </button>
                 </span>
@@ -2203,3 +2236,4 @@ function RoomPickerModal({
     document.body
   )
 }
+

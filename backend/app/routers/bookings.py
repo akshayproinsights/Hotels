@@ -1,13 +1,88 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 import uuid
 from typing import Optional, Literal
 from datetime import datetime, timezone, timedelta
+import logging
+from logging.handlers import RotatingFileHandler
+import os
+import json
+import traceback
 from app.database import supabase
 from app.auth import get_current_user
 
 # Local timezone helper for IST (+05:30)
 IST = timezone(timedelta(hours=5, minutes=30))
+
+# Setup booking failures logging
+LOGS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "logs"))
+os.makedirs(LOGS_DIR, exist_ok=True)
+log_file_path = os.path.join(LOGS_DIR, "booking_failures.log")
+
+failure_logger = logging.getLogger("booking_failures")
+failure_logger.setLevel(logging.ERROR)
+failure_logger.propagate = False
+
+def setup_failure_logger():
+    has_handler = any(isinstance(h, RotatingFileHandler) for h in failure_logger.handlers)
+    if not has_handler:
+        file_handler = RotatingFileHandler(log_file_path, maxBytes=10*1024*1024, backupCount=5, encoding="utf-8")
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        file_handler.setFormatter(formatter)
+        failure_logger.addHandler(file_handler)
+
+setup_failure_logger()
+
+def log_booking_failure(
+    error_message: str,
+    payload: any,
+    user: dict | None,
+    error_type: str,
+    action: str = "create_booking"
+):
+    setup_failure_logger()
+    try:
+        log_entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "action": action,
+            "error_type": error_type,
+            "error_message": error_message,
+            "user_id": user.get("sub") if user else "Unknown",
+            "user_email": user.get("email") if user else "Unknown",
+        }
+        
+        if payload is not None:
+            try:
+                payload_dict = jsonable_encoder(payload)
+            except Exception:
+                payload_dict = str(payload)
+            
+            def mask_pii(data):
+                if isinstance(data, dict):
+                    masked = data.copy()
+                    if "customer_phone" in masked and masked["customer_phone"]:
+                        phone = str(masked["customer_phone"])
+                        if len(phone) >= 4:
+                            masked["customer_phone"] = f"******{phone[-4:]}"
+                        else:
+                            masked["customer_phone"] = "***"
+                    if "customer_name" in masked and masked["customer_name"]:
+                        name = str(masked["customer_name"])
+                        if len(name) > 2:
+                            masked["customer_name"] = f"{name[0]}***{name[-1]}"
+                        else:
+                            masked["customer_name"] = "***"
+                    return {k: mask_pii(v) for k, v in masked.items()}
+                elif isinstance(data, list):
+                    return [mask_pii(item) for item in data]
+                return data
+
+            log_entry["payload"] = mask_pii(payload_dict)
+            
+        failure_logger.error(json.dumps(log_entry))
+    except Exception as log_ex:
+        logging.error(f"Error writing to booking failures log: {str(log_ex)}")
 
 router = APIRouter()
 
@@ -102,100 +177,71 @@ class BookingUpdate(BaseModel):
 
 @router.post("")
 def create_booking(body: BookingCreate, user=Depends(get_current_user)):
-    # 1. Resolve customer
-    customer_data = {}
-    if body.customer_name:
-        customer_data["name"] = body.customer_name
-    if body.customer_phone:
-        customer_data["phone"] = body.customer_phone
-    if body.customer_address is not None:
-        customer_data["address"] = body.customer_address
-    if body.customer_age is not None:
-        customer_data["age"] = body.customer_age
+    try:
+        # 1. Resolve customer
+        customer_data = {}
+        if body.customer_name:
+            customer_data["name"] = body.customer_name
+        if body.customer_phone:
+            customer_data["phone"] = body.customer_phone
+        if body.customer_address is not None:
+            customer_data["address"] = body.customer_address
+        if body.customer_age is not None:
+            customer_data["age"] = body.customer_age
 
-    if body.customer_id:
-        customer_id = body.customer_id
-        if customer_data:
-            supabase.table("customers").update(customer_data).eq("id", customer_id).execute()
-    elif body.customer_phone:
-        # Check if customer exists by phone
-        existing = supabase.table("customers").select("id") \
-            .eq("phone", body.customer_phone).execute()
-        if existing.data:
-            customer_id = existing.data[0]["id"]
+        if body.customer_id:
+            customer_id = body.customer_id
             if customer_data:
                 supabase.table("customers").update(customer_data).eq("id", customer_id).execute()
+        elif body.customer_phone:
+            # Check if customer exists by phone
+            existing = supabase.table("customers").select("id") \
+                .eq("phone", body.customer_phone).execute()
+            if existing.data:
+                customer_id = existing.data[0]["id"]
+                if customer_data:
+                    supabase.table("customers").update(customer_data).eq("id", customer_id).execute()
+            else:
+                new_customer = supabase.table("customers").insert(customer_data).execute()
+                customer_id = new_customer.data[0]["id"]
         else:
-            new_customer = supabase.table("customers").insert(customer_data).execute()
-            customer_id = new_customer.data[0]["id"]
-    else:
-        raise HTTPException(status_code=422, detail="Provide customer_id OR customer_name+customer_phone")
+            raise HTTPException(status_code=422, detail="Provide customer_id OR customer_name+customer_phone")
 
-    # 2. Calculate totals
-    is_checked_in = body.is_checked_in if body.is_checked_in is not None else (body.payment_status != "reserved")
-    
-    check_in_dt = body.check_in
-    if is_checked_in:
-        check_in_dt = datetime.now(timezone.utc)
+        # 2. Calculate totals
+        is_checked_in = body.is_checked_in if body.is_checked_in is not None else (body.payment_status != "reserved")
         
-    check_in_date_local = check_in_dt.astimezone(IST).date() if check_in_dt.tzinfo else check_in_dt.date()
-    check_out_date_local = body.check_out.astimezone(IST).date() if body.check_out.tzinfo else body.check_out.date()
-    nights = max(1, (check_out_date_local - check_in_date_local).days)
+        check_in_dt = body.check_in
+        if is_checked_in:
+            check_in_dt = datetime.now(timezone.utc)
+            
+        check_in_date_local = check_in_dt.astimezone(IST).date() if check_in_dt.tzinfo else check_in_dt.date()
+        check_out_date_local = body.check_out.astimezone(IST).date() if body.check_out.tzinfo else body.check_out.date()
+        nights = max(1, (check_out_date_local - check_in_date_local).days)
 
-    is_non_ac = "Non AC" in body.room_type
-    eb_col = "non_ac_extra_bed_price" if is_non_ac else "extra_bed_price"
-    room_res = supabase.table("rooms").select(eb_col).eq("id", body.room_id).execute()
-    extra_bed_price = room_res.data[0][eb_col] if room_res.data and eb_col in room_res.data[0] else 500.0
-    extra_bed_total = body.extra_beds * float(extra_bed_price) * nights
-    extra_bill_amount = body.extra_bill_amount or 0.0
-    if body.total_amount is not None:
-        total_amount = body.total_amount
-    else:
-        total_amount = (body.room_price * nights) + extra_bed_total + extra_bill_amount
-    # For 'paid': full amount; for 'partial'/'reserved'/'unpaid': only the deposit amount received
-    paid_amount = total_amount if body.payment_status == "paid" else body.deposit_amount
-
-    actual_payment_status = body.payment_status
-    if body.payment_status != "reserved":
-        if paid_amount >= total_amount:
-            actual_payment_status = "paid"
-        elif paid_amount > 0:
-            actual_payment_status = "partial"
+        is_non_ac = "Non AC" in body.room_type
+        eb_col = "non_ac_extra_bed_price" if is_non_ac else "extra_bed_price"
+        room_res = supabase.table("rooms").select(eb_col).eq("id", body.room_id).execute()
+        extra_bed_price = room_res.data[0][eb_col] if room_res.data and eb_col in room_res.data[0] else 500.0
+        extra_bed_total = body.extra_beds * float(extra_bed_price) * nights
+        extra_bill_amount = body.extra_bill_amount or 0.0
+        if body.total_amount is not None:
+            total_amount = body.total_amount
         else:
-            actual_payment_status = "unpaid"
+            total_amount = (body.room_price * nights) + extra_bed_total + extra_bill_amount
+        # For 'paid': full amount; for 'partial'/'reserved'/'unpaid': only the deposit amount received
+        paid_amount = total_amount if body.payment_status == "paid" else body.deposit_amount
 
-    # 3. Insert booking (DB constraint will reject overlapping dates)
-    try:
-        res = supabase.table("bookings").insert({
-            "room_id":         body.room_id,
-            "room_type":       body.room_type,
-            "customer_id":     customer_id,
-            "check_in":        check_in_dt.isoformat(),
-            "check_out":       body.check_out.isoformat(),
-            "adults":          body.adults,
-            "children":        body.children,
-            "extra_beds":      body.extra_beds,
-            "room_price":      body.room_price,
-            "extra_bed_total": extra_bed_total,
-            "total_amount":    total_amount,
-            "paid_amount":     paid_amount,
-            "payment_mode":    body.payment_mode,
-            "payment_status":  actual_payment_status,
-            "deposit_amount":  body.deposit_amount,
-            "occupation":      body.occupation,
-            "notes":           body.notes,
-            "created_by":      user.get("sub"),
-            "is_checked_in":   is_checked_in,
-            "actual_checkin_time": (body.actual_checkin_time.isoformat() if body.actual_checkin_time else (check_in_dt.isoformat() if is_checked_in else None)),
-            "extra_bill_amount": extra_bill_amount,
-            "extra_bill_note":   body.extra_bill_note,
-        }).execute()
-    except Exception as e:
-        if "no_overlap" in str(e):
-            raise HTTPException(status_code=409, detail="Room already booked for these dates")
-        if "bookings_payment_mode_check" in str(e) or "23514" in str(e):
-            # Fallback for IDFC if DB check constraint does not include IDFC
-            notes_text = f"{body.notes} [IDFC Bank]" if body.notes else "[IDFC Bank]"
+        actual_payment_status = body.payment_status
+        if body.payment_status != "reserved":
+            if paid_amount >= total_amount:
+                actual_payment_status = "paid"
+            elif paid_amount > 0:
+                actual_payment_status = "partial"
+            else:
+                actual_payment_status = "unpaid"
+
+        # 3. Insert booking (DB constraint will reject overlapping dates)
+        try:
             res = supabase.table("bookings").insert({
                 "room_id":         body.room_id,
                 "room_type":       body.room_type,
@@ -209,171 +255,247 @@ def create_booking(body: BookingCreate, user=Depends(get_current_user)):
                 "extra_bed_total": extra_bed_total,
                 "total_amount":    total_amount,
                 "paid_amount":     paid_amount,
-                "payment_mode":    "UPI" if body.payment_mode == "IDFC" else body.payment_mode,
+                "payment_mode":    body.payment_mode,
                 "payment_status":  actual_payment_status,
                 "deposit_amount":  body.deposit_amount,
                 "occupation":      body.occupation,
-                "notes":           notes_text,
+                "notes":           body.notes,
                 "created_by":      user.get("sub"),
                 "is_checked_in":   is_checked_in,
                 "actual_checkin_time": (body.actual_checkin_time.isoformat() if body.actual_checkin_time else (check_in_dt.isoformat() if is_checked_in else None)),
                 "extra_bill_amount": extra_bill_amount,
                 "extra_bill_note":   body.extra_bill_note,
             }).execute()
-        else:
-            raise
+        except Exception as e:
+            if "no_overlap" in str(e):
+                raise HTTPException(status_code=409, detail="Room already booked for these dates")
+            if "bookings_payment_mode_check" in str(e) or "23514" in str(e):
+                # Fallback for IDFC if DB check constraint does not include IDFC
+                notes_text = f"{body.notes} [IDFC Bank]" if body.notes else "[IDFC Bank]"
+                res = supabase.table("bookings").insert({
+                    "room_id":         body.room_id,
+                    "room_type":       body.room_type,
+                    "customer_id":     customer_id,
+                    "check_in":        check_in_dt.isoformat(),
+                    "check_out":       body.check_out.isoformat(),
+                    "adults":          body.adults,
+                    "children":        body.children,
+                    "extra_beds":      body.extra_beds,
+                    "room_price":      body.room_price,
+                    "extra_bed_total": extra_bed_total,
+                    "total_amount":    total_amount,
+                    "paid_amount":     paid_amount,
+                    "payment_mode":    "UPI" if body.payment_mode == "IDFC" else body.payment_mode,
+                    "payment_status":  actual_payment_status,
+                    "deposit_amount":  body.deposit_amount,
+                    "occupation":      body.occupation,
+                    "notes":           notes_text,
+                    "created_by":      user.get("sub"),
+                    "is_checked_in":   is_checked_in,
+                    "actual_checkin_time": (body.actual_checkin_time.isoformat() if body.actual_checkin_time else (check_in_dt.isoformat() if is_checked_in else None)),
+                    "extra_bill_amount": extra_bill_amount,
+                    "extra_bill_note":   body.extra_bill_note,
+                }).execute()
+            else:
+                raise
 
-    # 4. Update customer last_visit and total_visits
-    customer_res = supabase.table("customers").select("total_visits").eq("id", customer_id).execute()
-    current_visits = customer_res.data[0].get("total_visits", 0) if customer_res.data else 0
+        # 4. Update customer last_visit and total_visits
+        customer_res = supabase.table("customers").select("total_visits").eq("id", customer_id).execute()
+        current_visits = customer_res.data[0].get("total_visits", 0) if customer_res.data else 0
 
-    supabase.table("customers").update({
-        "last_visit": body.check_in.date().isoformat(),
-        "total_visits": current_visits + 1,
-    }).eq("id", customer_id).execute()
+        supabase.table("customers").update({
+            "last_visit": body.check_in.date().isoformat(),
+            "total_visits": current_visits + 1,
+        }).eq("id", customer_id).execute()
 
-    return map_booking_payment_mode(res.data[0])
+        return map_booking_payment_mode(res.data[0])
+    except HTTPException as http_ex:
+        log_booking_failure(
+            error_message=http_ex.detail,
+            payload=body,
+            user=user,
+            error_type="HTTPException",
+            action="create_booking"
+        )
+        raise
+    except Exception as exc:
+        log_booking_failure(
+            error_message=f"{str(exc)}\n{traceback.format_exc()}",
+            payload=body,
+            user=user,
+            error_type=exc.__class__.__name__,
+            action="create_booking"
+        )
+        raise
 
 @router.post("/batch")
 def create_bookings_batch(body: BookingBatchCreate, user=Depends(get_current_user)):
-    if not body.rooms:
-        raise HTTPException(status_code=422, detail="At least one room must be selected")
+    try:
+        if not body.rooms:
+            raise HTTPException(status_code=422, detail="At least one room must be selected")
 
-    # 1. Resolve customer
-    customer_data = {}
-    if body.customer_name:
-        customer_data["name"] = body.customer_name
-    if body.customer_phone:
-        customer_data["phone"] = body.customer_phone
-    if body.customer_address is not None:
-        customer_data["address"] = body.customer_address
-    if body.customer_age is not None:
-        customer_data["age"] = body.customer_age
+        # 1. Resolve customer
+        customer_data = {}
+        if body.customer_name:
+            customer_data["name"] = body.customer_name
+        if body.customer_phone:
+            customer_data["phone"] = body.customer_phone
+        if body.customer_address is not None:
+            customer_data["address"] = body.customer_address
+        if body.customer_age is not None:
+            customer_data["age"] = body.customer_age
 
-    if body.customer_id:
-        customer_id = body.customer_id
-        if customer_data:
-            supabase.table("customers").update(customer_data).eq("id", customer_id).execute()
-    elif body.customer_phone:
-        # Check if customer exists by phone
-        existing = supabase.table("customers").select("id") \
-            .eq("phone", body.customer_phone).execute()
-        if existing.data:
-            customer_id = existing.data[0]["id"]
+        if body.customer_id:
+            customer_id = body.customer_id
             if customer_data:
                 supabase.table("customers").update(customer_data).eq("id", customer_id).execute()
-        else:
-            new_customer = supabase.table("customers").insert(customer_data).execute()
-            customer_id = new_customer.data[0]["id"]
-    else:
-        raise HTTPException(status_code=422, detail="Provide customer_id OR customer_name+customer_phone")
-
-    # 2. Calculate totals and distribute deposit
-    is_checked_in_batch = body.is_checked_in if body.is_checked_in is not None else (body.payment_status != "reserved")
-    now_time = datetime.now(timezone.utc)
-    check_in_dt = now_time if is_checked_in_batch else body.check_in
-
-    check_in_date_local = check_in_dt.astimezone(IST).date() if check_in_dt.tzinfo else check_in_dt.date()
-    check_out_date_local = body.check_out.astimezone(IST).date() if body.check_out.tzinfo else body.check_out.date()
-    nights = max(1, (check_out_date_local - check_in_date_local).days)
-    
-    room_ids = [r.room_id for r in body.rooms]
-    rooms_res = supabase.table("rooms").select("id, extra_bed_price, non_ac_extra_bed_price").in_("id", room_ids).execute()
-    room_extra_prices = {r["id"]: float(r["extra_bed_price"] or 500.0) for r in (rooms_res.data or []) if "extra_bed_price" in r and r["extra_bed_price"] is not None}
-    room_non_ac_extra_prices = {r["id"]: float(r["non_ac_extra_bed_price"] or 500.0) for r in (rooms_res.data or []) if "non_ac_extra_bed_price" in r and r["non_ac_extra_bed_price"] is not None}
-
-    room_totals = []
-    for r in body.rooms:
-        is_non_ac = "Non AC" in r.room_type
-        eb_price = room_non_ac_extra_prices.get(r.room_id, 500.0) if is_non_ac else room_extra_prices.get(r.room_id, 500.0)
-        extra_bed_total = r.extra_beds * eb_price * nights
-        room_total = (r.room_price * nights) + extra_bed_total
-        room_totals.append(room_total)
-        
-    remaining_deposit = body.deposit_amount
-    bookings_to_create = []
-    
-    for i, r in enumerate(body.rooms):
-        room_total = room_totals[i]
-        is_non_ac = "Non AC" in r.room_type
-        eb_price = room_non_ac_extra_prices.get(r.room_id, 500.0) if is_non_ac else room_extra_prices.get(r.room_id, 500.0)
-        extra_bed_total = r.extra_beds * eb_price * nights
-        
-        if body.payment_status == "paid":
-            room_paid = room_total
-            room_status = "paid"
-            room_dep = 0
-        elif body.payment_status == "reserved":
-            room_dep = body.deposit_amount / len(body.rooms)
-            room_paid = room_dep
-            room_status = "reserved"
-        else:
-            room_dep = min(remaining_deposit, room_total)
-            remaining_deposit -= room_dep
-            room_paid = room_dep
-            if room_paid >= room_total:
-                room_status = "paid"
-            elif room_paid > 0:
-                room_status = "partial"
+        elif body.customer_phone:
+            # Check if customer exists by phone
+            existing = supabase.table("customers").select("id") \
+                .eq("phone", body.customer_phone).execute()
+            if existing.data:
+                customer_id = existing.data[0]["id"]
+                if customer_data:
+                    supabase.table("customers").update(customer_data).eq("id", customer_id).execute()
             else:
-                room_status = "unpaid"
-                
-        room_is_checked_in = body.is_checked_in if body.is_checked_in is not None else (room_status != "reserved")
-        room_check_in_dt = now_time if room_is_checked_in else body.check_in
-        
-        bookings_to_create.append({
-            "room_id":         r.room_id,
-            "room_type":       r.room_type,
-            "customer_id":     customer_id,
-            "check_in":        room_check_in_dt.isoformat(),
-            "check_out":       body.check_out.isoformat(),
-            "adults":          r.adults,
-            "children":        r.children,
-            "extra_beds":      r.extra_beds,
-            "room_price":      r.room_price,
-            "extra_bed_total": extra_bed_total,
-            "total_amount":    room_total + (body.extra_bill_amount or 0.0),
-            "paid_amount":     room_paid,
-            "payment_mode":    body.payment_mode,
-            "payment_status":  room_status,
-            "deposit_amount":  room_dep,
-            "occupation":      body.occupation,
-            "notes":           r.notes or body.notes,
-            "created_by":      user.get("sub"),
-            "is_checked_in":   room_is_checked_in,
-            "actual_checkin_time": (body.actual_checkin_time.isoformat() if body.actual_checkin_time else (room_check_in_dt.isoformat() if room_is_checked_in else None)),
-            "extra_bill_amount": body.extra_bill_amount or 0.0,
-            "extra_bill_note":   body.extra_bill_note,
-        })
-
-    # 3. Insert bookings atomically
-    try:
-        res = supabase.table("bookings").insert(bookings_to_create).execute()
-    except Exception as e:
-        if "no_overlap" in str(e):
-            raise HTTPException(status_code=409, detail="One or more rooms are already booked for these dates")
-        if "bookings_payment_mode_check" in str(e) or "23514" in str(e):
-            for item in bookings_to_create:
-                if item.get("payment_mode") == "IDFC":
-                    item["payment_mode"] = "UPI"
-                    item["notes"] = f"{item.get('notes') or ''} [Paid via IDFC Bank]".strip()
-            res = supabase.table("bookings").insert(bookings_to_create).execute()
+                new_customer = supabase.table("customers").insert(customer_data).execute()
+                customer_id = new_customer.data[0]["id"]
         else:
-            raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+            raise HTTPException(status_code=422, detail="Provide customer_id OR customer_name+customer_phone")
 
-    # 4. Update customer last_visit and total_visits
-    customer_res = supabase.table("customers").select("total_visits").eq("id", customer_id).execute()
-    current_visits = (customer_res.data[0].get("total_visits") or 0) if (customer_res.data and len(customer_res.data) > 0) else 0
+        # 2. Calculate totals and distribute deposit
+        is_checked_in_batch = body.is_checked_in if body.is_checked_in is not None else (body.payment_status != "reserved")
+        now_time = datetime.now(timezone.utc)
+        check_in_dt = now_time if is_checked_in_batch else body.check_in
 
-    try:
-        supabase.table("customers").update({
-            "last_visit": body.check_in.date().isoformat(),
-            "total_visits": current_visits + len(bookings_to_create),
-        }).eq("id", customer_id).execute()
-    except Exception as e:
-        print("Failed to update customer stats:", e)
+        check_in_date_local = check_in_dt.astimezone(IST).date() if check_in_dt.tzinfo else check_in_dt.date()
+        check_out_date_local = body.check_out.astimezone(IST).date() if body.check_out.tzinfo else body.check_out.date()
+        nights = max(1, (check_out_date_local - check_in_date_local).days)
+        
+        room_ids = [r.room_id for r in body.rooms]
+        rooms_res = supabase.table("rooms").select("id, extra_bed_price, non_ac_extra_bed_price").in_("id", room_ids).execute()
+        room_extra_prices = {r["id"]: float(r["extra_bed_price"] or 500.0) for r in (rooms_res.data or []) if "extra_bed_price" in r and r["extra_bed_price"] is not None}
+        room_non_ac_extra_prices = {r["id"]: float(r["non_ac_extra_bed_price"] or 500.0) for r in (rooms_res.data or []) if "non_ac_extra_bed_price" in r and r["non_ac_extra_bed_price"] is not None}
 
-    return map_bookings_payment_mode(res.data)
+        room_totals = []
+        for r in body.rooms:
+            is_non_ac = "Non AC" in r.room_type
+            eb_price = room_non_ac_extra_prices.get(r.room_id, 500.0) if is_non_ac else room_extra_prices.get(r.room_id, 500.0)
+            extra_bed_total = r.extra_beds * eb_price * nights
+            room_total = (r.room_price * nights) + extra_bed_total
+            room_totals.append(room_total)
+            
+        remaining_deposit = body.deposit_amount
+        bookings_to_create = []
+        
+        for i, r in enumerate(body.rooms):
+            room_total = room_totals[i]
+            is_non_ac = "Non AC" in r.room_type
+            eb_price = room_non_ac_extra_prices.get(r.room_id, 500.0) if is_non_ac else room_extra_prices.get(r.room_id, 500.0)
+            extra_bed_total = r.extra_beds * eb_price * nights
+            
+            if body.payment_status == "paid":
+                room_paid = room_total
+                room_status = "paid"
+                room_dep = 0
+            elif body.payment_status == "reserved":
+                room_dep = body.deposit_amount / len(body.rooms)
+                room_paid = room_dep
+                room_status = "reserved"
+            else:
+                room_dep = min(remaining_deposit, room_total)
+                remaining_deposit -= room_dep
+                room_paid = room_dep
+                if room_paid >= room_total:
+                    room_status = "paid"
+                elif room_paid > 0:
+                    room_status = "partial"
+                else:
+                    room_status = "unpaid"
+                    
+            room_is_checked_in = body.is_checked_in if body.is_checked_in is not None else (room_status != "reserved")
+            room_check_in_dt = now_time if room_is_checked_in else body.check_in
+            
+            bookings_to_create.append({
+                "room_id":         r.room_id,
+                "room_type":       r.room_type,
+                "customer_id":     customer_id,
+                "check_in":        room_check_in_dt.isoformat(),
+                "check_out":       body.check_out.isoformat(),
+                "adults":          r.adults,
+                "children":        r.children,
+                "extra_beds":      r.extra_beds,
+                "room_price":      r.room_price,
+                "extra_bed_total": extra_bed_total,
+                "total_amount":    room_total + (body.extra_bill_amount or 0.0),
+                "paid_amount":     room_paid,
+                "payment_mode":    body.payment_mode,
+                "payment_status":  room_status,
+                "deposit_amount":  room_dep,
+                "occupation":      body.occupation,
+                "notes":           r.notes or body.notes,
+                "created_by":      user.get("sub"),
+                "is_checked_in":   room_is_checked_in,
+                "actual_checkin_time": (body.actual_checkin_time.isoformat() if body.actual_checkin_time else (room_check_in_dt.isoformat() if room_is_checked_in else None)),
+                "extra_bill_amount": body.extra_bill_amount or 0.0,
+                "extra_bill_note":   body.extra_bill_note,
+            })
+            
+        # 3. Insert bookings atomically
+        try:
+            res = supabase.table("bookings").insert(bookings_to_create).execute()
+        except Exception as e:
+            err_str = str(e)
+            if "no_overlap" in err_str:
+                raise HTTPException(status_code=409, detail="One or more rooms are already booked for these dates")
+            if "bookings_room_type_check" in err_str:
+                bad_types = list({item["room_type"] for item in bookings_to_create})
+                logging.error(f"room_type check constraint violated — types sent: {bad_types}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Room type '{bad_types[0] if bad_types else 'unknown'}' is not allowed by the database constraint. "
+                           f"Please update the bookings_room_type_check constraint in Supabase to include VIP room types."
+                )
+            if "bookings_payment_mode_check" in err_str or ("23514" in err_str):
+                for item in bookings_to_create:
+                    if item.get("payment_mode") == "IDFC":
+                        item["payment_mode"] = "UPI"
+                        item["notes"] = f"{item.get('notes') or ''} [Paid via IDFC Bank]".strip()
+                res = supabase.table("bookings").insert(bookings_to_create).execute()
+            else:
+                raise HTTPException(status_code=500, detail=f"Database error: {err_str}")
+
+        # 4. Update customer last_visit and total_visits
+        customer_res = supabase.table("customers").select("total_visits").eq("id", customer_id).execute()
+        current_visits = (customer_res.data[0].get("total_visits") or 0) if (customer_res.data and len(customer_res.data) > 0) else 0
+
+        try:
+            supabase.table("customers").update({
+                "last_visit": body.check_in.date().isoformat(),
+                "total_visits": current_visits + len(bookings_to_create),
+            }).eq("id", customer_id).execute()
+        except Exception as e:
+            print("Failed to update customer stats:", e)
+
+        return map_bookings_payment_mode(res.data)
+    except HTTPException as http_ex:
+        log_booking_failure(
+            error_message=http_ex.detail,
+            payload=body,
+            user=user,
+            error_type="HTTPException",
+            action="create_bookings_batch"
+        )
+        raise
+    except Exception as exc:
+        log_booking_failure(
+            error_message=f"{str(exc)}\n{traceback.format_exc()}",
+            payload=body,
+            user=user,
+            error_type=exc.__class__.__name__,
+            action="create_bookings_batch"
+        )
+        raise
 
 @router.get("/{booking_id}/check-extension")
 def check_booking_extension(booking_id: str, check_out: datetime, user=Depends(get_current_user)):
@@ -429,158 +551,177 @@ def get_booking(booking_id: str, user=Depends(get_current_user)):
 
 @router.patch("/{booking_id}")
 def update_booking(booking_id: str, body: BookingUpdate, user=Depends(get_current_user)):
-    updates = {k: v for k, v in body.dict().items() if v is not None}
-    original_updates = body.dict(exclude_unset=True)
-    has_explicit_dates = "check_in" in original_updates or "check_out" in original_updates
+    try:
+        updates = {k: v for k, v in body.dict().items() if v is not None}
+        original_updates = body.dict(exclude_unset=True)
+        has_explicit_dates = "check_in" in original_updates or "check_out" in original_updates
 
-    # Auto-fill actual check-in / check-out times on status change/check-in action
-    if updates.get("is_checked_in") is True and "check_in" not in original_updates:
-        now_time = datetime.now(timezone.utc)
-        updates["check_in"] = now_time.isoformat()
-        if "actual_checkin_time" not in updates:
-            updates["actual_checkin_time"] = now_time.isoformat()
+        # Auto-fill actual check-in / check-out times on status change/check-in action
+        if updates.get("is_checked_in") is True and "check_in" not in original_updates:
+            now_time = datetime.now(timezone.utc)
+            updates["check_in"] = now_time.isoformat()
+            if "actual_checkin_time" not in updates:
+                updates["actual_checkin_time"] = now_time.isoformat()
 
-    if updates.get("status") == "checked_out" and "check_out" not in original_updates:
-        now_time = datetime.now(timezone.utc)
-        updates["check_out"] = now_time.isoformat()
-        if "actual_checkout_time" not in updates:
-            updates["actual_checkout_time"] = now_time.isoformat()
+        if updates.get("status") == "checked_out" and "check_out" not in original_updates:
+            now_time = datetime.now(timezone.utc)
+            updates["check_out"] = now_time.isoformat()
+            if "actual_checkout_time" not in updates:
+                updates["actual_checkout_time"] = now_time.isoformat()
 
-    # Adjust total_amount if extra_bill_amount is updated
-    if "extra_bill_amount" in updates:
-        curr_res = supabase.table("bookings").select("extra_bill_amount, total_amount").eq("id", booking_id).single().execute()
-        if curr_res.data:
-            old_extra = curr_res.data.get("extra_bill_amount") or 0.0
-            new_extra = updates["extra_bill_amount"]
-            diff = float(new_extra) - float(old_extra)
-            if diff != 0 and "total_amount" not in updates:
-                updates["total_amount"] = float(curr_res.data.get("total_amount") or 0.0) + diff
+        # Adjust total_amount if extra_bill_amount is updated
+        if "extra_bill_amount" in updates:
+            curr_res = supabase.table("bookings").select("extra_bill_amount, total_amount").eq("id", booking_id).single().execute()
+            if curr_res.data:
+                old_extra = curr_res.data.get("extra_bill_amount") or 0.0
+                new_extra = updates["extra_bill_amount"]
+                diff = float(new_extra) - float(old_extra)
+                if diff != 0 and "total_amount" not in updates:
+                    updates["total_amount"] = float(curr_res.data.get("total_amount") or 0.0) + diff
 
-    # Convert dates to ISO format
-    if "check_in" in updates and updates["check_in"] is not None and isinstance(updates["check_in"], datetime):
-        updates["check_in"] = updates["check_in"].isoformat()
-    if "check_out" in updates and updates["check_out"] is not None and isinstance(updates["check_out"], datetime):
-        updates["check_out"] = updates["check_out"].isoformat()
+        # Convert dates to ISO format
+        if "check_in" in updates and updates["check_in"] is not None and isinstance(updates["check_in"], datetime):
+            updates["check_in"] = updates["check_in"].isoformat()
+        if "check_out" in updates and updates["check_out"] is not None and isinstance(updates["check_out"], datetime):
+            updates["check_out"] = updates["check_out"].isoformat()
 
-    # Recalculate totals if price, extra beds, or dates change explicitly
-    if any(k in updates for k in ["room_price", "extra_beds", "room_id"]) or (has_explicit_dates and any(k in updates for k in ["check_in", "check_out"])):
-        curr_res = supabase.table("bookings").select("room_price, extra_beds, check_in, check_out, extra_bill_amount, paid_amount, room_id, room_type").eq("id", booking_id).single().execute()
-        if curr_res.data:
+        # Recalculate totals if price, extra beds, or dates change explicitly
+        if any(k in updates for k in ["room_price", "extra_beds", "room_id"]) or (has_explicit_dates and any(k in updates for k in ["check_in", "check_out"])):
+            curr_res = supabase.table("bookings").select("room_price, extra_beds, check_in, check_out, extra_bill_amount, paid_amount, room_id, room_type").eq("id", booking_id).single().execute()
+            if curr_res.data:
+                curr = curr_res.data
+                r_price = updates.get("room_price", curr["room_price"])
+                eb_count = updates.get("extra_beds", curr["extra_beds"])
+                c_in_str = updates.get("check_in", curr["check_in"])
+                c_out_str = updates.get("check_out", curr["check_out"])
+                eb_amount = updates.get("extra_bill_amount", curr["extra_bill_amount"] or 0.0)
+                
+                c_in = datetime.fromisoformat(c_in_str.replace("Z", "+00:00")).date()
+                c_out = datetime.fromisoformat(c_out_str.replace("Z", "+00:00")).date()
+                nights = max(1, (c_out - c_in).days)
+                
+                target_room_id = updates.get("room_id", curr["room_id"])
+                r_type = updates.get("room_type", curr["room_type"])
+                is_non_ac = "Non AC" in r_type
+                eb_col = "non_ac_extra_bed_price" if is_non_ac else "extra_bed_price"
+                room_res = supabase.table("rooms").select(eb_col).eq("id", target_room_id).execute()
+                extra_bed_price = room_res.data[0][eb_col] if room_res.data and eb_col in room_res.data[0] else 500.0
+                
+                extra_bed_total = eb_count * float(extra_bed_price) * nights
+                updates["extra_bed_total"] = extra_bed_total
+                
+                if "total_amount" not in updates:
+                    updates["total_amount"] = (r_price * nights) + extra_bed_total + eb_amount
+
+        # Enforce database consistency between paid_amount, total_amount, and payment_status
+        if "paid_amount" in updates or "total_amount" in updates or "payment_status" in updates:
+            curr_res = supabase.table("bookings").select("paid_amount, total_amount, payment_status").eq("id", booking_id).single().execute()
+            if curr_res.data:
+                curr = curr_res.data
+                p_amt = updates.get("paid_amount", curr["paid_amount"])
+                t_amt = updates.get("total_amount", curr["total_amount"])
+                p_status = updates.get("payment_status", curr["payment_status"])
+                if p_status != "reserved":
+                    if p_amt >= t_amt:
+                        updates["payment_status"] = "paid"
+                    elif p_amt > 0:
+                        updates["payment_status"] = "partial"
+                    else:
+                        updates["payment_status"] = "unpaid"
+
+        if any(k in updates for k in ["room_id"]) or (has_explicit_dates and any(k in updates for k in ["check_in", "check_out"])):
+            curr_res = supabase.table("bookings").select("room_id, check_in, check_out").eq("id", booking_id).single().execute()
+            if not curr_res.data:
+                raise HTTPException(status_code=404, detail="Booking not found")
             curr = curr_res.data
-            r_price = updates.get("room_price", curr["room_price"])
-            eb_count = updates.get("extra_beds", curr["extra_beds"])
-            c_in_str = updates.get("check_in", curr["check_in"])
-            c_out_str = updates.get("check_out", curr["check_out"])
-            eb_amount = updates.get("extra_bill_amount", curr["extra_bill_amount"] or 0.0)
-            
-            c_in = datetime.fromisoformat(c_in_str.replace("Z", "+00:00")).date()
-            c_out = datetime.fromisoformat(c_out_str.replace("Z", "+00:00")).date()
-            nights = max(1, (c_out - c_in).days)
             
             target_room_id = updates.get("room_id", curr["room_id"])
-            r_type = updates.get("room_type", curr["room_type"])
-            is_non_ac = "Non AC" in r_type
-            eb_col = "non_ac_extra_bed_price" if is_non_ac else "extra_bed_price"
-            room_res = supabase.table("rooms").select(eb_col).eq("id", target_room_id).execute()
-            extra_bed_price = room_res.data[0][eb_col] if room_res.data and eb_col in room_res.data[0] else 500.0
+            target_check_in = updates.get("check_in", curr["check_in"])
+            target_check_out = updates.get("check_out", curr["check_out"])
             
-            extra_bed_total = eb_count * float(extra_bed_price) * nights
-            updates["extra_bed_total"] = extra_bed_total
-            
-            if "total_amount" not in updates:
-                updates["total_amount"] = (r_price * nights) + extra_bed_total + eb_amount
-
-    # Enforce database consistency between paid_amount, total_amount, and payment_status
-    if "paid_amount" in updates or "total_amount" in updates or "payment_status" in updates:
-        curr_res = supabase.table("bookings").select("paid_amount, total_amount, payment_status").eq("id", booking_id).single().execute()
-        if curr_res.data:
-            curr = curr_res.data
-            p_amt = updates.get("paid_amount", curr["paid_amount"])
-            t_amt = updates.get("total_amount", curr["total_amount"])
-            p_status = updates.get("payment_status", curr["payment_status"])
-            if p_status != "reserved":
-                if p_amt >= t_amt:
-                    updates["payment_status"] = "paid"
-                elif p_amt > 0:
-                    updates["payment_status"] = "partial"
-                else:
-                    updates["payment_status"] = "unpaid"
-
-    if any(k in updates for k in ["room_id"]) or (has_explicit_dates and any(k in updates for k in ["check_in", "check_out"])):
-        curr_res = supabase.table("bookings").select("room_id, check_in, check_out").eq("id", booking_id).single().execute()
-        if not curr_res.data:
-            raise HTTPException(status_code=404, detail="Booking not found")
-        curr = curr_res.data
-        
-        target_room_id = updates.get("room_id", curr["room_id"])
-        target_check_in = updates.get("check_in", curr["check_in"])
-        target_check_out = updates.get("check_out", curr["check_out"])
-        
-        overlap_res = supabase.table("bookings") \
-            .select("id") \
-            .eq("room_id", target_room_id) \
-            .eq("status", "active") \
-            .neq("id", booking_id) \
-            .lt("check_in", target_check_out) \
-            .gt("check_out", target_check_in) \
-            .execute()
-            
-        if overlap_res.data:
-            raise HTTPException(
-                status_code=409,
-                detail="Room is already booked or occupied by another customer during this period."
-            )
-
-    if "actual_checkin_time" in updates and updates["actual_checkin_time"] is not None and isinstance(updates["actual_checkin_time"], datetime):
-        updates["actual_checkin_time"] = updates["actual_checkin_time"].isoformat()
-
-    if "actual_checkout_time" in updates and updates["actual_checkout_time"] is not None and isinstance(updates["actual_checkout_time"], datetime):
-        updates["actual_checkout_time"] = updates["actual_checkout_time"].isoformat()
-
-    # Clean up IDFC notes tag if changing payment mode away from IDFC
-    if "payment_mode" in updates and updates["payment_mode"] != "IDFC":
-        existing_notes = ""
-        if "notes" in updates:
-            existing_notes = updates["notes"] or ""
-        else:
-            curr_res = supabase.table("bookings").select("notes").eq("id", booking_id).single().execute()
-            if curr_res.data:
-                existing_notes = curr_res.data.get("notes") or ""
-        
-        cleaned_notes = existing_notes.replace("[Paid via IDFC Bank]", "").replace("[IDFC Bank]", "").strip()
-        if "notes" in updates or cleaned_notes != existing_notes:
-            updates["notes"] = cleaned_notes if cleaned_notes else None
-
-    try:
-        res = supabase.table("bookings").update(updates).eq("id", booking_id).execute()
-    except Exception as e:
-        if "no_overlap" in str(e):
-            raise HTTPException(status_code=409, detail="Room already booked for these dates")
-        if "bookings_payment_mode_check" in str(e) or "23514" in str(e):
-            if updates.get("payment_mode") == "IDFC":
-                updates["payment_mode"] = "UPI"
+            overlap_res = supabase.table("bookings") \
+                .select("id") \
+                .eq("room_id", target_room_id) \
+                .eq("status", "active") \
+                .neq("id", booking_id) \
+                .lt("check_in", target_check_out) \
+                .gt("check_out", target_check_in) \
+                .execute()
                 
-                # Fetch existing notes if notes not in updates
-                existing_notes = ""
-                if "notes" in updates:
-                    existing_notes = updates["notes"] or ""
-                else:
-                    curr_res = supabase.table("bookings").select("notes").eq("id", booking_id).single().execute()
-                    if curr_res.data:
-                        existing_notes = curr_res.data.get("notes") or ""
-                
-                # Append IDFC tag if not present
-                if "[Paid via IDFC Bank]" not in existing_notes and "[IDFC Bank]" not in existing_notes:
-                    updates["notes"] = f"{existing_notes} [Paid via IDFC Bank]".strip()
-                else:
-                    updates["notes"] = existing_notes
+            if overlap_res.data:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Room is already booked or occupied by another customer during this period."
+                )
 
+        if "actual_checkin_time" in updates and updates["actual_checkin_time"] is not None and isinstance(updates["actual_checkin_time"], datetime):
+            updates["actual_checkin_time"] = updates["actual_checkin_time"].isoformat()
+
+        if "actual_checkout_time" in updates and updates["actual_checkout_time"] is not None and isinstance(updates["actual_checkout_time"], datetime):
+            updates["actual_checkout_time"] = updates["actual_checkout_time"].isoformat()
+
+        # Clean up IDFC notes tag if changing payment mode away from IDFC
+        if "payment_mode" in updates and updates["payment_mode"] != "IDFC":
+            existing_notes = ""
+            if "notes" in updates:
+                existing_notes = updates["notes"] or ""
+            else:
+                curr_res = supabase.table("bookings").select("notes").eq("id", booking_id).single().execute()
+                if curr_res.data:
+                    existing_notes = curr_res.data.get("notes") or ""
+            
+            cleaned_notes = existing_notes.replace("[Paid via IDFC Bank]", "").replace("[IDFC Bank]", "").strip()
+            if "notes" in updates or cleaned_notes != existing_notes:
+                updates["notes"] = cleaned_notes if cleaned_notes else None
+
+        try:
             res = supabase.table("bookings").update(updates).eq("id", booking_id).execute()
-        else:
-            raise
-    if not res.data:
-        raise HTTPException(status_code=404, detail="Booking not found")
-    return map_booking_payment_mode(res.data[0])
+        except Exception as e:
+            if "no_overlap" in str(e):
+                raise HTTPException(status_code=409, detail="Room already booked for these dates")
+            if "bookings_payment_mode_check" in str(e) or "23514" in str(e):
+                if updates.get("payment_mode") == "IDFC":
+                    updates["payment_mode"] = "UPI"
+                    
+                    # Fetch existing notes if notes not in updates
+                    existing_notes = ""
+                    if "notes" in updates:
+                        existing_notes = updates["notes"] or ""
+                    else:
+                        curr_res = supabase.table("bookings").select("notes").eq("id", booking_id).single().execute()
+                        if curr_res.data:
+                            existing_notes = curr_res.data.get("notes") or ""
+                    
+                    # Append IDFC tag if not present
+                    if "[Paid via IDFC Bank]" not in existing_notes and "[IDFC Bank]" not in existing_notes:
+                        updates["notes"] = f"{existing_notes} [Paid via IDFC Bank]".strip()
+                    else:
+                        updates["notes"] = existing_notes
+
+                res = supabase.table("bookings").update(updates).eq("id", booking_id).execute()
+            else:
+                raise
+        if not res.data:
+            raise HTTPException(status_code=404, detail="Booking not found")
+        return map_booking_payment_mode(res.data[0])
+    except HTTPException as http_ex:
+        log_booking_failure(
+            error_message=http_ex.detail,
+            payload={"booking_id": booking_id, "updates": body.dict(exclude_unset=True)},
+            user=user,
+            error_type="HTTPException",
+            action="update_booking"
+        )
+        raise
+    except Exception as exc:
+        log_booking_failure(
+            error_message=f"{str(exc)}\n{traceback.format_exc()}",
+            payload={"booking_id": booking_id, "updates": body.dict(exclude_unset=True)},
+            user=user,
+            error_type=exc.__class__.__name__,
+            action="update_booking"
+        )
+        raise
 
 @router.post("/{booking_id}/restore")
 def restore_booking(booking_id: str, user=Depends(get_current_user)):

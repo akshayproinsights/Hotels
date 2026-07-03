@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useSearchParams } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'react-hot-toast'
 import { LogOut, Plus, WifiOff, Sun, Moon } from 'lucide-react'
@@ -58,6 +58,7 @@ function AppLayout() {
   const { theme, toggleTheme } = useTheme()
   const [isBookSheetOpen, setIsBookSheetOpen] = React.useState(false)
   const [isOnline, setIsOnline] = React.useState(navigator.onLine)
+  const [searchParams] = useSearchParams()
 
   React.useEffect(() => {
     const handleOnline = () => setIsOnline(true)
@@ -166,6 +167,7 @@ function AppLayout() {
       {/* Global Booking Drawer */}
       {isBookSheetOpen && (
         <BlockRoomSheet
+          initialDate={searchParams.get('date') || undefined}
           onClose={() => setIsBookSheetOpen(false)}
           onSuccess={() => setIsBookSheetOpen(false)}
         />
