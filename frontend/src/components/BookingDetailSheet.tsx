@@ -28,7 +28,7 @@ import { getUploadUrl, uploadFileToR2, confirmUpload, listCustomerDocs, extractN
 import { updateCustomer } from '../api/customers'
 import { listAvailableRooms } from '../api/rooms'
 import { getCustomerNameDisplay } from '../utils/customer'
-import { getMarathiName } from '../utils/nameHelper'
+import { formatNameByLanguage } from '../utils/nameHelper'
 import { formatIST_AMPM, formatIST_Date, formatIST_HHmm, toUTCfromIST } from '../utils/istTime'
 import { useLanguage } from '../context/LanguageContext'
 import { useVisualViewport } from '../hooks/useVisualViewport'
@@ -323,12 +323,14 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
         </div>
       ), {
         duration: 7000,
-        position: 'bottom-center',
+        position: 'bottom-left',
         style: {
           background: '#0f172a',
           color: '#f8fafc',
           border: '1px solid #334155',
           borderRadius: '16px',
+          minWidth: 'fit-content',
+          marginBottom: '4.5rem',
         }
       })
     },
@@ -861,7 +863,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
     const currentDoc = docs[selectedDocIndex]
     if (!currentDoc) return null
 
-    const guestName = getCustomerNameDisplay(booking.customers?.name).name
+    const guestName = formatNameByLanguage(getCustomerNameDisplay(booking.customers?.name).name, language)
     const isPdf = currentDoc.file_name.toLowerCase().endsWith('.pdf')
 
     // Navigation handlers
@@ -1341,7 +1343,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                       <div className="text-slate-200 font-extrabold text-sm leading-tight flex-1 min-w-0 truncate">
                         {(() => {
                           const { name: dName, isDeleted } = getCustomerNameDisplay(booking.customers?.name);
-                          const displayName = getMarathiName(dName);
+                          const displayName = formatNameByLanguage(dName, language);
                           return (
                             <>
                               <span>{displayName}</span>
@@ -1989,9 +1991,9 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                 </h3>
                 <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
                   {language === 'mr' ? (
-                    <>ग्राहक <span className="font-extrabold text-slate-200">{getCustomerNameDisplay(booking.customers?.name).name}</span> यांना खोली क्रमांक <span className="font-extrabold text-slate-200">{booking.rooms?.number || booking.room_id}</span> मधून चेकआऊट करायचे आहे का?</>
+                    <>ग्राहक <span className="font-extrabold text-slate-200">{formatNameByLanguage(getCustomerNameDisplay(booking.customers?.name).name, language)}</span> यांना खोली क्रमांक <span className="font-extrabold text-slate-200">{booking.rooms?.number || booking.room_id}</span> मधून चेकआऊट करायचे आहे का?</>
                   ) : (
-                    <>Check out <span className="font-extrabold text-slate-200">{getCustomerNameDisplay(booking.customers?.name).name}</span> from Room <span className="font-extrabold text-slate-200">{booking.rooms?.number || booking.room_id}</span>?</>
+                    <>Check out <span className="font-extrabold text-slate-200">{formatNameByLanguage(getCustomerNameDisplay(booking.customers?.name).name, language)}</span> from Room <span className="font-extrabold text-slate-200">{booking.rooms?.number || booking.room_id}</span>?</>
                   )}
                 </p>
 
@@ -2076,9 +2078,9 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
               </h3>
               <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
                 {language === 'mr' ? (
-                  <>खोली क्रमांक <span className="font-extrabold text-slate-200">{booking.rooms?.number || booking.room_id}</span> मधील ग्राहक <span className="font-extrabold text-slate-200">{getCustomerNameDisplay(booking.customers?.name).name}</span> यांचे बुकिंग रद्द करायचे आहे का? हे आपण नंतर Settings मधून पुनर्संचयित करू शकता.</>
+                  <>खोली क्रमांक <span className="font-extrabold text-slate-200">{booking.rooms?.number || booking.room_id}</span> मधील ग्राहक <span className="font-extrabold text-slate-200">{formatNameByLanguage(getCustomerNameDisplay(booking.customers?.name).name, language)}</span> यांचे बुकिंग रद्द करायचे आहे का? हे आपण नंतर Settings मधून पुनर्संचयित करू शकता.</>
                 ) : (
-                  <>Cancel the booking for <span className="font-extrabold text-slate-200">{getCustomerNameDisplay(booking.customers?.name).name}</span> in Room <span className="font-extrabold text-slate-200">{booking.rooms?.number || booking.room_id}</span>? You can restore this later from Settings.</>
+                  <>Cancel the booking for <span className="font-extrabold text-slate-200">{formatNameByLanguage(getCustomerNameDisplay(booking.customers?.name).name, language)}</span> in Room <span className="font-extrabold text-slate-200">{booking.rooms?.number || booking.room_id}</span>? You can restore this later from Settings.</>
                 )}
               </p>
             </div>

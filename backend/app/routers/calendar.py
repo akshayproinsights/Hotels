@@ -80,16 +80,24 @@ def get_calendar(
         day_start = datetime(year, month, d, 0, 0, 0, tzinfo=IST)
         day_end = datetime(year, month, d, 23, 59, 59, tzinfo=IST)
 
-        # Count occupied rooms and pending bookings for this day
+        # Count occupied rooms, pending bookings, arrivals and departures for this day
         occupied_rooms = set()
         pending_count = 0
+        arrivals_count = 0
+        departures_count = 0
         for pb in parsed_bookings:
             # Overlap: booking starts before end of day, and ends after start of day
             if pb["check_in"] <= day_end and pb["check_out"] > day_start:
                 occupied_rooms.add(pb["room_id"])
                 if pb.get("payment_status") in ("unpaid", "partial", "reserved"):
                     pending_count += 1
-        
+            # Arrivals: check-in falls on this calendar day (IST)
+            if pb["check_in"].date() == day_date:
+                arrivals_count += 1
+            # Departures: check-out falls on this calendar day (IST)
+            if pb["check_out"].date() == day_date:
+                departures_count += 1
+
         occupied_count = len(occupied_rooms)
         vacant_count = max(0, total_rooms - occupied_count)
 
@@ -106,7 +114,9 @@ def get_calendar(
             "vacant": vacant_count,
             "occupied": occupied_count,
             "pending": pending_count,
-            "status": day_status
+            "status": day_status,
+            "arrivals": arrivals_count,
+            "departures": departures_count
         })
 
     return {

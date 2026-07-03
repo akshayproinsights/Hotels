@@ -5,6 +5,7 @@ import { Delete, Check, X } from 'lucide-react'
 import type { Customer } from '../types'
 import { searchCustomers } from '../api/customers'
 import { format, parseISO } from 'date-fns'
+import { formatNameByLanguage } from '../utils/nameHelper'
 
 interface NumericKeypadProps {
   value: string | number
@@ -185,7 +186,7 @@ export default function NumericKeypad({
                   onClick={() => handleSelectCustomer(customer)}
                 >
                   <div className="nkp-rec-left">
-                    <span className="nkp-rec-name">{customer.name}</span>
+                    <span className="nkp-rec-name">{formatNameByLanguage(customer.name, language)}</span>
                     <span className="nkp-rec-phone">{customer.phone}</span>
                   </div>
                   {customer.last_visit && (

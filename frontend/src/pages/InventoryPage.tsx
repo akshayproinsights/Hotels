@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { format, addDays, subDays, parseISO } from 'date-fns'
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Layers, ShieldAlert, Loader2, X } from 'lucide-react'
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Layers, ShieldAlert, Loader2, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { useInventory } from '../hooks/useInventory'
 import RoomCard from '../components/RoomCard'
 import BlockRoomSheet from '../components/BlockRoomSheet'
 import BookingDetailSheet from '../components/BookingDetailSheet'
 import type { InventoryRoom } from '../types'
 import { useLanguage } from '../context/LanguageContext'
+import { formatNameByLanguage } from '../utils/nameHelper'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { cancelBooking, restoreBooking } from '../api/bookings'
@@ -25,8 +26,10 @@ export default function InventoryPage() {
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null)
   const [bookingCheckInISO, setBookingCheckInISO] = useState<string | undefined>(undefined)
   const [briefTab, setBriefTab] = useState<'arrivals' | 'checkouts' | 'staying'>('arrivals')
+  const [isBriefExpanded, setIsBriefExpanded] = useState<boolean>(false)
   const [quickActionRoom, setQuickActionRoom] = useState<InventoryRoom | null>(null)
   const [cancelConfirmBooking, setCancelConfirmBooking] = useState<{ id: string; roomNumber: string; customerName: string } | null>(null)
+  const [activeFilter, setActiveFilter] = useState<'all' | 'vacant' | 'due-out' | 'in-house' | 'unpaid' | 'arrivals'>('all')
 
   const cancelMutation = useMutation({
     mutationFn: (bookingId: string) => cancelBooking(bookingId),
@@ -61,12 +64,14 @@ export default function InventoryPage() {
         </div>
       ), {
         duration: 7000,
-        position: 'bottom-center',
+        position: 'bottom-left',
         style: {
           background: '#0f172a',
           color: '#f8fafc',
           border: '1px solid #334155',
           borderRadius: '16px',
+          minWidth: 'fit-content',
+          marginBottom: '4.5rem',
         }
       })
     },
@@ -191,6 +196,27 @@ export default function InventoryPage() {
       </div>
     )
   }
+
+  const dailyBookingsAll = data.daily_bookings || []
+
+  // --- Operational stats (front-desk language, matching Front Desk Brief) ---
+  // VACANT: rooms with no active booking today
+  const vacantCount = data.summary.vacant
+
+  // DUE OUT: active bookings whose checkout date is TODAY (guest still in room)
+  const dueOutBookings = dailyBookingsAll.filter(
+    (b: any) => b.status === 'active' && formatIST_Date(b.check_out) === selectedDate
+  )
+  const dueOutCount = dueOutBookings.length
+
+  // UNPAID: any checked-in guest (due out or stayover) with unpaid/partial balance
+  const unpaidCount = data.summary.unpaid
+
+  // IN-HOUSE: checked-in guests who are NOT due out today (stayovers)
+  const inHouseCount = dailyBookingsAll.filter(
+    (b: any) => b.status === 'active' && b.is_checked_in && formatIST_Date(b.check_out) !== selectedDate
+  ).length
+
 
   // Group rooms by floor
   const roomsByFloor = data.rooms.reduce((acc, room) => {
@@ -317,7 +343,7 @@ export default function InventoryPage() {
                       const { name: dName, isDeleted } = getCustomerNameDisplay(b.customers?.name);
                       return (
                         <>
-                          <span className="truncate">{dName}</span>
+                          <span className="truncate">{formatNameByLanguage(dName, language)}</span>
                           {isDeleted && (
                             <span className="bg-rose-500/10 text-rose-455 px-1 rounded text-[8px] font-black border border-rose-500/20 shrink-0 whitespace-nowrap">
                               {language === 'mr' ? 'डिलीट' : 'Deleted'}
@@ -346,7 +372,10 @@ export default function InventoryPage() {
         return (
           <div className="glass-panel rounded-2xl border border-slate-800 bg-slate-900/60 p-4 flex flex-col gap-4 shadow-lg">
             {/* Title / Header */}
-            <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+            <div
+              onClick={() => setIsBriefExpanded(!isBriefExpanded)}
+              className="flex items-center justify-between border-b border-slate-800/80 pb-3 cursor-pointer select-none hover:opacity-85 active:opacity-70 transition-opacity"
+            >
               <div className="flex items-center gap-2">
                 <span className="text-lg">📋</span>
                 <h3 className="text-sm font-black uppercase tracking-wider text-slate-200">
@@ -354,6 +383,11 @@ export default function InventoryPage() {
                     ? (language === 'mr' ? 'आजचा फ्रंट डेस्क सारांश' : "Today's Front Desk Brief")
                     : (language === 'mr' ? `${formattedDateCompact} फ्रंट डेस्क सारांश` : `${formattedDateCompact} Front Desk Brief`)}
                 </h3>
+                {isBriefExpanded ? (
+                  <ChevronUp className="w-4 h-4 text-slate-400 shrink-0" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
+                )}
               </div>
               {/* Live urgency indicator */}
               {(arrivalsPendingCount > 0 || checkoutsPendingCount > 0) ? (
@@ -372,7 +406,14 @@ export default function InventoryPage() {
               {/* Arrivals Tab */}
               <button
                 type="button"
-                onClick={() => setBriefTab('arrivals')}
+                onClick={() => {
+                  if (briefTab === 'arrivals') {
+                    setIsBriefExpanded(!isBriefExpanded)
+                  } else {
+                    setBriefTab('arrivals')
+                    setIsBriefExpanded(true)
+                  }
+                }}
                 className={`py-2 px-1 rounded-lg flex flex-col items-center justify-center transition-all relative ${
                   briefTab === 'arrivals'
                     ? 'bg-amber-500 text-slate-955 shadow-md font-black'
@@ -407,7 +448,14 @@ export default function InventoryPage() {
               {/* Departures Tab */}
               <button
                 type="button"
-                onClick={() => setBriefTab('checkouts')}
+                onClick={() => {
+                  if (briefTab === 'checkouts') {
+                    setIsBriefExpanded(!isBriefExpanded)
+                  } else {
+                    setBriefTab('checkouts')
+                    setIsBriefExpanded(true)
+                  }
+                }}
                 className={`py-2 px-1 rounded-lg flex flex-col items-center justify-center transition-all relative ${
                   briefTab === 'checkouts'
                     ? 'bg-rose-500 text-white shadow-md font-black'
@@ -442,7 +490,14 @@ export default function InventoryPage() {
               {/* Staying Tab */}
               <button
                 type="button"
-                onClick={() => setBriefTab('staying')}
+                onClick={() => {
+                  if (briefTab === 'staying') {
+                    setIsBriefExpanded(!isBriefExpanded)
+                  } else {
+                    setBriefTab('staying')
+                    setIsBriefExpanded(true)
+                  }
+                }}
                 className={`py-2 px-1 rounded-lg flex flex-col items-center justify-center transition-all ${
                   briefTab === 'staying'
                     ? 'bg-emerald-500 text-slate-955 shadow-md font-black'
@@ -462,7 +517,8 @@ export default function InventoryPage() {
             </div>
 
             {/* List for the selected tab */}
-            <div className="flex flex-col gap-2 max-h-[260px] overflow-y-auto pr-1">
+            {isBriefExpanded && (
+              <div className="flex flex-col gap-2 max-h-[260px] overflow-y-auto pr-1 animate-fade-in">
               {briefTab === 'arrivals' && (
                 <>
                   {arrivals.length === 0 ? (
@@ -531,7 +587,8 @@ export default function InventoryPage() {
                   )}
                 </>
               )}
-            </div>
+              </div>
+            )}
           </div>
         )
       })()}
@@ -579,40 +636,112 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      {/* Occupancy Stats Summary */}
+      {/* Operational Room Stats — click to filter the room grid */}
       <div className="grid grid-cols-4 gap-1.5 sm:gap-3">
-        <div className="glass-panel flex flex-col items-center justify-center p-1.5 rounded-xl sm:rounded-2xl sm:items-start sm:p-3.5 bg-emerald-500/5 border-emerald-500/10">
+        {/* VACANT */}
+        <button
+          onClick={() => setActiveFilter(activeFilter === 'vacant' ? 'all' : 'vacant')}
+          className={`glass-panel flex flex-col items-center justify-center p-1.5 rounded-xl sm:rounded-2xl sm:items-start sm:p-3.5 transition-all duration-200 active:scale-95 ${
+            activeFilter === 'vacant'
+              ? 'bg-emerald-500/20 border-emerald-400/60 ring-1 ring-emerald-400/40 shadow-lg shadow-emerald-500/10'
+              : 'bg-emerald-500/5 border-emerald-500/10 hover:bg-emerald-500/10'
+          }`}
+        >
           <span className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-emerald-400 flex items-center gap-1 sm:gap-1.5">
-            <span>✅</span>
-            <span className="truncate">{language === 'mr' ? 'रिकामी' : 'Free'}</span>
+            <span>🟢</span>
+            <span className="truncate">{language === 'mr' ? 'रिकामी' : 'Vacant'}</span>
           </span>
-          <span className="text-xs sm:text-2xl font-black text-slate-100 mt-0.5 sm:mt-2">{data.summary.vacant}</span>
-        </div>
+          <span className="text-xs sm:text-2xl font-black text-slate-100 mt-0.5 sm:mt-2 tabular-nums">{vacantCount}</span>
+        </button>
 
-        <div className="glass-panel flex flex-col items-center justify-center p-1.5 rounded-xl sm:rounded-2xl sm:items-start sm:p-3.5 bg-slate-500/5 border-slate-800">
-          <span className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-slate-400 flex items-center gap-1 sm:gap-1.5">
-            <span>👤</span>
-            <span className="truncate">{language === 'mr' ? 'भरलेली' : 'Occupied'}</span>
+        {/* DUE OUT */}
+        <button
+          onClick={() => setActiveFilter(activeFilter === 'due-out' ? 'all' : 'due-out')}
+          className={`glass-panel flex flex-col items-center justify-center p-1.5 rounded-xl sm:rounded-2xl sm:items-start sm:p-3.5 transition-all duration-200 active:scale-95 ${
+            activeFilter === 'due-out'
+              ? 'bg-orange-500/20 border-orange-400/60 ring-1 ring-orange-400/40 shadow-lg shadow-orange-500/10'
+              : dueOutCount > 0 ? 'bg-orange-500/10 border-orange-500/25 hover:bg-orange-500/15' : 'bg-slate-500/5 border-slate-800 hover:bg-slate-500/10'
+          }`}
+        >
+          <span className={`text-[9px] sm:text-[10px] uppercase font-bold tracking-wider flex items-center gap-1 sm:gap-1.5 ${
+            dueOutCount > 0 ? 'text-orange-400' : 'text-slate-500'
+          }`}>
+            <span>🚪</span>
+            <span className="truncate">{language === 'mr' ? 'निघतात' : 'Due Out'}</span>
           </span>
-          <span className="text-xs sm:text-2xl font-black text-slate-100 mt-0.5 sm:mt-2">{data.summary.occupied}</span>
-        </div>
+          <span className={`text-xs sm:text-2xl font-black mt-0.5 sm:mt-2 tabular-nums ${
+            dueOutCount > 0 ? 'text-orange-300' : 'text-slate-500'
+          }`}>{dueOutCount}</span>
+        </button>
 
-        <div className="glass-panel flex flex-col items-center justify-center p-1.5 rounded-xl sm:rounded-2xl sm:items-start sm:p-3.5 bg-amber-500/5 border-amber-500/10">
-          <span className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-amber-500 flex items-center gap-1 sm:gap-1.5">
-            <span>🔒</span>
-            <span className="truncate">{language === 'mr' ? 'आरक्षित' : 'Reserved'}</span>
+        {/* IN-HOUSE */}
+        <button
+          onClick={() => setActiveFilter(activeFilter === 'in-house' ? 'all' : 'in-house')}
+          className={`glass-panel flex flex-col items-center justify-center p-1.5 rounded-xl sm:rounded-2xl sm:items-start sm:p-3.5 transition-all duration-200 active:scale-95 ${
+            activeFilter === 'in-house'
+              ? 'bg-sky-500/20 border-sky-400/60 ring-1 ring-sky-400/40 shadow-lg shadow-sky-500/10'
+              : inHouseCount > 0 ? 'bg-sky-500/8 border-sky-500/20 hover:bg-sky-500/12' : 'bg-slate-500/5 border-slate-800 hover:bg-slate-500/10'
+          }`}
+        >
+          <span className={`text-[9px] sm:text-[10px] uppercase font-bold tracking-wider flex items-center gap-1 sm:gap-1.5 ${
+            inHouseCount > 0 ? 'text-sky-400' : 'text-slate-500'
+          }`}>
+            <span>🏨</span>
+            <span className="truncate">{language === 'mr' ? 'मुक्काम' : 'In-House'}</span>
           </span>
-          <span className="text-xs sm:text-2xl font-black text-slate-100 mt-0.5 sm:mt-2">{data.summary.reserved}</span>
-        </div>
+          <span className={`text-xs sm:text-2xl font-black mt-0.5 sm:mt-2 tabular-nums ${
+            inHouseCount > 0 ? 'text-sky-300' : 'text-slate-500'
+          }`}>{inHouseCount}</span>
+        </button>
 
-        <div className="glass-panel flex flex-col items-center justify-center p-1.5 rounded-xl sm:rounded-2xl sm:items-start sm:p-3.5 bg-rose-500/5 border-rose-500/10">
-          <span className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-rose-500 flex items-center gap-1 sm:gap-1.5">
+        {/* UNPAID */}
+        <button
+          onClick={() => setActiveFilter(activeFilter === 'unpaid' ? 'all' : 'unpaid')}
+          className={`glass-panel flex flex-col items-center justify-center p-1.5 rounded-xl sm:rounded-2xl sm:items-start sm:p-3.5 transition-all duration-200 active:scale-95 ${
+            activeFilter === 'unpaid'
+              ? 'bg-rose-500/20 border-rose-400/60 ring-1 ring-rose-400/40 shadow-lg shadow-rose-500/10'
+              : unpaidCount > 0 ? 'bg-rose-500/8 border-rose-500/15 hover:bg-rose-500/12' : 'bg-slate-500/5 border-slate-800 hover:bg-slate-500/10'
+          }`}
+        >
+          <span className={`text-[9px] sm:text-[10px] uppercase font-bold tracking-wider flex items-center gap-1 sm:gap-1.5 ${
+            unpaidCount > 0 ? 'text-rose-400' : 'text-slate-500'
+          }`}>
             <span>⚠️</span>
             <span className="truncate">{language === 'mr' ? 'बाकी' : 'Unpaid'}</span>
           </span>
-          <span className="text-xs sm:text-2xl font-black text-slate-100 mt-0.5 sm:mt-2">{data.summary.unpaid}</span>
-        </div>
+          <span className={`text-xs sm:text-2xl font-black mt-0.5 sm:mt-2 tabular-nums ${
+            unpaidCount > 0 ? 'text-rose-300' : 'text-slate-500'
+          }`}>{unpaidCount}</span>
+        </button>
       </div>
+
+      {/* Active filter label */}
+      {activeFilter !== 'all' && (
+        <div className="flex items-center gap-2 animate-fade-in">
+          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+            {language === 'mr' ? 'फिल्टर:' : 'Filtering:'}
+          </span>
+          <span className={`text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-lg ${
+            activeFilter === 'vacant' ? 'bg-emerald-500/15 text-emerald-400' :
+            activeFilter === 'due-out' ? 'bg-amber-500/15 text-amber-400' :
+            activeFilter === 'in-house' ? 'bg-sky-500/15 text-sky-400' :
+            activeFilter === 'unpaid' ? 'bg-rose-500/15 text-rose-400' : ''
+          }`}>
+            {activeFilter === 'vacant' ? (language === 'mr' ? 'रिकाम्या खोल्या' : 'Vacant Rooms') :
+             activeFilter === 'due-out' ? (language === 'mr' ? 'आज निघणारे' : 'Due Out Today') :
+             activeFilter === 'in-house' ? (language === 'mr' ? 'मुक्कामी ग्राहक' : 'In-House Guests') :
+             activeFilter === 'unpaid' ? (language === 'mr' ? 'बाकी रक्कम' : 'Unpaid Dues') : ''}
+          </span>
+          <button
+            onClick={() => setActiveFilter('all')}
+            className="text-[10px] font-bold text-slate-600 hover:text-slate-400 transition underline"
+          >
+            {language === 'mr' ? 'सर्व दाखवा' : 'Show all'}
+          </button>
+        </div>
+      )}
+
+
 
       {/* Floors Room Layout */}
       <div className="flex flex-col gap-8">
@@ -639,16 +768,43 @@ export default function InventoryPage() {
               
               {/* Grid Cards Layout */}
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 sm:gap-4">
-                {rooms.map((room) => (
-                  <RoomCard
-                    key={room.id}
-                    room={room}
-                    onClick={handleRoomClick}
-                    onLongPress={handleRoomLongPress}
-                    dailyBookings={data.daily_bookings}
-                    selectedDate={selectedDate}
-                  />
-                ))}
+                {rooms.map((room) => {
+                  // Determine if this room matches the active filter.
+                  // Use filter()+some() instead of find() so handoff rooms
+                  // (which have BOTH a checkout AND an arrival booking active
+                  // on the same day) correctly match whichever filter is active.
+                  let matchesFilter = true
+                  if (activeFilter !== 'all') {
+                    const roomBookings = (data.daily_bookings || []).filter(
+                      (b: any) => b.room_id === room.id && b.status === 'active'
+                    )
+                    if (activeFilter === 'vacant') {
+                      matchesFilter = roomBookings.length === 0
+                    } else if (activeFilter === 'due-out') {
+                      matchesFilter = roomBookings.some((b: any) => formatIST_Date(b.check_out) === selectedDate)
+                    } else if (activeFilter === 'in-house') {
+                      matchesFilter = roomBookings.some((b: any) => b.is_checked_in && formatIST_Date(b.check_out) !== selectedDate)
+                    } else if (activeFilter === 'unpaid') {
+                      matchesFilter = roomBookings.some((b: any) => b.is_checked_in && ['unpaid', 'partial'].includes(b.payment_status))
+                    }
+                  }
+                  return (
+                    <div
+                      key={room.id}
+                      className={`transition-all duration-300 ${
+                        !matchesFilter ? 'opacity-25 scale-[0.97] pointer-events-none' : ''
+                      }`}
+                    >
+                      <RoomCard
+                        room={room}
+                        onClick={handleRoomClick}
+                        onLongPress={handleRoomLongPress}
+                        dailyBookings={data.daily_bookings}
+                        selectedDate={selectedDate}
+                      />
+                    </div>
+                  )
+                })}
               </div>
             </section>
           )
@@ -738,7 +894,7 @@ export default function InventoryPage() {
                       >
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-black text-slate-150 flex items-center gap-1">
-                            👤 {dName}
+                            👤 {formatNameByLanguage(dName, language)}
                             {isDeleted && (
                               <span className="bg-rose-500/10 text-rose-400 px-1 py-0.5 rounded text-[8px] font-black border border-rose-500/20">
                                 {language === 'mr' ? 'डिलीट' : 'Del'}

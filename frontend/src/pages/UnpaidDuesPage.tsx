@@ -16,7 +16,7 @@ import { getUnpaidDues } from '../api/dues'
 import BookingDetailSheet from '../components/BookingDetailSheet'
 import { useLanguage } from '../context/LanguageContext'
 import { getCustomerNameDisplay, cleanPhoneDisplay } from '../utils/customer'
-import { getMarathiName } from '../utils/nameHelper'
+import { shortenLongName, formatNameByLanguage } from '../utils/nameHelper'
 import useLongPress from '../hooks/useLongPress'
 import { cancelBooking, restoreBooking } from '../api/bookings'
 import toast from 'react-hot-toast'
@@ -72,12 +72,14 @@ export default function UnpaidDuesPage() {
         </div>
       ), {
         duration: 7000,
-        position: 'bottom-center',
+        position: 'bottom-left',
         style: {
           background: '#0f172a',
           color: '#f8fafc',
           border: '1px solid #334155',
           borderRadius: '16px',
+          minWidth: 'fit-content',
+          marginBottom: '4.5rem',
         }
       })
     },
@@ -358,7 +360,7 @@ export default function UnpaidDuesPage() {
               <p className="text-xs text-slate-455 mt-1 font-semibold flex items-center gap-1">
                 👤 {(() => {
                   const { name: dName, isDeleted } = getCustomerNameDisplay(quickActionDue.customers?.name);
-                  const displayName = getMarathiName(dName);
+                  const displayName = formatNameByLanguage(dName, language);
                   return (
                     <>
                       <span>{displayName}</span>
@@ -389,7 +391,7 @@ export default function UnpaidDuesPage() {
                   setCancelConfirmBooking({
                     id: quickActionDue.id,
                     roomNumber: String(quickActionDue.rooms.number),
-                    customerName: getMarathiName(getCustomerNameDisplay(quickActionDue.customers?.name).name) || ""
+                    customerName: formatNameByLanguage(getCustomerNameDisplay(quickActionDue.customers?.name).name, language) || ""
                   })
                   setQuickActionDue(null)
                 }}
@@ -480,7 +482,7 @@ function DueCard({ due, onClick, onLongPress, language, getStatusLabel, getCheck
           <span className="text-slate-100 font-extrabold text-sm group-hover:text-emerald-400 transition truncate flex items-center gap-1.5">
             {(() => {
               const { name: dName, isDeleted } = getCustomerNameDisplay(due.customers?.name || due.customers?.phone);
-              const displayName = getMarathiName(dName);
+              const displayName = shortenLongName(formatNameByLanguage(dName, language));
               return (
                 <>
                   <span className="truncate">{displayName}</span>

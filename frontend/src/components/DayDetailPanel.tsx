@@ -12,6 +12,7 @@ import toast from 'react-hot-toast'
 import { cancelBooking, restoreBooking } from '../api/bookings'
 import { useLanguage } from '../context/LanguageContext'
 import { getCustomerNameDisplay } from '../utils/customer'
+import { formatNameByLanguage } from '../utils/nameHelper'
 
 interface DayDetailPanelProps {
   dateStr: string
@@ -70,12 +71,14 @@ export default function DayDetailPanel({ dateStr, onClose }: DayDetailPanelProps
         </div>
       ), {
         duration: 7000,
-        position: 'bottom-center',
+        position: 'bottom-left',
         style: {
           background: '#0f172a',
           color: '#f8fafc',
           border: '1px solid #334155',
           borderRadius: '16px',
+          minWidth: 'fit-content',
+          marginBottom: '4.5rem',
         }
       })
     },
@@ -223,9 +226,10 @@ export default function DayDetailPanel({ dateStr, onClose }: DayDetailPanelProps
               <p className="text-xs text-slate-455 mt-1 font-semibold flex items-center gap-1">
                 👤 {(() => {
                   const { name: dName, isDeleted } = getCustomerNameDisplay(quickActionRoom.booking?.customers?.name);
+                  const formattedName = formatNameByLanguage(dName, language);
                   return (
                     <>
-                      <span>{dName}</span>
+                      <span>{formattedName}</span>
                       {isDeleted && (
                         <span className="bg-rose-500/10 text-rose-400 px-1.5 py-0.5 rounded text-[9px] font-black border border-rose-500/20 ml-1">
                           {language === 'mr' ? 'डिलीट केलेला' : 'Deleted'}
@@ -253,7 +257,7 @@ export default function DayDetailPanel({ dateStr, onClose }: DayDetailPanelProps
                   setCancelConfirmBooking({
                     id: quickActionRoom.booking!.id,
                     roomNumber: String(quickActionRoom.number),
-                    customerName: getCustomerNameDisplay(quickActionRoom.booking!.customers?.name).name || ""
+                    customerName: formatNameByLanguage(getCustomerNameDisplay(quickActionRoom.booking!.customers?.name).name, language) || ""
                   })
                   setQuickActionRoom(null)
                 }}
@@ -354,9 +358,10 @@ function DayPanelRoomButton({ room, onClick, onLongPress, language }: DayPanelRo
         {room.booking?.customers?.name ? (
           (() => {
             const { name: dName, isDeleted } = getCustomerNameDisplay(room.booking.customers.name);
+            const formattedName = formatNameByLanguage(dName, language);
             return (
               <>
-                <span className="truncate">{dName}</span>
+                <span className="truncate">{formattedName}</span>
                 {isDeleted && (
                   <span className="text-rose-455 font-bold shrink-0">
                     ({language === 'mr' ? 'डिलीट' : 'Del'})

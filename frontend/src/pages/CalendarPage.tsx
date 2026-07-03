@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { format, parseISO, isToday, isBefore } from 'date-fns'
-import { ChevronDown, RefreshCw, Loader2, ShieldAlert } from 'lucide-react'
+import { format, addDays, parseISO, isToday, isBefore } from 'date-fns'
+import { ChevronDown, ChevronRight, RefreshCw, Loader2, ShieldAlert } from 'lucide-react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useCalendar } from '../hooks/useCalendar'
 import CalendarGrid from '../components/CalendarGrid'
@@ -222,6 +222,22 @@ export default function CalendarPage() {
   const targetDisplayStr = format(parseISO(targetDateStr), 'EEEE, d MMM')
 
   const isTargetToday = targetDateStr === todayDateStr
+
+  // Tomorrow data — only meaningful when viewing today
+  const tomorrowDateStr = format(addDays(today, 1), 'yyyy-MM-dd')
+  const tomorrowDayInfo = targetMonthData?.days?.find(d => d.date === tomorrowDateStr)
+  const tomorrowArrivals = tomorrowDayInfo?.arrivals ?? 0
+  const tomorrowDepartures = tomorrowDayInfo?.departures ?? 0
+  const tomorrowRelativeFree = (tomorrowDayInfo?.vacant ?? 0) + tomorrowDepartures
+  const tomorrowDisplayStr = format(addDays(today, 1), 'EEE, d MMM')
+
+  // Relative free = physically vacant now + checking out today
+  const departsToday = targetDayInfo?.departures ?? 0
+  const relativeFreeTarget = vacantTarget + departsToday
+
+  const isTargetFuture = targetDateStr > todayDateStr
+  const displayFreeTarget = isTargetFuture ? relativeFreeTarget : vacantTarget
+
   const summaryTitle = isTargetToday
     ? (language === 'mr' ? 'आजचा अहवाल' : "Today's Summary")
     : (language === 'mr' ? 'निवडलेल्या तारखेचा अहवाल' : "Selected Date's Summary")
@@ -282,7 +298,11 @@ export default function CalendarPage() {
             {/* Free Badge */}
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-extrabold">
               <span className="h-2 w-2 rounded-full bg-emerald-400" />
-              <span>{totalRooms ? vacantTarget : '—'} {language === 'mr' ? 'रिकाम्या' : 'Free'}</span>
+              <span>
+                {totalRooms ? displayFreeTarget : '—'}
+                {!isTargetFuture && departsToday > 0 && ` (+${departsToday})`}
+                {' '}{language === 'mr' ? 'रिकाम्या' : 'Free'}
+              </span>
             </div>
 
             {/* Occupied Badge */}
@@ -323,8 +343,16 @@ export default function CalendarPage() {
                   {language === 'mr' ? 'रिकाम्या' : 'Free'}
                 </span>
                 <span className="text-3xl font-black text-emerald-400 tracking-tight">
-                  {totalRooms ? vacantTarget : '—'}
+                  {totalRooms ? displayFreeTarget : '—'}
                 </span>
+                {departsToday > 0 && totalRooms > 0 && (
+                  <span className="text-[8px] font-bold text-emerald-400/60 mt-0.5 leading-tight animate-pulse">
+                    {isTargetFuture
+                      ? (language === 'mr' ? `समाविष्ट ${departsToday} बाहेर` : `incl. ${departsToday} due out`)
+                      : (language === 'mr' ? `+${departsToday} आज बाहेर` : `+${departsToday} due out`)
+                    }
+                  </span>
+                )}
               </div>
 
               {/* Occupied Card */}
@@ -378,6 +406,44 @@ export default function CalendarPage() {
       </div>
 
 
+
+      {/* Tomorrow at a Glance — visible only when viewing today and month data is loaded */}
+      {isTargetToday && tomorrowDayInfo && (
+        <div
+          onClick={() => navigate(`/inventory?date=${tomorrowDateStr}`)}
+          className="glass-panel rounded-2xl px-4 py-3 bg-slate-900/40 border border-slate-800/60 flex items-center justify-between cursor-pointer hover:bg-slate-900/60 active:scale-[0.99] transition select-none animate-fade-in"
+        >
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
+              {language === 'mr' ? 'उद्या' : 'Tomorrow'}
+            </span>
+            <span className="text-xs font-extrabold text-slate-300">{tomorrowDisplayStr}</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex flex-col items-center gap-0.5">
+              <span className="text-base font-black text-emerald-400">{tomorrowRelativeFree}</span>
+              <span className="text-[8px] font-bold text-slate-500 uppercase tracking-wider">
+                {language === 'mr' ? 'रिकाम्या' : 'Free'}
+              </span>
+            </div>
+            <div className="w-px h-7 bg-slate-800" />
+            <div className="flex flex-col items-center gap-0.5">
+              <span className="text-base font-black text-amber-400">{tomorrowArrivals}</span>
+              <span className="text-[8px] font-bold text-slate-500 uppercase tracking-wider">
+                {language === 'mr' ? 'येणार' : 'Arriving'}
+              </span>
+            </div>
+            <div className="w-px h-7 bg-slate-800" />
+            <div className="flex flex-col items-center gap-0.5">
+              <span className="text-base font-black text-rose-400">{tomorrowDepartures}</span>
+              <span className="text-[8px] font-bold text-slate-500 uppercase tracking-wider">
+                {language === 'mr' ? 'जाणार' : 'Leaving'}
+              </span>
+            </div>
+          </div>
+          <ChevronRight className="h-4 w-4 text-slate-600 flex-shrink-0" />
+        </div>
+      )}
 
       {/* Main Grid View List */}
       <div className="flex flex-col gap-4">

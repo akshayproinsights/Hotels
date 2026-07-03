@@ -11,6 +11,8 @@ import { listCustomerDocs, getUploadUrl, uploadFileToR2, confirmUpload } from '.
 import { compressImage, compressImages } from '../utils/imageCompressor'
 import DocumentLightbox from './DocumentLightbox'
 import { useVisualViewport } from '../hooks/useVisualViewport'
+import { formatNameByLanguage } from '../utils/nameHelper'
+import { useLanguage } from '../context/LanguageContext'
 
 interface CustomerProfileSheetProps {
   customer: Customer
@@ -19,6 +21,7 @@ interface CustomerProfileSheetProps {
 
 export default function CustomerProfileSheet({ customer, onClose }: CustomerProfileSheetProps) {
   const viewport = useVisualViewport()
+  const { language } = useLanguage()
   const [selectedDoc, setSelectedDoc] = useState<Document | null>(null)
   const [isUploading, setIsUploading] = useState(false)
 
@@ -201,7 +204,7 @@ export default function CustomerProfileSheet({ customer, onClose }: CustomerProf
                 })()}
                 <div>
                   <h3 className="text-lg font-black text-slate-100 flex items-center gap-2">
-                    {customer.name}
+                    {formatNameByLanguage(customer.name, language)}
                   </h3>
                   <a
                     href={`tel:${customer.phone}`}
@@ -421,7 +424,7 @@ export default function CustomerProfileSheet({ customer, onClose }: CustomerProf
         <DocumentLightbox
           docUrl={selectedDoc.public_url || ''}
           fileName={selectedDoc.file_name}
-          customerName={customer.name}
+          customerName={formatNameByLanguage(customer.name, language)}
           roomNumber={
             bookings.find(b => b.id === selectedDoc.booking_id)?.rooms?.number ||
             bookings[0]?.rooms?.number

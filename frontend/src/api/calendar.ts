@@ -7,6 +7,8 @@ export interface CalendarDay {
   occupied: number
   pending: number
   status: 'full' | 'few_left' | 'vacant'
+  arrivals: number
+  departures: number
 }
 
 export interface CalendarResponse {

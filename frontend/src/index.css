@@ -608,3 +608,12 @@ html:not(.dark) .nkp-rec-name {
   box-shadow: 0 4px 20px rgba(139, 92, 246, 0.35);
 }
 
+/* Ensure bottom-left react-hot-toast remains on the left side on mobile screens */
+@media (max-width: 600px) {
+  #react-hot-toast > div[style*="justify-content: flex-start"] {
+    justify-content: flex-start !important;
+    padding-left: 12px !important;
+  }
+}
+
+

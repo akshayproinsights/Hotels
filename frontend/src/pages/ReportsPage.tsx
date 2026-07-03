@@ -9,7 +9,6 @@ import {
   Search, 
   RefreshCw,
   AlertTriangle,
-  Percent,
   Calendar,
   CheckCircle2,
   XCircle,
@@ -20,6 +19,7 @@ import {
 import { getFinancials } from '../api/reports'
 import BookingDetailSheet from '../components/BookingDetailSheet'
 import { useLanguage } from '../context/LanguageContext'
+import { formatNameByLanguage } from '../utils/nameHelper'
 
 export default function ReportsPage() {
   const { t, language } = useLanguage()
@@ -117,13 +117,13 @@ export default function ReportsPage() {
       )
     }
 
-    // Sort by stay duration (checkout - checkin) descending.
-    // If durations are equal, fallback to checking-in date descending for a stable sort.
+    // Sort by check-out time (duration's max time) descending.
+    // If check-out times are equal, fallback to checking-in date descending for a stable sort.
     return [...list].sort((a, b) => {
-      const durA = parseISO(a.check_out).getTime() - parseISO(a.check_in).getTime()
-      const durB = parseISO(b.check_out).getTime() - parseISO(b.check_in).getTime()
-      if (durB !== durA) {
-        return durB - durA
+      const timeA = parseISO(a.check_out).getTime()
+      const timeB = parseISO(b.check_out).getTime()
+      if (timeB !== timeA) {
+        return timeB - timeA
       }
       return parseISO(b.check_in).getTime() - parseISO(a.check_in).getTime()
     })
@@ -157,7 +157,7 @@ export default function ReportsPage() {
     }
 
     const rows = filteredLedger.map(item => [
-      safeCell(item.customer_name),
+      safeCell(formatNameByLanguage(item.customer_name, language)),
       safeCell(item.room_number),
       safeCell(item.room_type),
       safeCell(item.check_in),
@@ -249,10 +249,10 @@ export default function ReportsPage() {
   // Payment modes calculation list
   const paymentModesList = useMemo(() => {
     if (!reportData?.payment_modes) return []
-    const modes = reportData.payment_modes
-    const total = Object.values(modes).reduce((sum, val) => sum + val, 0) || 1
+    const entries = Object.entries(reportData.payment_modes).filter(([mode]) => mode !== 'Pending')
+    const total = entries.reduce((sum, [_, val]) => sum + val, 0) || 1
 
-    return Object.entries(modes)
+    return entries
       .map(([mode, val]) => ({
         mode,
         value: val,
@@ -499,7 +499,7 @@ export default function ReportsPage() {
       ) : (
         <>
           {/* KPI Summary Cards Grid */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             
             {/* Earnings */}
             <div className="glass-panel p-3.5 border border-emerald-500/10 bg-emerald-500/[0.02] rounded-3xl relative overflow-hidden flex flex-col justify-between min-h-[100px] group hover:border-emerald-500/20 transition-all">
@@ -531,44 +531,6 @@ export default function ReportsPage() {
                 </span>
                 <p className="text-[8px] font-semibold text-slate-500 mt-0.5">
                   {language === 'mr' ? 'जमा करायची बाकी रक्कम' : 'Remaining unpaid balance'}
-                </p>
-              </div>
-            </div>
-
-            {/* Occupancy Rate */}
-            <div className="glass-panel p-3.5 border border-blue-500/10 bg-blue-500/[0.01] rounded-3xl relative overflow-hidden flex flex-col justify-between min-h-[100px] group hover:border-blue-500/20 transition-all">
-              <div className="absolute top-0 right-0 w-16 h-16 bg-blue-500/5 rounded-full blur-2xl group-hover:scale-125 transition-transform" />
-              <div className="flex items-center justify-between">
-                <span className="text-[9px] font-bold text-blue-400/80 uppercase tracking-wider">{t('occupancy_rate')}</span>
-                <Hotel className="h-3.5 w-3.5 text-blue-400" />
-              </div>
-              <div className="mt-3">
-                <span className="text-lg sm:text-xl font-black text-slate-100 tracking-tight">
-                  {reportData?.summary.occupancy_rate}%
-                </span>
-                <p className="text-[8px] font-semibold text-slate-500 mt-0.5">
-                  {language === 'mr' 
-                    ? `${reportData?.summary.occupied_nights} रात्री बुक (${reportData?.summary.total_rooms} खोल्या)`
-                    : `${reportData?.summary.occupied_nights} nights sold (${reportData?.summary.total_rooms} active rooms)`}
-                </p>
-              </div>
-            </div>
-
-            {/* Average Booking Value */}
-            <div className="glass-panel p-3.5 border border-purple-500/10 bg-purple-500/[0.01] rounded-3xl relative overflow-hidden flex flex-col justify-between min-h-[100px] group hover:border-purple-500/20 transition-all">
-              <div className="absolute top-0 right-0 w-16 h-16 bg-purple-500/5 rounded-full blur-2xl group-hover:scale-125 transition-transform" />
-              <div className="flex items-center justify-between">
-                <span className="text-[9px] font-bold text-purple-400/80 uppercase tracking-wider">{t('average_booking_value')}</span>
-                <Percent className="h-3.5 w-3.5 text-purple-400" />
-              </div>
-              <div className="mt-3">
-                <span className="text-lg sm:text-xl font-black text-slate-100 tracking-tight">
-                  ₹{reportData?.summary.avg_booking_value.toLocaleString('en-IN')}
-                </span>
-                <p className="text-[8px] font-semibold text-slate-500 mt-0.5">
-                  {language === 'mr' 
-                    ? `एकूण ${reportData?.summary.total_bookings} बुकिंगचे मूल्य`
-                    : `Average across ${reportData?.summary.total_bookings} bookings`}
                 </p>
               </div>
             </div>
@@ -879,7 +841,7 @@ export default function ReportsPage() {
                           {/* Customer */}
                           <td className="py-3.5 px-4 truncate max-w-[140px] font-extrabold text-slate-200">
                             <div className="flex items-center gap-1">
-                              <span className="truncate">{item.customer_name}</span>
+                              <span className="truncate">{formatNameByLanguage(item.customer_name, language)}</span>
                               {item.customer_is_deleted && (
                                 <span className="bg-rose-500/10 text-rose-400 px-1.5 py-0.5 rounded text-[9px] font-black border border-rose-500/20 whitespace-nowrap">
                                   {language === 'mr' ? 'डिलीट' : 'Deleted'}

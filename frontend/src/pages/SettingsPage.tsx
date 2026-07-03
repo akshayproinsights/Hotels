@@ -13,6 +13,7 @@ import { useLanguage } from '../context/LanguageContext'
 import { useAuth } from '../hooks/useAuth'
 import useLongPress from '../hooks/useLongPress'
 import { getCustomerNameDisplay, cleanPhoneDisplay } from '../utils/customer'
+import { formatNameByLanguage } from '../utils/nameHelper'
 
 interface CustomerCardProps {
   customer: Customer
@@ -27,7 +28,7 @@ function CustomerCard({ customer, onClick, onLongPress, language }: CustomerCard
     () => onClick(customer)
   )
 
-  const { name: displayName } = getCustomerNameDisplay(customer.name)
+  const displayName = formatNameByLanguage(getCustomerNameDisplay(customer.name).name, language)
   const displayPhone = cleanPhoneDisplay(customer.phone)
 
   return (
@@ -676,9 +677,10 @@ export default function SettingsPage() {
                         <h3 className="text-base font-extrabold text-slate-100 truncate pr-2 flex items-center gap-1">
                           👤 {(() => {
                             const { name: dName, isDeleted } = getCustomerNameDisplay(b.customers?.name);
+                            const displayName = formatNameByLanguage(dName, language);
                             return (
                               <>
-                                <span className="truncate">{dName}</span>
+                                <span className="truncate">{displayName}</span>
                                 {isDeleted && (
                                   <span className="bg-rose-500/10 text-rose-400 px-1.5 py-0.5 rounded text-[9px] font-black border border-rose-500/20 ml-1 whitespace-nowrap">
                                     {language === 'mr' ? 'डिलीट केलेले' : 'Deleted'}
@@ -1051,9 +1053,9 @@ export default function SettingsPage() {
                   {language === 'mr' ? '⚠️ ही क्रिया पूर्ववत केली जाऊ शकत नाही!' : '⚠️ This action CANNOT be undone!'}
                 </span>
                 {language === 'mr' ? (
-                  <>खोली क्रमांक <span className="font-extrabold text-slate-200">{bookingToDelete.rooms?.number || bookingToDelete.room_id}</span> मधील ग्राहक <span className="font-extrabold text-slate-200">{bookingToDelete.customers?.name}</span> यांचे बुकिंग कायमचे डिलीट करायचे आहे का? सर्व संबंधित दस्तऐवज आणि माहिती कायमची नष्ट होईल.</>
+                  <>खोली क्रमांक <span className="font-extrabold text-slate-200">{bookingToDelete.rooms?.number || bookingToDelete.room_id}</span> मधील ग्राहक <span className="font-extrabold text-slate-200">{formatNameByLanguage(bookingToDelete.customers?.name, language)}</span> यांचे बुकिंग कायमचे डिलीट करायचे आहे का? सर्व संबंधित दस्तऐवज आणि माहिती कायमची नष्ट होईल.</>
                 ) : (
-                  <>Permanently delete the booking for <span className="font-extrabold text-slate-200">{bookingToDelete.customers?.name}</span> in Room <span className="font-extrabold text-slate-200">{bookingToDelete.rooms?.number || bookingToDelete.room_id}</span>? All associated data and documents will be permanently lost.</>
+                  <>Permanently delete the booking for <span className="font-extrabold text-slate-200">{formatNameByLanguage(bookingToDelete.customers?.name, language)}</span> in Room <span className="font-extrabold text-slate-200">{bookingToDelete.rooms?.number || bookingToDelete.room_id}</span>? All associated data and documents will be permanently lost.</>
                 )}
               </p>
             </div>
@@ -1098,9 +1100,9 @@ export default function SettingsPage() {
                   {language === 'mr' ? '⚠️ ही क्रिया पूर्ववत केली जाऊ शकत नाही!' : '⚠️ This action CANNOT be undone!'}
                 </span>
                 {language === 'mr' ? (
-                  <>तुम्हाला खरोखर ग्राहक <span className="font-extrabold text-slate-200">{getCustomerNameDisplay(customerToDelete.name).name}</span> डिलीट करायचे आहे का? त्यांचे रेकॉर्ड रिपोर्टमध्ये डिलीट चिन्हासह राहतील.</>
+                  <>तुम्हाला खरोखर ग्राहक <span className="font-extrabold text-slate-200">{formatNameByLanguage(getCustomerNameDisplay(customerToDelete.name).name, language)}</span> डिलीट करायचे आहे का? त्यांचे रेकॉर्ड रिपोर्टमध्ये डिलीट चिन्हासह राहतील.</>
                 ) : (
-                  <>Are you sure you want to delete customer <span className="font-extrabold text-slate-200">{getCustomerNameDisplay(customerToDelete.name).name}</span>? Their records will remain in history marked as deleted.</>
+                  <>Are you sure you want to delete customer <span className="font-extrabold text-slate-200">{formatNameByLanguage(getCustomerNameDisplay(customerToDelete.name).name, language)}</span>? Their records will remain in history marked as deleted.</>
                 )}
               </p>
             </div>

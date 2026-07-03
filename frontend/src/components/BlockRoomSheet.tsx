@@ -31,6 +31,7 @@ import { listAvailableRooms } from '../api/rooms'
 import { toUTCfromIST, formatIST_Date, formatIST_HHmm } from '../utils/istTime'
 import { useLanguage } from '../context/LanguageContext'
 import { useVisualViewport } from '../hooks/useVisualViewport'
+import { formatNameByLanguage } from '../utils/nameHelper'
 import DocumentLightbox from './DocumentLightbox'
 import NumericKeypad from './NumericKeypad'
 
@@ -1126,20 +1127,65 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
 
                   {/* Room Info Badge */}
                   {roomInfo ? (
-                    <div className="flex items-center gap-3 p-2.5 bg-emerald-500/8 rounded-xl border border-emerald-500/20">
-                      <div className="flex flex-col items-center justify-center w-12 h-12 rounded-xl bg-emerald-500/15 border border-emerald-500/25 flex-shrink-0">
-                        <span className="text-base font-black text-emerald-300 leading-none">{roomInfo.number}</span>
-                        <span className="text-[8px] text-emerald-600 font-bold uppercase mt-0.5">{language === 'mr' ? 'खोली' : 'Room'}</span>
+                    <div className="flex items-center gap-2.5 p-2.5 bg-emerald-500/8 rounded-xl border border-emerald-500/20">
+                      <div className="flex flex-col items-center justify-center w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/25 flex-shrink-0">
+                        <span className="text-sm font-black text-emerald-300 leading-none">{roomInfo.number}</span>
+                        <span className="text-[7px] text-emerald-600 font-bold uppercase mt-0.5">{language === 'mr' ? 'खोली' : 'Room'}</span>
                       </div>
-                      <div className="min-w-0">
-                        <div className="text-sm font-bold text-slate-100 truncate">{config.room_type}</div>
-                        <div className="text-[11px] text-slate-400">{language === 'mr' ? 'मजला' : 'Floor'} {roomInfo.floor}</div>
-                        <div className="text-[11px] text-emerald-400 font-bold">₹{config.room_price}<span className="text-slate-600 font-normal">/{language === 'mr' ? 'रात्र' : 'night'}</span></div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-bold text-slate-100 truncate">{config.room_type}</div>
                       </div>
+                      {/* AC / Non-AC Toggle */}
+                      {(() => {
+                        const isNonAc = config.room_type.includes('Non AC')
+                        const isVip = config.room_type.includes('VIP')
+                        const toggleToNonAc = () => {
+                          const newType: 'Non AC Deluxe' | 'VIP Non AC Suite' = isVip ? 'VIP Non AC Suite' : 'Non AC Deluxe'
+                          const newPrice = roomInfo.non_ac_price ?? config.room_price
+                          // Keep same room_id — only swap type & price (bypass updateRoomConfig's room-search logic)
+                          setSelectedRooms(prev => prev.map(r =>
+                            r.id === config.id ? { ...r, room_type: newType, room_price: newPrice } : r
+                          ))
+                        }
+                        const toggleToAc = () => {
+                          const newType: 'AC Deluxe' | 'VIP AC Suite' = isVip ? 'VIP AC Suite' : 'AC Deluxe'
+                          const newPrice = roomInfo.base_price ?? config.room_price
+                          // Keep same room_id — only swap type & price
+                          setSelectedRooms(prev => prev.map(r =>
+                            r.id === config.id ? { ...r, room_type: newType, room_price: newPrice } : r
+                          ))
+                        }
+                        return (
+                          <div className="flex items-center bg-slate-900 border border-slate-700/60 rounded-xl p-0.5 gap-0.5 flex-shrink-0">
+                            <button
+                              type="button"
+                              onClick={toggleToAc}
+                              className={`px-2 py-1 rounded-lg text-[10px] font-black transition ${
+                                !isNonAc
+                                  ? 'bg-emerald-500 text-slate-900'
+                                  : 'text-slate-500 hover:text-slate-300'
+                              }`}
+                            >
+                              AC
+                            </button>
+                            <button
+                              type="button"
+                              onClick={toggleToNonAc}
+                              className={`px-2 py-1 rounded-lg text-[10px] font-black transition ${
+                                isNonAc
+                                  ? 'bg-amber-400 text-slate-900'
+                                  : 'text-slate-500 hover:text-slate-300'
+                              }`}
+                            >
+                              Non AC
+                            </button>
+                          </div>
+                        )
+                      })()}
                       <button
                         type="button"
                         onClick={() => setShowRoomPicker(true)}
-                        className="ml-auto text-[10px] text-slate-500 hover:text-emerald-400 font-bold underline underline-offset-2 flex-shrink-0 transition"
+                        className="text-[10px] text-slate-500 hover:text-emerald-400 font-bold underline underline-offset-2 flex-shrink-0 transition"
                       >
                         {language === 'mr' ? 'बदला' : 'Change'}
                       </button>
@@ -1156,70 +1202,72 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
                   )}
 
 
-                  {/* Steppers & Price for this Room */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="flex flex-col gap-1.5">
-                      <div className="grid grid-cols-2 gap-2">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{language === 'mr' ? 'प्रौढ' : 'Adults'}</span>
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{language === 'mr' ? 'मुले' : 'Children'}</span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="flex items-center justify-between bg-slate-950 border border-slate-800 rounded-2xl p-1 h-[38px]">
-                          <button
-                            type="button"
-                            onClick={() => updateRoomConfig(config.id, { adults: Math.max(1, config.adults - 1) })}
-                            className="p-1.5 rounded-lg hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
-                          >
-                            <Minus className="h-2.5 w-2.5" />
-                          </button>
-                          <span className="text-xs font-bold text-slate-200">{config.adults}</span>
-                          <button
-                            type="button"
-                            onClick={() => updateRoomConfig(config.id, { adults: config.adults + 1 })}
-                            className="p-1.5 rounded-lg hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
-                          >
-                            <Plus className="h-2.5 w-2.5" />
-                          </button>
-                        </div>
-                        <div className="flex items-center justify-between bg-slate-950 border border-slate-800 rounded-2xl p-1 h-[38px]">
-                          <button
-                            type="button"
-                            onClick={() => updateRoomConfig(config.id, { children: Math.max(0, config.children - 1) })}
-                            className="p-1.5 rounded-lg hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
-                          >
-                            <Minus className="h-2.5 w-2.5" />
-                          </button>
-                          <span className="text-xs font-bold text-slate-200">{config.children}</span>
-                          <button
-                            type="button"
-                            onClick={() => updateRoomConfig(config.id, { children: config.children + 1 })}
-                            className="p-1.5 rounded-lg hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
-                          >
-                            <Plus className="h-2.5 w-2.5" />
-                          </button>
-                        </div>
+                  {/* Steppers — compact single row: Adults · Children · Extra Beds */}
+                  <div className="grid grid-cols-3 gap-2">
+                    {/* Adults */}
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 text-center">{language === 'mr' ? 'प्रौढ' : 'Adults'}</span>
+                      <div className="flex items-center justify-between bg-slate-950 border border-slate-800 rounded-xl p-1 h-8">
+                        <button
+                          type="button"
+                          onClick={() => updateRoomConfig(config.id, { adults: Math.max(1, config.adults - 1) })}
+                          className="p-1 rounded-lg hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
+                        >
+                          <Minus className="h-2.5 w-2.5" />
+                        </button>
+                        <span className="text-xs font-bold text-slate-200">{config.adults}</span>
+                        <button
+                          type="button"
+                          onClick={() => updateRoomConfig(config.id, { adults: config.adults + 1 })}
+                          className="p-1 rounded-lg hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
+                        >
+                          <Plus className="h-2.5 w-2.5" />
+                        </button>
                       </div>
                     </div>
 
-                    <div className="flex flex-col gap-1.5">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex justify-between">
-                        <span>{language === 'mr' ? 'अतिरिक्त बेड' : 'Extra Beds'}</span>
-                        <span className="text-[9px] text-slate-500 lowercase font-medium">
-                          +₹{(() => {
+                    {/* Children */}
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 text-center">{language === 'mr' ? 'मुले' : 'Children'}</span>
+                      <div className="flex items-center justify-between bg-slate-950 border border-slate-800 rounded-xl p-1 h-8">
+                        <button
+                          type="button"
+                          onClick={() => updateRoomConfig(config.id, { children: Math.max(0, config.children - 1) })}
+                          className="p-1 rounded-lg hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
+                        >
+                          <Minus className="h-2.5 w-2.5" />
+                        </button>
+                        <span className="text-xs font-bold text-slate-200">{config.children}</span>
+                        <button
+                          type="button"
+                          onClick={() => updateRoomConfig(config.id, { children: config.children + 1 })}
+                          className="p-1 rounded-lg hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
+                        >
+                          <Plus className="h-2.5 w-2.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Extra Beds */}
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 text-center flex items-center justify-center gap-0.5">
+                        {language === 'mr' ? 'अति. बेड' : 'Extra Bed'}
+                        <span className="text-[8px] text-slate-600 font-normal normal-case">
+                          (+₹{(() => {
                             const foundRoom = availableRooms.find(r => r.id === config.room_id) || partialRooms.find(r => r.id === config.room_id)
                             const nonAcTypes = ['Non AC Deluxe', 'VIP Non AC Suite']
                             const isNonAc = nonAcTypes.includes(config.room_type)
                             return isNonAc
                               ? (foundRoom?.non_ac_extra_bed_price ?? foundRoom?.extra_bed_price ?? 300)
                               : (foundRoom?.extra_bed_price ?? 500)
-                          })()}{language === 'mr' ? '/रात्र' : '/night'}
+                          })()})
                         </span>
                       </span>
-                      <div className="flex items-center justify-between bg-slate-950 border border-slate-800 rounded-2xl p-1 h-[38px]">
+                      <div className="flex items-center justify-between bg-slate-950 border border-slate-800 rounded-xl p-1 h-8">
                         <button
                           type="button"
                           onClick={() => updateRoomConfig(config.id, { extra_beds: Math.max(0, config.extra_beds - 1) })}
-                          className="p-1.5 rounded-lg hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
+                          className="p-1 rounded-lg hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
                         >
                           <Minus className="h-2.5 w-2.5" />
                         </button>
@@ -1227,7 +1275,7 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
                         <button
                           type="button"
                           onClick={() => updateRoomConfig(config.id, { extra_beds: config.extra_beds + 1 })}
-                          className="p-1.5 rounded-lg hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
+                          className="p-1 rounded-lg hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
                         >
                           <Plus className="h-2.5 w-2.5" />
                         </button>
@@ -1417,7 +1465,7 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
                           className="w-full px-4 py-3 text-left text-sm text-slate-300 hover:bg-slate-900 border-b border-slate-900 flex justify-between items-center transition"
                         >
                           <div className="flex flex-col">
-                            <span className="font-semibold">{guest.name}</span>
+                            <span className="font-semibold">{formatNameByLanguage(guest.name, language)}</span>
                             <span className="text-xs text-slate-500">{guest.phone}</span>
                           </div>
                           {guest.last_visit && (
@@ -1490,8 +1538,8 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
                       className="w-full px-4 py-3 text-left text-sm text-slate-300 hover:bg-slate-900 border-b border-slate-900 flex justify-between items-center transition"
                     >
                       <div className="flex flex-col">
-                        <span className="font-semibold">{guest.name}</span>
-                        <span className="text-xs text-slate-500">{guest.phone}</span>
+                        <span className="font-semibold">{formatNameByLanguage(guest.name, language)}</span>
+                        <span className="text-xs text-slate-505">{guest.phone}</span>
                       </div>
                       {guest.last_visit && (
                         <span className="text-xs text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded font-medium">
@@ -1854,7 +1902,7 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
         <DocumentLightbox
           docUrl={selectedDoc.public_url || ''}
           fileName={selectedDoc.file_name}
-          guestName={guestName || undefined}
+          guestName={formatNameByLanguage(guestName, language) || undefined}
           roomNumber={
             selectedRooms
               .map(config => {

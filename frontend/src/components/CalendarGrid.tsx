@@ -91,25 +91,37 @@ export default function CalendarGrid({ year, month, daysData, onDayClick }: Cale
             )
           }
 
+          const cellDate = new Date(year, month - 1, cell.dayNumber)
+          const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+          const isFuture = cellDate > todayDateOnly
+          const isPast = cellDate < todayDateOnly
+
           const status = cell.data?.status ?? 'vacant'
           const vacantCount = cell.data?.vacant ?? 0
+          // Relative free = physically vacant + guests leaving that day
+          // (matches Today's Summary and Tomorrow strip logic)
+          const relativeFreeCount = vacantCount + (cell.data?.departures ?? 0)
+
+          const displayFreeCount = isFuture ? relativeFreeCount : vacantCount
+
+          // Re-derive dot colour from displayFreeCount
+          let effectiveStatus: typeof status
+          if (displayFreeCount >= 5) effectiveStatus = 'vacant'
+          else if (displayFreeCount >= 1) effectiveStatus = 'few_left'
+          else effectiveStatus = 'full'
 
           let statusClasses = ''
           let dotColor = ''
-          if (status === 'vacant') {
+          if (effectiveStatus === 'vacant') {
             statusClasses = 'border-emerald-500/20 bg-emerald-500/[0.03] hover:bg-emerald-500/[0.08] hover:border-emerald-500/40 text-emerald-400'
             dotColor = 'bg-emerald-400'
-          } else if (status === 'few_left') {
+          } else if (effectiveStatus === 'few_left') {
             statusClasses = 'border-amber-500/20 bg-amber-500/[0.03] hover:bg-amber-500/[0.08] hover:border-amber-500/40 text-amber-400'
             dotColor = 'bg-amber-400'
           } else {
             statusClasses = 'border-rose-500/20 bg-rose-500/[0.03] hover:bg-rose-500/[0.08] hover:border-rose-500/40 text-rose-400'
             dotColor = 'bg-rose-400'
           }
-
-          const cellDate = new Date(year, month - 1, cell.dayNumber)
-          const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate())
-          const isPast = cellDate < todayDateOnly
 
           return (
             <button
@@ -125,7 +137,7 @@ export default function CalendarGrid({ year, month, daysData, onDayClick }: Cale
               <div className="flex items-center justify-center gap-1">
                 <span className={`h-1.5 w-1.5 rounded-full ${dotColor}`} />
                 <span className="text-[10px] font-extrabold tracking-tight opacity-90">
-                  {vacantCount}
+                  {displayFreeCount}
                 </span>
               </div>
             </button>
