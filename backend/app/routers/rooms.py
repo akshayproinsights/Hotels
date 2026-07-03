@@ -15,15 +15,19 @@ class RoomCreate(BaseModel):
     number: str = Field(..., min_length=1)
     floor: int = Field(..., ge=0)
     room_type: RoomType
-    base_price: float = Field(..., gt=0)
+    base_price: float = Field(..., ge=0)
     extra_bed_price: float = Field(default=500.0, ge=0)
+    non_ac_price: float = Field(default=0.0, ge=0)
+    non_ac_extra_bed_price: float = Field(default=500.0, ge=0)
 
 class RoomUpdate(BaseModel):
     number: Optional[str] = Field(default=None, min_length=1)
     floor: Optional[int] = Field(default=None, ge=0)
     room_type: Optional[RoomType] = None
-    base_price: Optional[float] = Field(default=None, gt=0)
+    base_price: Optional[float] = Field(default=None, ge=0)
     extra_bed_price: Optional[float] = Field(default=None, ge=0)
+    non_ac_price: Optional[float] = Field(default=None, ge=0)
+    non_ac_extra_bed_price: Optional[float] = Field(default=None, ge=0)
     is_active: Optional[bool] = None
 
 @router.get("/available")

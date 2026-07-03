@@ -5,6 +5,8 @@ export interface Room {
   room_type: 'AC Deluxe' | 'Non AC Deluxe' | 'VIP AC Suite' | 'VIP Non AC Suite'
   base_price: number
   extra_bed_price: number
+  non_ac_price: number
+  non_ac_extra_bed_price: number
   is_active: boolean
   created_at: string
 }

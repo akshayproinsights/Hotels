@@ -51,7 +51,7 @@ function CustomerCard({ customer, onClick, onLongPress, language }: CustomerCard
       </div>
       
       <div className="mt-3 pt-2.5 border-t border-slate-800/40 flex justify-between items-center text-[11px] text-slate-400 font-semibold">
-        <span className="bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-md text-[10px]">
+        <span className="inline-block whitespace-nowrap bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-md text-[10px] shrink-0">
           {customer.total_visits} {language === 'mr' ? 'भेटी' : (customer.total_visits === 1 ? 'visit' : 'visits')}
         </span>
         {customer.last_visit ? (
@@ -152,8 +152,10 @@ export default function SettingsPage() {
   const [roomType, setRoomType] = useState<'AC Deluxe' | 'Non AC Deluxe' | 'VIP AC Suite' | 'VIP Non AC Suite'>('AC Deluxe')
   const [basePrice, setBasePrice] = useState(1500)
   const [extraBedPrice, setExtraBedPrice] = useState(500)
+  const [nonAcPrice, setNonAcPrice] = useState(1000)
+  const [nonAcExtraBedPrice, setNonAcExtraBedPrice] = useState(300)
   const [isActive, setIsActive] = useState(true)
-  const [activeKeypad, setActiveKeypad] = useState<'floor' | 'basePrice' | 'extraBedPrice' | null>(null)
+  const [activeKeypad, setActiveKeypad] = useState<'floor' | 'basePrice' | 'extraBedPrice' | 'nonAcPrice' | 'nonAcExtraBedPrice' | null>(null)
 
   // Customer Search states
   const [searchQuery, setSearchQuery] = useState('')
@@ -291,6 +293,8 @@ export default function SettingsPage() {
     setRoomType('AC Deluxe')
     setBasePrice(1500)
     setExtraBedPrice(500)
+    setNonAcPrice(1000)
+    setNonAcExtraBedPrice(300)
     setIsActive(true)
     setModalOpen(true)
   }
@@ -299,9 +303,12 @@ export default function SettingsPage() {
     setEditingRoom(room)
     setNumber(room.number)
     setFloor(room.floor)
-    setRoomType(room.room_type)
+    const baseType = room.room_type === 'VIP AC Suite' || room.room_type === 'VIP Non AC Suite' ? 'VIP AC Suite' : 'AC Deluxe'
+    setRoomType(baseType)
     setBasePrice(room.base_price)
     setExtraBedPrice(room.extra_bed_price)
+    setNonAcPrice(room.non_ac_price || 0)
+    setNonAcExtraBedPrice(room.non_ac_extra_bed_price || 0)
     setIsActive(room.is_active)
     setModalOpen(true)
   }
@@ -324,6 +331,8 @@ export default function SettingsPage() {
       room_type: roomType,
       base_price: Number(basePrice),
       extra_bed_price: Number(extraBedPrice),
+      non_ac_price: Number(nonAcPrice),
+      non_ac_extra_bed_price: Number(nonAcExtraBedPrice),
       is_active: isActive
     }
 
@@ -481,37 +490,42 @@ export default function SettingsPage() {
                                   : (language === 'mr' ? 'निष्क्रिय' : 'Inactive')}
                               </span>
                             </div>
-                            <p className="text-slate-400 text-xs mt-1.5">{room.room_type}</p>
+                            <p className="text-slate-400 text-xs mt-1.5 font-bold uppercase tracking-wider">
+                              {room.room_type.includes('VIP') ? (language === 'mr' ? 'VIP सूट' : 'VIP Suite') : (language === 'mr' ? 'डीलक्स' : 'Deluxe')}
+                            </p>
                           </div>
 
-                          <div className="mt-4 pt-3 border-t border-slate-800/40 flex justify-between items-end">
-                            <div>
-                              <span className="text-slate-500 text-[10px] block uppercase font-medium">
-                                {language === 'mr' ? 'मूळ भाडे' : 'Base Price'}
-                              </span>
-                              <span className="text-slate-200 font-bold text-sm">₹{room.base_price}</span>
+                          <div className="flex flex-col gap-1 text-[11px] text-slate-400 mt-2 border-t border-slate-800/40 pt-2">
+                            <div className="flex justify-between">
+                              <span>AC: <strong className="text-emerald-400 font-bold">₹{room.base_price}</strong></span>
+                              <span>Extra Bed: <strong className="text-slate-300 font-semibold">₹{room.extra_bed_price}</strong></span>
                             </div>
-                            <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                              <button
-                                type="button"
-                                onClick={() => openEditModal(room)}
-                                className="p-1.5 text-slate-500 hover:text-emerald-400 transition rounded-lg hover:bg-slate-800/80"
-                                title={language === 'mr' ? 'संपादित करा' : 'Edit'}
-                              >
-                                <Edit3 className="h-4 w-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setRoomToDelete(room)
-                                  setShowDeleteRoomConfirm(true)
-                                }}
-                                className="p-1.5 text-slate-500 hover:text-rose-400 transition rounded-lg hover:bg-rose-500/10"
-                                title={language === 'mr' ? 'डिलीट करा' : 'Delete'}
-                              >
-                                <Trash2 className="h-4 w-4 text-slate-500 hover:text-rose-400" />
-                              </button>
+                            <div className="flex justify-between">
+                              <span>Non-AC: <strong className="text-sky-400 font-bold">₹{room.non_ac_price}</strong></span>
+                              <span>Extra Bed: <strong className="text-slate-300 font-semibold">₹{room.non_ac_extra_bed_price}</strong></span>
                             </div>
+                          </div>
+
+                          <div className="mt-2 pt-2 border-t border-slate-800/40 flex justify-end items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              onClick={() => openEditModal(room)}
+                              className="p-1.5 text-slate-550 hover:text-emerald-400 transition rounded-lg hover:bg-slate-800/80"
+                              title={language === 'mr' ? 'संपादित करा' : 'Edit'}
+                            >
+                              <Edit3 className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRoomToDelete(room)
+                                setShowDeleteRoomConfirm(true)
+                              }}
+                              className="p-1.5 text-slate-550 hover:text-rose-450 transition rounded-lg hover:bg-rose-500/10"
+                              title={language === 'mr' ? 'डिलीट करा' : 'Delete'}
+                            >
+                              <Trash2 className="h-4 w-4 text-slate-500 hover:text-rose-400" />
+                            </button>
                           </div>
                         </div>
                       ))}
@@ -802,47 +816,100 @@ export default function SettingsPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase">
+                <label className="block text-xs font-semibold text-slate-400 mb-2 uppercase">
                   {language === 'mr' ? 'खोलीचा प्रकार' : 'Room Type'}
                 </label>
-                <select
-                  value={roomType}
-                  onChange={(e) => setRoomType(e.target.value as any)}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50"
-                >
-                  <option value="AC Deluxe">AC Deluxe</option>
-                  <option value="Non AC Deluxe">Non AC Deluxe</option>
-                  <option value="VIP AC Suite">VIP AC Suite</option>
-                  <option value="VIP Non AC Suite">VIP Non AC Suite</option>
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase">
-                    {language === 'mr' ? 'मूळ भाडे (₹)' : 'Base Price (₹)'}
-                  </label>
+                <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
-                    onClick={() => setActiveKeypad('basePrice')}
-                    className="w-full bg-slate-900 border border-slate-800 hover:border-emerald-500 rounded-xl px-4 py-2.5 text-slate-200 text-left flex justify-between items-center transition"
+                    onClick={() => setRoomType('AC Deluxe')}
+                    className={`py-3 rounded-xl border-2 font-black text-xs transition duration-150 text-center ${
+                      roomType === 'AC Deluxe' || roomType === 'Non AC Deluxe'
+                        ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400'
+                        : 'border-slate-800 bg-slate-900 text-slate-400 hover:border-slate-700'
+                    }`}
                   >
-                    <span>₹{basePrice}</span>
-                    <span className="text-[10px] text-slate-500 font-bold">{language === 'mr' ? 'बदला' : 'Edit'}</span>
+                    🏢 {language === 'mr' ? 'डीलक्स' : 'Deluxe'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRoomType('VIP AC Suite')}
+                    className={`py-3 rounded-xl border-2 font-black text-xs transition duration-150 text-center ${
+                      roomType === 'VIP AC Suite' || roomType === 'VIP Non AC Suite'
+                        ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400'
+                        : 'border-slate-800 bg-slate-900 text-slate-400 hover:border-slate-700'
+                    }`}
+                  >
+                    👑 {language === 'mr' ? 'VIP सूट' : 'VIP Suite'}
                   </button>
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase">
-                    {language === 'mr' ? 'अतिरिक्त बेड (₹)' : 'Extra Bed (₹)'}
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setActiveKeypad('extraBedPrice')}
-                    className="w-full bg-slate-900 border border-slate-800 hover:border-emerald-500 rounded-xl px-4 py-2.5 text-slate-200 text-left flex justify-between items-center transition"
-                  >
-                    <span>₹{extraBedPrice}</span>
-                    <span className="text-[10px] text-slate-500 font-bold">{language === 'mr' ? 'बदला' : 'Edit'}</span>
-                  </button>
+              </div>
+
+              <div className="border-t border-slate-800/40 my-2 pt-3">
+                <span className="text-[10px] font-black text-emerald-450 uppercase tracking-widest block mb-2">
+                  ✨ {language === 'mr' ? 'AC चे दर (AC Rates)' : 'AC RATES'}
+                </span>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[9px] font-bold text-slate-500 mb-1 uppercase tracking-wider">
+                      {language === 'mr' ? 'भाडे (₹)' : 'Base Price (₹)'}
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setActiveKeypad('basePrice')}
+                      className="w-full bg-slate-900 border border-slate-800 hover:border-emerald-500 rounded-xl px-4 py-2.5 text-slate-200 text-left flex justify-between items-center transition"
+                    >
+                      <span>₹{basePrice}</span>
+                      <span className="text-[10px] text-slate-500 font-bold">{language === 'mr' ? 'बदला' : 'Edit'}</span>
+                    </button>
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-bold text-slate-500 mb-1 uppercase tracking-wider">
+                      {language === 'mr' ? 'अतिरिक्त बेड (₹)' : 'Extra Bed (₹)'}
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setActiveKeypad('extraBedPrice')}
+                      className="w-full bg-slate-900 border border-slate-800 hover:border-emerald-500 rounded-xl px-4 py-2.5 text-slate-200 text-left flex justify-between items-center transition"
+                    >
+                      <span>₹{extraBedPrice}</span>
+                      <span className="text-[10px] text-slate-500 font-bold">{language === 'mr' ? 'बदला' : 'Edit'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t border-slate-800/40 my-2 pt-3">
+                <span className="text-[10px] font-black text-sky-400 uppercase tracking-widest block mb-2">
+                  ❄️ {language === 'mr' ? 'Non-AC चे दर (Non-AC Rates)' : 'NON-AC RATES'}
+                </span>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[9px] font-bold text-slate-500 mb-1 uppercase tracking-wider">
+                      {language === 'mr' ? 'भाडे (₹)' : 'Base Price (₹)'}
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setActiveKeypad('nonAcPrice')}
+                      className="w-full bg-slate-900 border border-slate-800 hover:border-sky-500 rounded-xl px-4 py-2.5 text-slate-200 text-left flex justify-between items-center transition"
+                    >
+                      <span>₹{nonAcPrice}</span>
+                      <span className="text-[10px] text-slate-500 font-bold">{language === 'mr' ? 'बदला' : 'Edit'}</span>
+                    </button>
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-bold text-slate-500 mb-1 uppercase tracking-wider">
+                      {language === 'mr' ? 'अतिरिक्त बेड (₹)' : 'Extra Bed (₹)'}
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setActiveKeypad('nonAcExtraBedPrice')}
+                      className="w-full bg-slate-900 border border-slate-800 hover:border-sky-500 rounded-xl px-4 py-2.5 text-slate-200 text-left flex justify-between items-center transition"
+                    >
+                      <span>₹{nonAcExtraBedPrice}</span>
+                      <span className="text-[10px] text-slate-500 font-bold">{language === 'mr' ? 'बदला' : 'Edit'}</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -880,12 +947,24 @@ export default function SettingsPage() {
 
           {activeKeypad !== null && (
             <NumericKeypad
-              value={activeKeypad === 'floor' ? floor : activeKeypad === 'basePrice' ? basePrice : extraBedPrice}
+              value={
+                activeKeypad === 'floor'
+                  ? floor
+                  : activeKeypad === 'basePrice'
+                  ? basePrice
+                  : activeKeypad === 'extraBedPrice'
+                  ? extraBedPrice
+                  : activeKeypad === 'nonAcPrice'
+                  ? nonAcPrice
+                  : nonAcExtraBedPrice
+              }
               onDone={(val) => {
                 const numVal = Number(val) || 0
                 if (activeKeypad === 'floor') setFloor(numVal)
                 else if (activeKeypad === 'basePrice') setBasePrice(numVal)
                 else if (activeKeypad === 'extraBedPrice') setExtraBedPrice(numVal)
+                else if (activeKeypad === 'nonAcPrice') setNonAcPrice(numVal)
+                else if (activeKeypad === 'nonAcExtraBedPrice') setNonAcExtraBedPrice(numVal)
                 setActiveKeypad(null)
               }}
               onClose={() => setActiveKeypad(null)}
@@ -893,8 +972,12 @@ export default function SettingsPage() {
                 activeKeypad === 'floor'
                   ? (language === 'mr' ? 'मजला क्रमांक टाका' : 'Enter Floor Number')
                   : activeKeypad === 'basePrice'
-                  ? (language === 'mr' ? 'मूळ भाडे टाका' : 'Enter Base Price')
-                  : (language === 'mr' ? 'अतिरिक्त बेड भाडे टाका' : 'Enter Extra Bed Price')
+                  ? (language === 'mr' ? 'AC मूळ भाडे टाका' : 'Enter AC Base Price')
+                  : activeKeypad === 'extraBedPrice'
+                  ? (language === 'mr' ? 'AC अतिरिक्त बेड भाडे टाका' : 'Enter AC Extra Bed Price')
+                  : activeKeypad === 'nonAcPrice'
+                  ? (language === 'mr' ? 'Non-AC मूळ भाडे टाका' : 'Enter Non-AC Base Price')
+                  : (language === 'mr' ? 'Non-AC अतिरिक्त बेड भाडे टाका' : 'Enter Non-AC Extra Bed Price')
               }
               keypadType={activeKeypad === 'floor' ? 'number' : 'currency'}
               maxDigits={activeKeypad === 'floor' ? 2 : 6}

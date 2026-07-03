@@ -248,7 +248,7 @@ export default function InventoryPage() {
         // Checkouts: check_out is on selected Date
         const checkouts = dailyBookings
           .filter(b => b.check_out.startsWith(selectedDate))
-          .sort((a, b) => b.check_out.localeCompare(a.check_out))
+          .sort((a, b) => a.check_out.localeCompare(b.check_out))
         // Pending checkouts = still active and not yet checked out
         const checkoutsPending = checkouts.filter(b => b.status === 'active')
         // Done checkouts = already checked out (room freed)
@@ -728,7 +728,14 @@ export default function InventoryPage() {
                     const isCheckedOut = b.status === 'checked_out';
 
                     return (
-                      <div key={b.id} className="text-left bg-slate-955/40 border border-slate-850 p-3 rounded-2xl flex flex-col gap-2 hover:border-slate-800 transition">
+                      <div
+                        key={b.id}
+                        onClick={() => {
+                          setSelectedBookingId(b.id)
+                          setQuickActionRoom(null)
+                        }}
+                        className="text-left bg-slate-955/40 border border-slate-850 p-3 rounded-2xl flex flex-col gap-2 hover:border-slate-800 transition cursor-pointer"
+                      >
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-black text-slate-150 flex items-center gap-1">
                             👤 {dName}
@@ -761,7 +768,8 @@ export default function InventoryPage() {
                         <div className="grid grid-cols-2 gap-2 mt-1">
                           <button
                             type="button"
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation()
                               setSelectedBookingId(b.id)
                               setQuickActionRoom(null)
                             }}
@@ -773,7 +781,8 @@ export default function InventoryPage() {
                           {!isCheckedOut && (
                             <button
                               type="button"
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation()
                                 setCancelConfirmBooking({
                                   id: b.id,
                                   roomNumber: String(quickActionRoom.number),

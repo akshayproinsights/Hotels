@@ -57,6 +57,7 @@ def list_docs(booking_id: str, user=Depends(get_current_user)):
         .eq("booking_id", booking_id).execute()
     return [{"id": d["id"], "file_name": d["file_name"],
              "public_url": public_url(d["r2_key"]),
+             "doc_type": d.get("doc_type", "id_proof"),
              "uploaded_at": d["uploaded_at"]} for d in res.data]
 
 @router.get("/customer/{customer_id}")
@@ -65,6 +66,7 @@ def list_customer_docs(customer_id: str, user=Depends(get_current_user)):
         .eq("customer_id", customer_id).execute()
     return [{"id": d["id"], "file_name": d["file_name"],
              "public_url": public_url(d["r2_key"]),
+             "doc_type": d.get("doc_type", "id_proof"),
              "uploaded_at": d["uploaded_at"]} for d in res.data]
 
 from typing import List

@@ -142,8 +142,10 @@ def create_booking(body: BookingCreate, user=Depends(get_current_user)):
     check_out_date_local = body.check_out.astimezone(IST).date() if body.check_out.tzinfo else body.check_out.date()
     nights = max(1, (check_out_date_local - check_in_date_local).days)
 
-    room_res = supabase.table("rooms").select("extra_bed_price").eq("id", body.room_id).execute()
-    extra_bed_price = room_res.data[0]["extra_bed_price"] if room_res.data and "extra_bed_price" in room_res.data[0] else 500.0
+    is_non_ac = "Non AC" in body.room_type
+    eb_col = "non_ac_extra_bed_price" if is_non_ac else "extra_bed_price"
+    room_res = supabase.table("rooms").select(eb_col).eq("id", body.room_id).execute()
+    extra_bed_price = room_res.data[0][eb_col] if room_res.data and eb_col in room_res.data[0] else 500.0
     extra_bed_total = body.extra_beds * float(extra_bed_price) * nights
     extra_bill_amount = body.extra_bill_amount or 0.0
     if body.total_amount is not None:
@@ -276,12 +278,14 @@ def create_bookings_batch(body: BookingBatchCreate, user=Depends(get_current_use
     nights = max(1, (check_out_date_local - check_in_date_local).days)
     
     room_ids = [r.room_id for r in body.rooms]
-    rooms_res = supabase.table("rooms").select("id, extra_bed_price").in_("id", room_ids).execute()
+    rooms_res = supabase.table("rooms").select("id, extra_bed_price, non_ac_extra_bed_price").in_("id", room_ids).execute()
     room_extra_prices = {r["id"]: float(r["extra_bed_price"] or 500.0) for r in (rooms_res.data or []) if "extra_bed_price" in r and r["extra_bed_price"] is not None}
+    room_non_ac_extra_prices = {r["id"]: float(r["non_ac_extra_bed_price"] or 500.0) for r in (rooms_res.data or []) if "non_ac_extra_bed_price" in r and r["non_ac_extra_bed_price"] is not None}
 
     room_totals = []
     for r in body.rooms:
-        eb_price = room_extra_prices.get(r.room_id, 500.0)
+        is_non_ac = "Non AC" in r.room_type
+        eb_price = room_non_ac_extra_prices.get(r.room_id, 500.0) if is_non_ac else room_extra_prices.get(r.room_id, 500.0)
         extra_bed_total = r.extra_beds * eb_price * nights
         room_total = (r.room_price * nights) + extra_bed_total
         room_totals.append(room_total)
@@ -291,7 +295,8 @@ def create_bookings_batch(body: BookingBatchCreate, user=Depends(get_current_use
     
     for i, r in enumerate(body.rooms):
         room_total = room_totals[i]
-        eb_price = room_extra_prices.get(r.room_id, 500.0)
+        is_non_ac = "Non AC" in r.room_type
+        eb_price = room_non_ac_extra_prices.get(r.room_id, 500.0) if is_non_ac else room_extra_prices.get(r.room_id, 500.0)
         extra_bed_total = r.extra_beds * eb_price * nights
         
         if body.payment_status == "paid":
@@ -459,7 +464,7 @@ def update_booking(booking_id: str, body: BookingUpdate, user=Depends(get_curren
 
     # Recalculate totals if price, extra beds, or dates change explicitly
     if any(k in updates for k in ["room_price", "extra_beds", "room_id"]) or (has_explicit_dates and any(k in updates for k in ["check_in", "check_out"])):
-        curr_res = supabase.table("bookings").select("room_price, extra_beds, check_in, check_out, extra_bill_amount, paid_amount, room_id").eq("id", booking_id).single().execute()
+        curr_res = supabase.table("bookings").select("room_price, extra_beds, check_in, check_out, extra_bill_amount, paid_amount, room_id, room_type").eq("id", booking_id).single().execute()
         if curr_res.data:
             curr = curr_res.data
             r_price = updates.get("room_price", curr["room_price"])
@@ -473,8 +478,11 @@ def update_booking(booking_id: str, body: BookingUpdate, user=Depends(get_curren
             nights = max(1, (c_out - c_in).days)
             
             target_room_id = updates.get("room_id", curr["room_id"])
-            room_res = supabase.table("rooms").select("extra_bed_price").eq("id", target_room_id).execute()
-            extra_bed_price = room_res.data[0]["extra_bed_price"] if room_res.data and "extra_bed_price" in room_res.data[0] else 500.0
+            r_type = updates.get("room_type", curr["room_type"])
+            is_non_ac = "Non AC" in r_type
+            eb_col = "non_ac_extra_bed_price" if is_non_ac else "extra_bed_price"
+            room_res = supabase.table("rooms").select(eb_col).eq("id", target_room_id).execute()
+            extra_bed_price = room_res.data[0][eb_col] if room_res.data and eb_col in room_res.data[0] else 500.0
             
             extra_bed_total = eb_count * float(extra_bed_price) * nights
             updates["extra_bed_total"] = extra_bed_total

@@ -368,6 +368,95 @@ html.dark .glass-panel {
   transition: color 0.2s;
 }
 
+input.nkp-display {
+  background: transparent;
+  border: none;
+  outline: none;
+  width: 100%;
+  padding: 0;
+  margin: 0;
+}
+input.nkp-display::placeholder {
+  color: rgba(241, 245, 249, 0.3);
+}
+html:not(.dark) input.nkp-display::placeholder {
+  color: rgba(15, 23, 42, 0.3);
+}
+
+.nkp-recommendations {
+  display: flex;
+  flex-direction: column;
+  max-height: 160px;
+  overflow-y: auto;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(10px);
+}
+html:not(.dark) .nkp-recommendations {
+  background: rgba(241, 245, 249, 0.95);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.nkp-recommendation-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 20px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+html:not(.dark) .nkp-recommendation-item {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.02);
+}
+
+.nkp-recommendation-item:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+html:not(.dark) .nkp-recommendation-item:hover {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.nkp-recommendation-item:active {
+  background: rgba(255, 255, 255, 0.06);
+}
+html:not(.dark) .nkp-recommendation-item:active {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.nkp-rec-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nkp-rec-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+html:not(.dark) .nkp-rec-name {
+  color: #0f172a;
+}
+
+.nkp-rec-phone {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.nkp-rec-date {
+  font-size: 11px;
+  color: #10b981;
+  font-weight: 500;
+  background: rgba(16, 185, 129, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
 /* Quick-fill preset chips */
 .nkp-presets {
   display: flex;

@@ -18,7 +18,8 @@ import {
   isToday, 
   addMonths, 
   subMonths, 
-  startOfDay 
+  startOfDay,
+  parseISO
 } from 'date-fns'
 import toast from 'react-hot-toast'
 import type { InventoryRoom, Room, Document, Customer } from '../types'
@@ -158,20 +159,40 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
   }
 
   // Handle room picker confirmation — converts picked room IDs to SelectedRoomConfig entries
-  const handleRoomPickerConfirm = (pickedRoomIds: string[], selectedPartialRooms: (Room & { next_checkin: string; next_checkin_iso: string })[]) => {
-    const newConfigs = pickedRoomIds.map(roomId => {
-      const existing = selectedRooms.find(c => c.room_id === roomId)
+  const handleRoomPickerConfirm = (pickedKeys: string[], selectedPartialRooms: (Room & { next_checkin: string; next_checkin_iso: string })[]) => {
+    const newConfigs = pickedKeys.map(key => {
+      const [roomId, acMode] = key.split(':')
+      const isNonAc = acMode === 'non_ac'
+
+      // Reuse an existing slot for the same physical room + AC mode combo if any
+      const existing = selectedRooms.find(c => {
+        const nonAcTypes = ['Non AC Deluxe', 'VIP Non AC Suite']
+        const existingIsNonAc = nonAcTypes.includes(c.room_type)
+        return c.room_id === roomId && existingIsNonAc === isNonAc
+      })
       if (existing) return existing
-      // Search both available and partial rooms
+
+      // Find physical room in available or partial lists
       const foundRoom = availableRooms.find(r => r.id === roomId) || partialRooms.find(r => r.id === roomId)
+      const baseType = foundRoom?.room_type ?? 'AC Deluxe'
+      const isVip = baseType.includes('VIP')
+
+      const roomType: 'AC Deluxe' | 'Non AC Deluxe' | 'VIP AC Suite' | 'VIP Non AC Suite' = isNonAc
+        ? (isVip ? 'VIP Non AC Suite' : 'Non AC Deluxe')
+        : (isVip ? 'VIP AC Suite' : 'AC Deluxe')
+
+      const roomPrice = isNonAc
+        ? (foundRoom?.non_ac_price ?? 0)
+        : (foundRoom?.base_price ?? 0)
+
       return {
         id: Math.random().toString(36).substring(2, 9),
-        room_type: (foundRoom?.room_type ?? 'AC Deluxe') as 'AC Deluxe' | 'Non AC Deluxe' | 'VIP AC Suite' | 'VIP Non AC Suite',
+        room_type: roomType,
         room_id: roomId,
         adults: 1,
         children: 0,
         extra_beds: 0,
-        room_price: foundRoom?.base_price ?? 0,
+        room_price: roomPrice,
         notes: ''
       }
     })
@@ -389,8 +410,12 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
   const isCheckingInToday = checkInDate === format(new Date(), 'yyyy-MM-dd')
 
   const calculateRoomTotal = (rConfig: SelectedRoomConfig) => {
-    const foundRoom = availableRooms.find(r => r.id === rConfig.room_id)
-    const extraBedPrice = foundRoom?.extra_bed_price ?? 500
+    const foundRoom = availableRooms.find(r => r.id === rConfig.room_id) || partialRooms.find(r => r.id === rConfig.room_id)
+    const nonAcTypes = ['Non AC Deluxe', 'VIP Non AC Suite']
+    const isNonAc = nonAcTypes.includes(rConfig.room_type)
+    const extraBedPrice = isNonAc
+      ? (foundRoom?.non_ac_extra_bed_price ?? foundRoom?.extra_bed_price ?? 300)
+      : (foundRoom?.extra_bed_price ?? 500)
     const extraBedTotal = rConfig.extra_beds * extraBedPrice * nights
     return (rConfig.room_price * nights) + extraBedTotal
   }
@@ -1105,9 +1130,9 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
                         <span className="text-[8px] text-emerald-600 font-bold uppercase mt-0.5">{language === 'mr' ? 'खोली' : 'Room'}</span>
                       </div>
                       <div className="min-w-0">
-                        <div className="text-sm font-bold text-slate-100 truncate">{roomInfo.room_type}</div>
+                        <div className="text-sm font-bold text-slate-100 truncate">{config.room_type}</div>
                         <div className="text-[11px] text-slate-400">{language === 'mr' ? 'मजला' : 'Floor'} {roomInfo.floor}</div>
-                        <div className="text-[11px] text-emerald-400 font-bold">₹{roomInfo.base_price}<span className="text-slate-600 font-normal">/{language === 'mr' ? 'रात्र' : 'night'}</span></div>
+                        <div className="text-[11px] text-emerald-400 font-bold">₹{config.room_price}<span className="text-slate-600 font-normal">/{language === 'mr' ? 'रात्र' : 'night'}</span></div>
                       </div>
                       <button
                         type="button"
@@ -1178,7 +1203,14 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
                       <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex justify-between">
                         <span>{language === 'mr' ? 'अतिरिक्त बेड' : 'Extra Beds'}</span>
                         <span className="text-[9px] text-slate-500 lowercase font-medium">
-                          +₹{availableRooms.find(r => r.id === config.room_id)?.extra_bed_price ?? 500}{language === 'mr' ? '/रात्र' : '/night'}
+                          +₹{(() => {
+                            const foundRoom = availableRooms.find(r => r.id === config.room_id) || partialRooms.find(r => r.id === config.room_id)
+                            const nonAcTypes = ['Non AC Deluxe', 'VIP Non AC Suite']
+                            const isNonAc = nonAcTypes.includes(config.room_type)
+                            return isNonAc
+                              ? (foundRoom?.non_ac_extra_bed_price ?? foundRoom?.extra_bed_price ?? 300)
+                              : (foundRoom?.extra_bed_price ?? 500)
+                          })()}{language === 'mr' ? '/रात्र' : '/night'}
                         </span>
                       </span>
                       <div className="flex items-center justify-between bg-slate-950 border border-slate-800 rounded-2xl p-1 h-[38px]">
@@ -1382,8 +1414,15 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
                           onClick={() => selectGuest(guest)}
                           className="w-full px-4 py-3 text-left text-sm text-slate-300 hover:bg-slate-900 border-b border-slate-900 flex justify-between items-center transition"
                         >
-                          <span className="font-semibold">{guest.name}</span>
-                          <span className="text-xs text-slate-500">{guest.phone}</span>
+                          <div className="flex flex-col">
+                            <span className="font-semibold">{guest.name}</span>
+                            <span className="text-xs text-slate-500">{guest.phone}</span>
+                          </div>
+                          {guest.last_visit && (
+                            <span className="text-xs text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded font-medium">
+                              {language === 'mr' ? 'शेवटची भेट:' : 'Last:'} {format(parseISO(guest.last_visit + 'T00:00:00'), 'dd MMM yyyy')}
+                            </span>
+                          )}
                         </button>
                       ))}
                     </div>
@@ -1448,8 +1487,15 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
                       onClick={() => selectGuest(guest)}
                       className="w-full px-4 py-3 text-left text-sm text-slate-300 hover:bg-slate-900 border-b border-slate-900 flex justify-between items-center transition"
                     >
-                      <span className="font-semibold">{guest.name}</span>
-                      <span className="text-xs text-slate-500">{guest.phone}</span>
+                      <div className="flex flex-col">
+                        <span className="font-semibold">{guest.name}</span>
+                        <span className="text-xs text-slate-500">{guest.phone}</span>
+                      </div>
+                      {guest.last_visit && (
+                        <span className="text-xs text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded font-medium">
+                          {language === 'mr' ? 'शेवटची भेट:' : 'Last:'} {format(parseISO(guest.last_visit + 'T00:00:00'), 'dd MMM yyyy')}
+                        </span>
+                      )}
                     </button>
                   ))}
                 </div>
@@ -1792,7 +1838,11 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
         <RoomPickerModal
           availableRooms={availableRooms}
           partialRooms={partialRooms}
-          currentSelectedIds={selectedRooms.filter(r => r.room_id).map(r => r.room_id)}
+          currentSelectedIds={selectedRooms.filter(r => r.room_id).map(r => {
+            const nonAcTypes = ['Non AC Deluxe', 'VIP Non AC Suite']
+            const isNonAc = nonAcTypes.includes(r.room_type)
+            return `${r.room_id}:${isNonAc ? 'non_ac' : 'ac'}`
+          })}
           onConfirm={handleRoomPickerConfirm}
           onClose={() => setShowRoomPicker(false)}
         />
@@ -1848,6 +1898,10 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
             setActiveKeypad(null)
           }}
           onClose={() => setActiveKeypad(null)}
+          onSelectCustomer={activeKeypad === 'phone' ? (customer) => {
+            selectGuest(customer)
+            setActiveKeypad(null)
+          } : undefined}
           label={
             activeKeypad === 'total'
               ? (language === 'mr' ? 'एकूण बिल' : 'Total Bill')
@@ -1900,13 +1954,29 @@ function RoomPickerModal({
   const floors = Array.from(new Set(availableRooms.map(r => r.floor))).sort((a, b) => a - b)
   const partialFloors = Array.from(new Set(partialRooms.map(r => r.floor))).sort((a, b) => a - b)
 
-  const toggle = (id: string) => {
-    setPickedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  // Mutual-exclusion toggle: picking AC de-selects Non-AC of same room and vice versa
+  const toggle = (key: string) => {
+    const [roomId, acMode] = key.split(':')
+    const oppositeKey = `${roomId}:${acMode === 'ac' ? 'non_ac' : 'ac'}`
+    setPickedIds(prev =>
+      prev.includes(key)
+        ? prev.filter(x => x !== key)                          // deselect current
+        : [...prev.filter(x => x !== oppositeKey), key]        // deselect opposite, add this
+    )
+  }
+
+  // Filter: 'all' | 'ac' | 'non_ac'
+  const [acFilter, setAcFilter] = React.useState<'all' | 'ac' | 'non_ac'>('all')
+
+  const filterCard = (isNonAc: boolean) => {
+    if (acFilter === 'ac') return !isNonAc
+    if (acFilter === 'non_ac') return isNonAc
+    return true
   }
 
   const typeBadge = (type: string) => {
     if (type === 'VIP AC Suite')     return { bg: 'bg-amber-500/10 border-amber-500/30', text: 'text-amber-300', label: t('vip_ac') }
-    if (type === 'VIP Non AC Suite') return { bg: 'bg-amber-500/10 border-amber-500/30', text: 'text-amber-300', label: t('vip_non_ac') }
+    if (type === 'VIP Non AC Suite') return { bg: 'bg-amber-500/10 border-amber-500/30', text: 'text-amber-355', label: t('vip_non_ac') }
     if (type === 'Non AC Deluxe')    return { bg: 'bg-sky-500/10 border-sky-500/30', text: 'text-sky-300', label: t('non_ac') }
     return { bg: 'bg-emerald-500/10 border-emerald-500/30', text: 'text-emerald-300', label: t('ac') }
   }
@@ -1916,16 +1986,22 @@ function RoomPickerModal({
     return `${suffixes[floor] ?? `${floor}th`} Floor`
   }
 
-  const renderCard = (r: Room, isPartial: boolean) => {
+  const renderCard = (r: Room, isPartial: boolean, isNonAc: boolean) => {
     const pr = isPartial ? (r as PartialRoom) : null
-    const selected = pickedIds.includes(r.id)
-    const badge = typeBadge(r.room_type)
+    const key = `${r.id}:${isNonAc ? 'non_ac' : 'ac'}`
+    const selected = pickedIds.includes(key)
+    const cardRoomType = isNonAc
+      ? (r.room_type.includes('VIP') ? 'VIP Non AC Suite' : 'Non AC Deluxe')
+      : (r.room_type.includes('VIP') ? 'VIP AC Suite' : 'AC Deluxe')
+    const badge = typeBadge(cardRoomType)
+    const price = isNonAc ? (r.non_ac_price || 0) : r.base_price
+
     return (
       <button
-        key={r.id}
+        key={key}
         type="button"
-        onClick={() => toggle(r.id)}
-        className={`relative flex flex-col p-4 rounded-2xl border-2 text-left transition-all duration-150 active:scale-[0.96] ${
+        onClick={() => toggle(key)}
+        className={`relative flex flex-col p-3 rounded-2xl border-2 text-left transition-all duration-150 active:scale-[0.96] ${
           selected
             ? isPartial
               ? 'border-amber-400 bg-amber-500/10 shadow-lg shadow-amber-500/10'
@@ -1935,27 +2011,35 @@ function RoomPickerModal({
               : 'border-slate-800 bg-slate-950/70 hover:border-slate-700'
         }`}
       >
-        <div className={`absolute top-2.5 right-2.5 w-5 h-5 rounded-full flex items-center justify-center transition-all ${
-          selected ? (isPartial ? 'bg-amber-500 shadow' : 'bg-emerald-500 shadow') : 'bg-slate-800'
+        {/* Checkmark */}
+        <div className={`absolute top-2 right-2 w-4 h-4 rounded-full flex items-center justify-center transition-all ${
+          selected ? (isPartial ? 'bg-amber-500' : 'bg-emerald-500') : 'bg-slate-800'
         }`}>
-          <svg className={`w-3 h-3 transition-opacity ${selected ? 'opacity-100 text-white' : 'opacity-0'}`} viewBox="0 0 12 12" fill="none">
+          <svg className={`w-2.5 h-2.5 transition-opacity ${selected ? 'opacity-100 text-white' : 'opacity-0'}`} viewBox="0 0 12 12" fill="none">
             <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </div>
-        <span className={`text-2xl font-black leading-none mb-1.5 ${
-          selected ? (isPartial ? 'text-amber-300' : 'text-emerald-300') : 'text-slate-100'
-        }`}>{r.number}</span>
-        <span className={`inline-flex self-start px-2 py-0.5 rounded-lg border text-[9px] font-bold mb-2 ${badge.bg} ${badge.text}`}>
-          {badge.label}
-        </span>
+
+        {/* Room number + badge inline */}
+        <div className="flex items-center gap-1.5 pr-5 mb-1.5">
+          <span className={`text-xl font-black leading-none ${
+            selected ? (isPartial ? 'text-amber-300' : 'text-emerald-300') : 'text-slate-100'
+          }`}>{r.number}</span>
+          <span className={`inline-flex px-1.5 py-0.5 rounded-md border text-[8px] font-bold ${badge.bg} ${badge.text}`}>
+            {badge.label}
+          </span>
+        </div>
+
+        {/* Price */}
         <span className={`text-xs font-bold ${
           selected ? (isPartial ? 'text-amber-400' : 'text-emerald-400') : 'text-slate-500'
         }`}>
-          Rs.{r.base_price}
+          ₹{price}
           <span className="text-[10px] font-normal text-slate-600">{t('night_suffix')}</span>
         </span>
+
         {pr && (
-          <span className="mt-2 text-[9px] font-bold text-amber-500/80 leading-tight">
+          <span className="mt-1.5 text-[9px] font-bold text-amber-500/80 leading-tight">
             {t('next_customer', { date: pr.next_checkin })}
           </span>
         )}
@@ -1964,8 +2048,9 @@ function RoomPickerModal({
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex flex-col bg-slate-950/95 backdrop-blur-sm animate-fade-in">
-      <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-slate-800/60">
+    <div className="fixed inset-0 z-[9999] flex flex-col bg-slate-955/95 backdrop-blur-sm animate-fade-in">
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-800/60">
         <div>
           <h2 className="text-base font-black text-slate-100">{t('select_rooms')}</h2>
           <p className="text-[11px] text-slate-500 mt-0.5">
@@ -1978,6 +2063,28 @@ function RoomPickerModal({
         <button type="button" onClick={onClose} className="p-2 rounded-xl bg-slate-800/60 hover:bg-slate-700 text-slate-400 transition">
           <X className="h-5 w-5" />
         </button>
+      </div>
+
+      {/* AC / Non-AC Filter Bar */}
+      <div className="flex gap-2 px-4 py-2.5 border-b border-slate-800/40 flex-shrink-0">
+        {(['all', 'ac', 'non_ac'] as const).map(f => (
+          <button
+            key={f}
+            type="button"
+            onClick={() => setAcFilter(f)}
+            className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition ${
+              acFilter === f
+                ? f === 'non_ac'
+                  ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
+                  : f === 'ac'
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                  : 'bg-slate-700 text-slate-100 border border-slate-600'
+                : 'bg-slate-900 text-slate-500 border border-slate-800 hover:text-slate-300'
+            }`}
+          >
+            {f === 'all' ? 'All' : f === 'ac' ? '❄️ AC Only' : '🌬️ Non-AC Only'}
+          </button>
+        ))}
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
@@ -2001,7 +2108,12 @@ function RoomPickerModal({
                     <span className="text-[10px] text-slate-600 ml-1">{t('rooms_suffix', { count: floorRooms.length })}</span>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    {floorRooms.map(r => renderCard(r, false))}
+                    {floorRooms.flatMap(r => {
+                      const cards: React.ReactNode[] = []
+                      if (filterCard(false)) cards.push(renderCard(r, false, false))
+                      if (r.non_ac_price > 0 && filterCard(true)) cards.push(renderCard(r, false, true))
+                      return cards
+                    })}
                   </div>
                 </div>
               )
@@ -2029,7 +2141,12 @@ function RoomPickerModal({
                         <span className="text-[10px] text-amber-900 ml-1">{t('rooms_suffix', { count: floorRooms.length })}</span>
                       </div>
                       <div className="grid grid-cols-2 gap-3">
-                        {floorRooms.map(r => renderCard(r, true))}
+                        {floorRooms.flatMap(r => {
+                          const cards: React.ReactNode[] = []
+                          if (filterCard(false)) cards.push(renderCard(r, true, false))
+                          if (r.non_ac_price > 0 && filterCard(true)) cards.push(renderCard(r, true, true))
+                          return cards
+                        })}
                       </div>
                     </div>
                   )
@@ -2043,16 +2160,18 @@ function RoomPickerModal({
       <div className="px-5 pb-6 pt-3 border-t border-slate-800/60 bg-slate-950/90 flex-shrink-0">
         {pickedIds.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mb-3">
-            {pickedIds.map(id => {
-              const rm = allRooms.find(r => r.id === id)
-              const isPartial = partialRooms.some(r => r.id === id)
+            {pickedIds.map(key => {
+              const [roomId, acMode] = key.split(':')
+              const isNonAc = acMode === 'non_ac'
+              const rm = allRooms.find(r => r.id === roomId)
+              const isPartial = partialRooms.some(r => r.id === roomId)
               return rm ? (
-                <span key={id} className={`flex items-center gap-1 px-2.5 py-1 text-xs font-black rounded-lg ${
+                <span key={key} className={`flex items-center gap-1 px-2.5 py-1 text-xs font-black rounded-lg ${
                   isPartial ? 'bg-amber-500/20 text-amber-300' : 'bg-emerald-500/20 text-emerald-300'
                 }`}>
-                  {rm.number}
+                  {rm.number} ({isNonAc ? 'Non-AC' : 'AC'})
                   {isPartial && <span className="text-[8px] opacity-70"> ({t('partial_label')})</span>}
-                  <button type="button" onClick={e => { e.stopPropagation(); toggle(id) }} className="hover:text-red-400 ml-0.5 transition">
+                  <button type="button" onClick={e => { e.stopPropagation(); toggle(key) }} className="hover:text-red-400 ml-0.5 transition">
                     <X className="h-3 w-3" />
                   </button>
                 </span>
@@ -2068,7 +2187,7 @@ function RoomPickerModal({
             type="button"
             disabled={pickedIds.length === 0}
             onClick={() => {
-              const selectedPartials = partialRooms.filter(r => pickedIds.includes(r.id))
+              const selectedPartials = partialRooms.filter(r => pickedIds.some(key => key.startsWith(r.id)))
               onConfirm(pickedIds, selectedPartials)
             }}
             className="flex-[2] py-3.5 rounded-2xl bg-emerald-500 text-white text-sm font-black disabled:opacity-40 disabled:cursor-not-allowed hover:bg-emerald-400 transition active:scale-[0.98] shadow-lg shadow-emerald-500/20"

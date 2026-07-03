@@ -4,8 +4,8 @@ import { createPortal } from 'react-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
   X, Phone, CheckCircle, LogOut, FileText, Camera, Upload, Loader2, Copy, 
-  ChevronLeft, ChevronRight, Plus, Minus, Calendar as CalendarIcon, Save,
-  Edit2, Check
+  ChevronLeft, ChevronRight, Plus, Minus, Save,
+  Edit2, Check, ZoomIn, ZoomOut, RotateCcw, Trash2
 } from 'lucide-react'
 import { 
   format, 
@@ -24,10 +24,11 @@ import {
 } from 'date-fns'
 import toast from 'react-hot-toast'
 import { getBooking, updateBooking, cancelBooking, restoreBooking } from '../api/bookings'
-import { getUploadUrl, uploadFileToR2, confirmUpload, listCustomerDocs, extractNameFromId } from '../api/documents'
+import { getUploadUrl, uploadFileToR2, confirmUpload, listCustomerDocs, extractNameFromId, deleteDocument } from '../api/documents'
 import { updateCustomer } from '../api/customers'
 import { listAvailableRooms } from '../api/rooms'
 import { getCustomerNameDisplay } from '../utils/customer'
+import { getMarathiName } from '../utils/nameHelper'
 import { formatIST_AMPM, formatIST_Date, formatIST_HHmm, toUTCfromIST } from '../utils/istTime'
 import { useLanguage } from '../context/LanguageContext'
 import { useVisualViewport } from '../hooks/useVisualViewport'
@@ -88,6 +89,14 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
     enabled: !!booking?.customer_id,
   })
 
+  // Merge customer and booking documents without duplicates (excluding photo)
+  const idDocsOnly = customerDocs ? customerDocs.filter((d: any) => d.doc_type !== 'customer_photo') : []
+  const bookingDocsOnly = booking?.documents ? booking.documents.filter((d: any) => d.doc_type !== 'customer_photo') : []
+  const allDocsMap = new Map()
+  bookingDocsOnly.forEach(d => allDocsMap.set(d.id, d))
+  idDocsOnly.forEach(d => allDocsMap.set(d.id, d))
+  const docs = Array.from(allDocsMap.values())
+
   // UI edit modes
   const [editRoomMode, setEditRoomMode] = useState(false)
   const [showDatePicker, setShowDatePicker] = useState(false)
@@ -124,6 +133,16 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
   // Customer Name Edit States
   const [draftCustomerName, setDraftCustomerName] = useState('')
   const [isEditingName, setIsEditingName] = useState(false)
+
+  // Interactive ID Proof Viewer States
+  const [selectedDocIndex, setSelectedDocIndex] = useState<number | null>(null)
+  const [zoomScale, setZoomScale] = useState(1)
+  const [panPosition, setPanPosition] = useState({ x: 0, y: 0 })
+  const [isDragging, setIsDragging] = useState(false)
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [touchStartX, setTouchStartX] = useState<number | null>(null)
 
   // Initialize drafts when booking is loaded
   useEffect(() => {
@@ -183,6 +202,37 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
       active = false
     }
   }, [draftCheckIn, draftCheckOut, editRoomMode, booking])
+
+  // Keyboard Navigation for ID Proof Viewer
+  useEffect(() => {
+    if (selectedDocIndex === null) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (showDeleteConfirm) {
+        if (e.key === 'Escape') setShowDeleteConfirm(false)
+        return
+      }
+
+      if (e.key === 'ArrowLeft') {
+        if (selectedDocIndex > 0) {
+          setSelectedDocIndex(selectedDocIndex - 1)
+          setZoomScale(1)
+          setPanPosition({ x: 0, y: 0 })
+        }
+      } else if (e.key === 'ArrowRight') {
+        if (selectedDocIndex < docs.length - 1) {
+          setSelectedDocIndex(selectedDocIndex + 1)
+          setZoomScale(1)
+          setPanPosition({ x: 0, y: 0 })
+        }
+      } else if (e.key === 'Escape') {
+        setSelectedDocIndex(null)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [selectedDocIndex, showDeleteConfirm, docs.length])
 
   // Mutations
   const updateMutation = useMutation({
@@ -806,6 +856,354 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
     )
   }
 
+  const renderIDProofViewer = () => {
+    if (selectedDocIndex === null) return null
+    const currentDoc = docs[selectedDocIndex]
+    if (!currentDoc) return null
+
+    const guestName = getCustomerNameDisplay(booking.customers?.name).name
+    const isPdf = currentDoc.file_name.toLowerCase().endsWith('.pdf')
+
+    // Navigation handlers
+    const handlePrev = () => {
+      if (selectedDocIndex > 0) {
+        setSelectedDocIndex(selectedDocIndex - 1)
+        setZoomScale(1)
+        setPanPosition({ x: 0, y: 0 })
+      }
+    }
+
+    const handleNext = () => {
+      if (selectedDocIndex < docs.length - 1) {
+        setSelectedDocIndex(selectedDocIndex + 1)
+        setZoomScale(1)
+        setPanPosition({ x: 0, y: 0 })
+      }
+    }
+
+    // Zoom handlers
+    const handleZoomIn = () => setZoomScale(prev => Math.min(prev + 0.5, 4))
+    const handleZoomOut = () => {
+      setZoomScale(prev => {
+        const next = Math.max(prev - 0.5, 1)
+        if (next === 1) {
+          setPanPosition({ x: 0, y: 0 })
+        }
+        return next
+      })
+    }
+    const handleResetZoom = () => {
+      setZoomScale(1)
+      setPanPosition({ x: 0, y: 0 })
+    }
+
+    // Mouse pan handlers
+    const handleMouseDown = (e: React.MouseEvent) => {
+      if (zoomScale <= 1 || isPdf) return
+      setIsDragging(true)
+      setDragStart({ x: e.clientX - panPosition.x, y: e.clientY - panPosition.y })
+    }
+
+    const handleMouseMove = (e: React.MouseEvent) => {
+      if (!isDragging || zoomScale <= 1 || isPdf) return
+      setPanPosition({
+        x: e.clientX - dragStart.x,
+        y: e.clientY - dragStart.y
+      })
+    }
+
+    const handleMouseUp = () => {
+      setIsDragging(false)
+    }
+
+    // Touch pan handlers
+    const handleTouchStart = (e: React.TouchEvent) => {
+      if (isPdf) return
+      if (zoomScale > 1 && e.touches.length === 1) {
+        setIsDragging(true)
+        const touch = e.touches[0]
+        setDragStart({ x: touch.clientX - panPosition.x, y: touch.clientY - panPosition.y })
+      } else if (zoomScale === 1 && e.touches.length === 1) {
+        setTouchStartX(e.touches[0].clientX)
+      }
+    }
+
+    const handleTouchMove = (e: React.TouchEvent) => {
+      if (isPdf) return
+      if (isDragging && zoomScale > 1 && e.touches.length === 1) {
+        const touch = e.touches[0]
+        setPanPosition({
+          x: touch.clientX - dragStart.x,
+          y: touch.clientY - dragStart.y
+        })
+      }
+    }
+
+    const handleTouchEnd = (e: React.TouchEvent) => {
+      setIsDragging(false)
+      if (zoomScale === 1 && touchStartX !== null && e.changedTouches.length === 1) {
+        const touchEndX = e.changedTouches[0].clientX
+        const diffX = touchStartX - touchEndX
+        if (diffX > 55) {
+          handleNext()
+        } else if (diffX < -55) {
+          handlePrev()
+        }
+        setTouchStartX(null)
+      }
+    }
+
+    const handleDeleteDoc = async () => {
+      setIsDeleting(true)
+      const deleteToast = toast.loading(language === 'mr' ? 'ओळखपत्र डिलीट होत आहे...' : 'Deleting ID proof...')
+      try {
+        await deleteDocument(currentDoc.id)
+        toast.success(language === 'mr' ? 'ओळखपत्र यशस्वीरित्या डिलीट केले!' : 'ID proof deleted successfully!', { id: deleteToast })
+        
+        // Refetch documents
+        refetch()
+        refetchCustomerDocs()
+        
+        // Reset state
+        setShowDeleteConfirm(false)
+        setZoomScale(1)
+        setPanPosition({ x: 0, y: 0 })
+        
+        // If this was the only document, close viewer. Otherwise, adjust index.
+        if (docs.length <= 1) {
+          setSelectedDocIndex(null)
+        } else {
+          // Move to previous if we deleted the last index, otherwise keep same index (which is now the next item)
+          if (selectedDocIndex >= docs.length - 1) {
+            setSelectedDocIndex(docs.length - 2)
+          }
+        }
+      } catch (err) {
+        console.error('Delete failed:', err)
+        toast.error(language === 'mr' ? 'ओळखपत्र डिलीट करण्यात अडचण आली' : 'Failed to delete ID proof', { id: deleteToast })
+      } finally {
+        setIsDeleting(false)
+      }
+    }
+
+    return (
+      <div 
+        className="fixed inset-0 z-55 flex flex-col bg-slate-955/95 backdrop-blur-md animate-fade-in"
+        onClick={() => setSelectedDocIndex(null)}
+      >
+        {/* Header */}
+        <div 
+          className="flex items-center justify-between px-5 py-4 border-b border-slate-800 bg-slate-900/80 backdrop-blur flex-shrink-0"
+          onClick={e => e.stopPropagation()}
+        >
+          <div className="min-w-0 flex-1">
+            <h3 className="text-sm font-extrabold text-slate-100 truncate">
+              {language === 'mr' ? `ओळखपत्र: ${guestName}` : `Guest: ${guestName}`}
+            </h3>
+            <p className="text-[11px] text-slate-400 font-semibold mt-0.5 flex items-center gap-1.5">
+              <span className="bg-slate-800 text-slate-350 px-2 py-0.5 rounded text-[10px] font-bold">
+                {language === 'mr' ? `खोली ${booking.rooms?.number || ''}` : `Room ${booking.rooms?.number || ''}`}
+              </span>
+              <span>•</span>
+              <span className="truncate max-w-[150px] sm:max-w-xs">{currentDoc.file_name}</span>
+              <span>•</span>
+              <span className="text-emerald-450 font-bold whitespace-nowrap">
+                {selectedDocIndex + 1} / {docs.length}
+              </span>
+            </p>
+          </div>
+          <button 
+            onClick={() => setSelectedDocIndex(null)}
+            className="p-2 rounded-xl bg-slate-855 hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Main viewport */}
+        <div 
+          className="flex-1 relative flex items-center justify-center overflow-hidden p-4 select-none cursor-default"
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+        >
+          {isPdf ? (
+            <div className="w-full h-full max-w-3xl flex flex-col items-center justify-center p-6 bg-slate-900/40 rounded-3xl border border-slate-800/80" onClick={e => e.stopPropagation()}>
+              <FileText className="h-16 w-16 text-slate-500 mb-4 animate-pulse" />
+              <h4 className="text-sm font-extrabold text-slate-200 mb-1 truncate max-w-xs">{currentDoc.file_name}</h4>
+              <p className="text-xs text-slate-505 mb-6 font-medium">{language === 'mr' ? 'PDF फाईल थेट झूम करता येत नाही' : 'PDF documents cannot be zoomed inline'}</p>
+              <a 
+                href={currentDoc.public_url}
+                target="_blank"
+                rel="noreferrer"
+                className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-955 text-xs font-black rounded-xl transition shadow-lg inline-flex items-center gap-1.5"
+              >
+                <FileText className="h-4 w-4" />
+                {language === 'mr' ? 'नवीन टॅबमध्ये PDF उघडा' : 'Open PDF in New Tab'}
+              </a>
+            </div>
+          ) : (
+            <div 
+              className="relative max-h-full max-w-full flex items-center justify-center"
+              onClick={e => e.stopPropagation()}
+            >
+              <img 
+                src={currentDoc.public_url}
+                alt={currentDoc.file_name}
+                className="max-h-[70dvh] max-w-full object-contain select-none transition-transform duration-100 ease-out pointer-events-auto"
+                style={{
+                  transform: `translate(${panPosition.x}px, ${panPosition.y}px) scale(${zoomScale})`,
+                  cursor: zoomScale > 1 ? 'grab' : 'default',
+                  transformOrigin: 'center center'
+                }}
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+                onMouseLeave={handleMouseUp}
+                draggable={false}
+              />
+            </div>
+          )}
+
+          {/* Floating Slide Navigation Arrows on Sides */}
+          {selectedDocIndex > 0 && (
+            <button 
+              onClick={(e) => { e.stopPropagation(); handlePrev() }}
+              className="absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-slate-900/80 hover:bg-slate-800 text-slate-350 hover:text-slate-100 border border-slate-800/80 transition shadow-xl"
+              title={language === 'mr' ? 'मागील' : 'Previous'}
+            >
+              <ChevronLeft className="h-6 w-6" />
+            </button>
+          )}
+          {selectedDocIndex < docs.length - 1 && (
+            <button 
+              onClick={(e) => { e.stopPropagation(); handleNext() }}
+              className="absolute right-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-slate-900/80 hover:bg-slate-800 text-slate-350 hover:text-slate-100 border border-slate-800/80 transition shadow-xl"
+              title={language === 'mr' ? 'पुढील' : 'Next'}
+            >
+              <ChevronRight className="h-6 w-6" />
+            </button>
+          )}
+        </div>
+
+        {/* Controls Footer */}
+        <div 
+          className="px-5 py-4 border-t border-slate-850 bg-slate-900/90 backdrop-blur flex flex-col sm:flex-row gap-4 items-center justify-between flex-shrink-0"
+          onClick={e => e.stopPropagation()}
+        >
+          {/* Pagination Dots/Indicator */}
+          <div className="flex gap-1.5 items-center">
+            {docs.map((_, idx) => (
+              <button 
+                key={idx}
+                onClick={() => {
+                  setSelectedDocIndex(idx)
+                  handleResetZoom()
+                }}
+                className={`h-2 rounded-full transition-all duration-200 ${
+                  idx === selectedDocIndex ? 'w-5 bg-emerald-455' : 'w-2 bg-slate-700 hover:bg-slate-600'
+                }`}
+              />
+            ))}
+          </div>
+
+          {/* Action Controls */}
+          <div className="flex items-center gap-3">
+            {/* Zoom Actions (Images only) */}
+            {!isPdf && (
+              <div className="flex items-center bg-slate-955/60 rounded-xl border border-slate-800 p-1">
+                <button 
+                  onClick={handleZoomOut}
+                  disabled={zoomScale <= 1}
+                  className="p-2 rounded-lg text-slate-400 hover:text-slate-205 hover:bg-slate-850 disabled:opacity-30 disabled:hover:bg-transparent transition"
+                  title={language === 'mr' ? 'झूम कमी करा' : 'Zoom Out'}
+                >
+                  <ZoomOut className="h-4 w-4" />
+                </button>
+                <span className="text-[10px] font-black text-slate-400 w-12 text-center select-none tabular-nums">
+                  {Math.round(zoomScale * 100)}%
+                </span>
+                <button 
+                  onClick={handleZoomIn}
+                  disabled={zoomScale >= 4}
+                  className="p-2 rounded-lg text-slate-400 hover:text-slate-205 hover:bg-slate-850 disabled:opacity-30 disabled:hover:bg-transparent transition"
+                  title={language === 'mr' ? 'झूम वाढवा' : 'Zoom In'}
+                >
+                  <ZoomIn className="h-4 w-4" />
+                </button>
+                {(zoomScale > 1 || panPosition.x !== 0 || panPosition.y !== 0) && (
+                  <button 
+                    onClick={handleResetZoom}
+                    className="p-2 ml-1 rounded-lg text-amber-450 hover:text-amber-300 hover:bg-slate-855 transition"
+                    title={language === 'mr' ? 'रीसेट करा' : 'Reset Zoom'}
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Delete Button */}
+            <button 
+              onClick={() => setShowDeleteConfirm(true)}
+              className="p-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/20 hover:border-rose-500/30 transition flex items-center gap-1.5 text-xs font-black"
+              title={language === 'mr' ? 'डिलीट करा' : 'Delete Document'}
+            >
+              <Trash2 className="h-4 w-4" />
+              <span>{language === 'mr' ? 'काढून टाका' : 'Delete'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Custom React-based Deletion Confirmation Overlay */}
+        {showDeleteConfirm && (
+          <div 
+            className="absolute inset-0 z-56 flex items-center justify-center bg-black/85 backdrop-blur-sm p-6 animate-fade-in"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="glass-panel w-full max-w-xs rounded-3xl bg-slate-900 border border-slate-800 p-5 flex flex-col gap-4 text-center shadow-2xl">
+              <div className="h-11 w-11 rounded-full flex items-center justify-center mx-auto border bg-rose-500/10 text-rose-400 border-rose-500/25">
+                <Trash2 className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-extrabold text-slate-100">
+                  {language === 'mr' ? 'ओळखपत्र डिलीट करायचे?' : 'Delete ID Proof?'}
+                </h3>
+                <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
+                  {language === 'mr' 
+                    ? 'या ओळखपत्राची फाईल आणि रेकॉर्ड कायमस्वरूपी काढून टाकण्यात येईल. ही क्रिया पूर्ववत करता येणार नाही.'
+                    : 'This file and its record will be permanently deleted. This action cannot be undone.'}
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-3 mt-2">
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="py-2.5 px-4 bg-slate-850 hover:bg-slate-800 border border-slate-800 text-slate-350 hover:text-slate-202 text-xs font-bold rounded-xl transition"
+                >
+                  {language === 'mr' ? 'रद्द करा' : 'Cancel'}
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={handleDeleteDoc}
+                  className="py-2.5 px-4 text-white text-xs font-black rounded-xl transition shadow-lg bg-rose-500 hover:bg-rose-450 active:bg-rose-500 shadow-rose-500/15 flex items-center justify-center gap-1.5"
+                >
+                  {isDeleting ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    language === 'mr' ? 'डिलीट करा' : 'Yes, Delete'
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   const amountInputCls = "bg-transparent outline-none text-2xl font-black text-right w-28 tabular-nums [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
 
   return createPortal(
@@ -849,28 +1247,28 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
         </div>
 
         {/* Scroll Body */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 flex flex-col gap-4">
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 flex flex-col gap-3">
 
           {/* 1. Date Strip */}
-          <div className="glass-panel p-4 rounded-2xl bg-slate-955/40 border border-slate-800/80 flex flex-col gap-3 flex-shrink-0">
+          <div className="glass-panel px-4 py-3 rounded-2xl bg-slate-955/40 border border-slate-800/80 flex-shrink-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-6 flex-1">
                 <div 
                   onClick={() => booking.status === 'active' && setShowDatePicker(true)}
-                  className={`flex flex-col ${booking.status === 'active' ? 'cursor-pointer hover:opacity-80 transition' : ''}`}
+                  className={`flex flex-col ${booking.status === 'active' ? 'cursor-pointer hover:opacity-80 active:scale-95 transition' : ''}`}
                 >
                   <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold">{language === 'mr' ? 'चेक-इन' : 'CHECK-IN'}</span>
                   <span className="text-base font-black text-slate-100 mt-0.5">{formatFriendlyDate(draftCheckIn)}</span>
-                  <span className="text-xs font-bold text-emerald-400 mt-0.5 animate-fade-in">{formatTimeAMPM(draftCheckInTime)}</span>
+                  <span className="text-xs font-bold text-emerald-400 mt-0.5">{formatTimeAMPM(draftCheckInTime)}</span>
                 </div>
                 <div className="text-slate-700 font-black text-lg">➔</div>
                 <div 
                   onClick={() => booking.status === 'active' && setShowDatePicker(true)}
-                  className={`flex flex-col ${booking.status === 'active' ? 'cursor-pointer hover:opacity-80 transition' : ''}`}
+                  className={`flex flex-col ${booking.status === 'active' ? 'cursor-pointer hover:opacity-80 active:scale-95 transition' : ''}`}
                 >
                   <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold">{language === 'mr' ? 'चेक-आउट' : 'CHECK-OUT'}</span>
                   <span className="text-base font-black text-slate-100 mt-0.5">{formatFriendlyDate(draftCheckOut)}</span>
-                  <span className="text-xs font-bold text-amber-500 mt-0.5 animate-fade-in">{formatTimeAMPM(draftCheckOutTime)}</span>
+                  <span className="text-xs font-bold text-amber-500 mt-0.5">{formatTimeAMPM(draftCheckOutTime)}</span>
                 </div>
               </div>
               <div className="bg-slate-850 border border-slate-805 rounded-xl px-3 py-2 text-center flex flex-col justify-center items-center flex-shrink-0">
@@ -880,42 +1278,33 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                 </span>
               </div>
             </div>
-            {booking.status === 'active' && (
-              <button
-                onClick={() => setShowDatePicker(true)}
-                className="w-full py-2.5 bg-slate-850 hover:bg-slate-800 border border-slate-800 text-slate-350 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5"
-              >
-                <CalendarIcon className="h-3.5 w-3.5 text-slate-500" />
-                {language === 'mr' ? 'बुकिंग तारखा बदला (लवकर चेक-आउट)' : 'Edit Booking Dates (Early Checkout)'}
-              </button>
-            )}
           </div>
 
           {/* 2. Guest Card */}
-          <div className="glass-panel p-4 rounded-2xl flex flex-col gap-3 bg-slate-955/40 border border-slate-800/80 flex-shrink-0">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3 flex-1 min-w-0">
+          <div className="glass-panel px-4 py-3 rounded-2xl flex flex-col gap-2 bg-slate-955/40 border border-slate-800/80 flex-shrink-0">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 flex-1 min-w-0">
                 {customerPhotoDoc ? (
-                  <div className="relative group w-12 h-12 flex-shrink-0">
+                  <div className="relative group w-10 h-10 flex-shrink-0">
                     <img
                       src={customerPhotoDoc.public_url}
                       alt="Customer Photo"
                       className="w-full h-full rounded-xl object-cover border border-slate-700 cursor-pointer hover:border-emerald-500 transition"
                     />
                     <label className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 rounded-xl flex items-center justify-center cursor-pointer transition">
-                      <Camera className="h-4.5 w-4.5 text-slate-300" />
+                      <Camera className="h-4 w-4 text-slate-300" />
                       <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleCustomerPhotoUpload} />
                     </label>
                   </div>
                 ) : (
-                  <label className="w-12 h-12 rounded-xl bg-slate-900 border border-slate-800 hover:border-emerald-500 flex items-center justify-center flex-shrink-0 text-slate-500 cursor-pointer transition group">
-                    <Camera className="h-5 w-5 group-hover:text-emerald-400 transition" />
+                  <label className="w-10 h-10 rounded-xl bg-slate-900 border border-slate-800 hover:border-emerald-500 flex items-center justify-center flex-shrink-0 text-slate-500 cursor-pointer transition group">
+                    <Camera className="h-4 w-4 group-hover:text-emerald-400 transition" />
                     <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleCustomerPhotoUpload} />
                   </label>
                 )}
                 <div className="flex-1 min-w-0">
                   {isEditingName ? (
-                    <div className="flex items-center gap-1.5 mt-0.5">
+                    <div className="flex items-center gap-1.5">
                       <input
                         type="text"
                         value={draftCustomerName}
@@ -948,13 +1337,14 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                       </button>
                     </div>
                   ) : (
-                    <div className="flex items-start gap-1.5">
-                      <div className="text-slate-200 font-extrabold text-base break-words leading-tight flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <div className="text-slate-200 font-extrabold text-sm leading-tight flex-1 min-w-0 truncate">
                         {(() => {
                           const { name: dName, isDeleted } = getCustomerNameDisplay(booking.customers?.name);
+                          const displayName = getMarathiName(dName);
                           return (
                             <>
-                              <span>{dName}</span>
+                              <span>{displayName}</span>
                               {isDeleted && (
                                 <span className="bg-rose-500/10 text-rose-400 px-1.5 py-0.5 rounded text-[9px] font-black border border-rose-500/20 ml-1.5 inline-block whitespace-nowrap align-middle">
                                   {language === 'mr' ? 'डिलीट केलेले' : 'Deleted'}
@@ -969,19 +1359,18 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                           setDraftCustomerName(getCustomerNameDisplay(booking.customers?.name).name || '')
                           setIsEditingName(true)
                         }}
-                        className="text-slate-500 hover:text-slate-350 transition mt-0.5 flex-shrink-0"
+                        className="text-slate-600 hover:text-slate-400 transition flex-shrink-0"
                         title={language === 'mr' ? 'नाव बदला' : 'Edit Name'}
                       >
-                        <Edit2 className="h-3.5 w-3.5" />
+                        <Edit2 className="h-3 w-3" />
                       </button>
                     </div>
                   )}
-
                 </div>
               </div>
               <div className="flex items-center gap-1.5 flex-shrink-0">
                 {booking.status !== 'active' && (
-                  <span className={`text-[10px] uppercase tracking-wider font-extrabold px-2.5 py-1 rounded-lg flex-shrink-0 ${
+                  <span className={`text-[10px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded-lg flex-shrink-0 ${
                     booking.status === 'checked_out'
                       ? 'bg-slate-800 text-slate-405 border border-slate-700/50'
                       : 'bg-rose-550/10 text-rose-400 border border-rose-500/20'
@@ -991,7 +1380,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                       : (language === 'mr' ? 'रद्द केले' : 'Cancelled')}
                   </span>
                 )}
-                <span className={`text-[10px] uppercase tracking-wider font-extrabold px-2.5 py-1 rounded-lg flex-shrink-0 ${getStatusBadgeStyles(effectivePaymentStatus)}`}>
+                <span className={`text-[10px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded-lg flex-shrink-0 ${getStatusBadgeStyles(effectivePaymentStatus)}`}>
                   {(effectivePaymentStatus as string) === 'hold'
                     ? (language === 'mr' ? 'होल्डवर' : 'On Hold')
                     : effectivePaymentStatus === 'unpaid'
@@ -1005,15 +1394,20 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
               </div>
             </div>
 
-            <div className="flex items-center gap-2 bg-slate-900/60 border border-slate-800 rounded-xl px-3 py-2.5">
-              <Phone className="h-3.5 w-3.5 text-slate-500 flex-shrink-0" />
-              <span className="flex-1 text-sm font-bold text-slate-200 tracking-wide">{booking.customers?.phone}</span>
+            <div className="flex items-center gap-2 bg-slate-900/60 border border-slate-800 rounded-xl px-3 py-2">
               <a
                 href={`tel:${booking.customers?.phone}`}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-slate-955 text-xs font-black rounded-lg transition shadow-sm shadow-emerald-500/20"
+                className="group flex-1 flex items-center gap-2 text-sm font-bold text-slate-200 tracking-wide hover:text-emerald-400 transition min-w-0"
+              >
+                <Phone className="h-3 w-3 text-slate-500 group-hover:text-emerald-400 transition flex-shrink-0" />
+                <span className="truncate">{booking.customers?.phone}</span>
+              </a>
+              <a
+                href={`tel:${booking.customers?.phone}`}
+                className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-slate-955 text-xs font-black rounded-lg transition shadow-sm shadow-emerald-500/20"
               >
                 <Phone className="h-3 w-3" />
-                {language === 'mr' ? 'कॉल करा' : 'Call'}
+                {language === 'mr' ? 'कॉल' : 'Call'}
               </a>
               <button
                 type="button"
@@ -1024,7 +1418,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                     toast.error(language === 'mr' ? 'नंबर कॉपी करू शकलो नाही' : 'Could not copy number')
                   })
                 }}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-850 hover:bg-slate-700 active:bg-slate-900 text-slate-350 text-xs font-bold rounded-lg transition"
+                className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-850 hover:bg-slate-700 active:bg-slate-900 text-slate-350 text-xs font-bold rounded-lg transition"
               >
                 <Copy className="h-3 w-3" />
                 {language === 'mr' ? 'कॉपी' : 'Copy'}
@@ -1032,7 +1426,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
             </div>
 
             {booking.occupation && (
-              <div className="text-xs text-slate-500">
+              <div className="text-xs text-slate-500 px-0.5">
                 <span className="font-bold">{language === 'mr' ? 'व्यवसाय:' : 'Occupation:'}</span> {booking.occupation}
               </div>
             )}
@@ -1051,7 +1445,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
               </span>
             </div>
 
-            <div className="px-5 py-5 flex items-center justify-between border-b border-slate-800/60">
+            <div className="px-4 py-3 flex items-center justify-between border-b border-slate-800/60">
               <div>
                 <div className="text-sm font-bold text-slate-300">{language === 'mr' ? 'एकूण बिल' : 'Total Bill'}</div>
               </div>
@@ -1075,7 +1469,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
               </div>
             </div>
 
-            <div className="px-5 py-4 flex flex-col gap-3 bg-slate-900/40 border-b border-slate-800/60">
+            <div className="px-4 py-3 flex flex-col gap-2.5 bg-slate-900/40 border-b border-slate-800/60">
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-sm font-bold text-slate-300">
@@ -1130,7 +1524,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
               </div>
             </div>
 
-            <div className="px-5 py-5 flex items-center justify-between border-b border-slate-800/60">
+            <div className="px-4 py-3 flex items-center justify-between border-b border-slate-800/60">
               <div>
                 <div className="text-sm font-bold text-emerald-400">{language === 'mr' ? 'जमा केलेली रक्कम' : 'Amount Paid'}</div>
               </div>
@@ -1157,7 +1551,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
             {(() => {
               const pct = liveTotal > 0 ? Math.min(100, (livePaid / liveTotal) * 100) : 0
               return (
-                <div className="px-5 py-3 bg-slate-900/40 border-b border-slate-800/60">
+                <div className="px-4 py-2 bg-slate-900/40 border-b border-slate-800/60">
                   <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
                     <div className={`h-full rounded-full transition-all duration-500 ${pct >= 100 ? 'bg-emerald-400' : pct > 0 ? 'bg-amber-400' : 'bg-slate-700'}`} style={{ width: `${pct}%` }} />
                   </div>
@@ -1169,7 +1563,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
               )
             })()}
 
-            <div className={`px-5 py-5 flex items-center justify-between ${
+            <div className={`px-4 py-3 flex items-center justify-between ${
               livePendingAmount > 0 ? 'bg-rose-500/5 border-b border-rose-500/15' : 'bg-emerald-500/5 border-b border-emerald-500/15'
             }`}>
               <div>
@@ -1182,7 +1576,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
               </span>
             </div>
 
-            <div className="px-5 py-4 flex flex-col gap-2.5 bg-slate-900/10">
+            <div className="px-4 py-3 flex flex-col gap-2 bg-slate-900/10">
               <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{language === 'mr' ? 'पेमेंट पद्धत' : 'PAYMENT MODE'}</span>
               <div className="grid grid-cols-3 gap-1.5">
                 {(['Cash', 'UPI', 'IDFC'] as const).map((mode) => {
@@ -1423,23 +1817,13 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
             <div className="px-4 pb-4 flex flex-col gap-3">
               <div className="flex flex-wrap gap-2 pt-3">
                 {(() => {
-                  const idDocsOnly = customerDocs ? customerDocs.filter((d: any) => d.doc_type !== 'customer_photo') : []
-                  const bookingDocsOnly = booking.documents ? booking.documents.filter((d: any) => d.doc_type !== 'customer_photo') : []
-                  
-                  // Merge customer and booking documents without duplicates
-                  const allDocsMap = new Map()
-                  bookingDocsOnly.forEach(d => allDocsMap.set(d.id, d))
-                  idDocsOnly.forEach(d => allDocsMap.set(d.id, d))
-                  const docs = Array.from(allDocsMap.values())
-
                   if (docs.length > 0) {
-                    return docs.map((doc) => (
-                      <a
+                    return docs.map((doc, idx) => (
+                      <button
                         key={doc.id}
-                        href={doc.public_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="relative w-16 h-16 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-850 bg-slate-100 dark:bg-slate-955 flex items-center justify-center hover:border-emerald-500 transition"
+                        type="button"
+                        onClick={() => setSelectedDocIndex(idx)}
+                        className="relative w-16 h-16 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-850 bg-slate-100 dark:bg-slate-955 flex items-center justify-center hover:border-emerald-500 transition cursor-pointer"
                       >
                         {doc.file_name.toLowerCase().endsWith('.pdf') ? (
                           <FileText className="h-6 w-6 text-slate-400" />
@@ -1449,7 +1833,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                         <span className="absolute bottom-0 inset-x-0 bg-black/45 text-[8px] text-white font-bold px-1 py-0.5 truncate text-center">
                           {doc.file_name}
                         </span>
-                      </a>
+                      </button>
                     ))
                   }
                   return <div className="text-xs text-slate-500 dark:text-slate-550 italic py-1">{language === 'mr' ? 'ओळखपत्र जोडलेले नाही.' : 'No ID proofs uploaded yet.'}</div>
@@ -1768,6 +2152,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
         />
       )}
       {renderDatePickerModal()}
+      {renderIDProofViewer()}
     </div>,
     document.body
   )

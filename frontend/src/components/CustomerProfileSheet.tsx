@@ -212,8 +212,8 @@ export default function CustomerProfileSheet({ customer, onClose }: CustomerProf
                   </a>
                 </div>
               </div>
-              <div className="text-right">
-                <span className="text-[10px] uppercase tracking-wider font-extrabold px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              <div className="text-right shrink-0">
+                <span className="inline-block whitespace-nowrap text-[10px] uppercase tracking-wider font-extrabold px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                   {customer.total_visits} {customer.total_visits === 1 ? 'Visit' : 'Visits'}
                 </span>
                 {totalPendingDues > 0 && (

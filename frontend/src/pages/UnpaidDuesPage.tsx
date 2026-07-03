@@ -8,11 +8,7 @@ import {
   ShieldAlert, 
   IndianRupee,
   Phone,
-  CalendarClock,
-  XCircle,
   CheckCircle2,
-  Clock3,
-  ChevronRight,
   Wallet,
   X,
 } from 'lucide-react'
@@ -20,6 +16,7 @@ import { getUnpaidDues } from '../api/dues'
 import BookingDetailSheet from '../components/BookingDetailSheet'
 import { useLanguage } from '../context/LanguageContext'
 import { getCustomerNameDisplay, cleanPhoneDisplay } from '../utils/customer'
+import { getMarathiName } from '../utils/nameHelper'
 import useLongPress from '../hooks/useLongPress'
 import { cancelBooking, restoreBooking } from '../api/bookings'
 import toast from 'react-hot-toast'
@@ -361,9 +358,10 @@ export default function UnpaidDuesPage() {
               <p className="text-xs text-slate-455 mt-1 font-semibold flex items-center gap-1">
                 👤 {(() => {
                   const { name: dName, isDeleted } = getCustomerNameDisplay(quickActionDue.customers?.name);
+                  const displayName = getMarathiName(dName);
                   return (
                     <>
-                      <span>{dName}</span>
+                      <span>{displayName}</span>
                       {isDeleted && (
                         <span className="bg-rose-500/10 text-rose-400 px-1.5 py-0.5 rounded text-[9px] font-black border border-rose-500/20 ml-1">
                           {language === 'mr' ? 'डिलीट केलेला' : 'Deleted'}
@@ -391,7 +389,7 @@ export default function UnpaidDuesPage() {
                   setCancelConfirmBooking({
                     id: quickActionDue.id,
                     roomNumber: String(quickActionDue.rooms.number),
-                    customerName: getCustomerNameDisplay(quickActionDue.customers?.name).name || ""
+                    customerName: getMarathiName(getCustomerNameDisplay(quickActionDue.customers?.name).name) || ""
                   })
                   setQuickActionDue(null)
                 }}
@@ -467,7 +465,6 @@ function DueCard({ due, onClick, onLongPress, language, getStatusLabel, getCheck
 
   const pending = due.total_amount - due.paid_amount
   const isFullyUnpaid = due.paid_amount === 0
-  const paidPct = Math.round((due.paid_amount / due.total_amount) * 100)
   const effectiveStatus = (due.payment_status === 'unpaid' && due.paid_amount > 0) ? 'partial' : due.payment_status
   const statusInfo = getStatusLabel(effectiveStatus)
   const urgency = getCheckoutUrgency(due.check_out)
@@ -475,97 +472,72 @@ function DueCard({ due, onClick, onLongPress, language, getStatusLabel, getCheck
   return (
     <div
       {...longPressHandlers}
-      className="p-4 bg-slate-950/70 border border-slate-800/80 rounded-2xl flex flex-col gap-3 cursor-pointer hover:border-emerald-500/40 hover:bg-slate-900/50 transition duration-200 group active:scale-[0.99]"
+      className="px-3.5 py-3 bg-slate-950/70 border border-slate-800/80 rounded-2xl flex flex-col gap-2 cursor-pointer hover:border-emerald-500/40 hover:bg-slate-900/50 transition duration-200 group active:scale-[0.99]"
     >
-      {/* Row 1: Guest name + Room + Status badge */}
-      <div className="flex justify-between items-start gap-2">
-        <div className="flex flex-col gap-0.5 min-w-0">
-          <div className="text-slate-100 font-extrabold text-base group-hover:text-emerald-400 transition flex items-center gap-2 flex-wrap">
-            <span className="truncate flex items-center gap-1">
-              {(() => {
-                const { name: dName, isDeleted } = getCustomerNameDisplay(due.customers?.name || due.customers?.phone);
-                return (
-                  <>
-                    <span className="truncate">{dName}</span>
-                    {isDeleted && (
-                      <span className="bg-rose-500/10 text-rose-400 px-1.5 py-0.5 rounded text-[9px] font-black border border-rose-500/20 ml-1 whitespace-nowrap">
-                        {language === 'mr' ? 'डिलीट केलेले' : 'Deleted'}
-                      </span>
-                    )}
-                  </>
-                );
-              })()}
-            </span>
-            <span className="bg-slate-800 border border-slate-700 px-2 py-0.5 rounded-md text-[10px] text-slate-300 font-bold shrink-0">
-              {language === 'mr' ? 'खोली' : 'Room'} {due.rooms.number}
-            </span>
-          </div>
-
-          {/* Tap-to-call phone */}
-          <a
-            href={`tel:${cleanPhoneDisplay(due.customers?.phone)}`}
-            onClick={(e) => e.stopPropagation()}
-            className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-emerald-400 font-medium mt-0.5 transition w-fit"
-          >
-            <Phone className="h-3 w-3 shrink-0" />
-            {cleanPhoneDisplay(due.customers?.phone)}
-          </a>
+      {/* Row 1: Guest name + Room badge + Status badge */}
+      <div className="flex justify-between items-center gap-2 min-w-0">
+        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+          <span className="text-slate-100 font-extrabold text-sm group-hover:text-emerald-400 transition truncate flex items-center gap-1.5">
+            {(() => {
+              const { name: dName, isDeleted } = getCustomerNameDisplay(due.customers?.name || due.customers?.phone);
+              const displayName = getMarathiName(dName);
+              return (
+                <>
+                  <span className="truncate">{displayName}</span>
+                  {isDeleted && (
+                    <span className="bg-rose-500/10 text-rose-400 px-1.5 py-0.5 rounded text-[9px] font-black border border-rose-500/20 whitespace-nowrap shrink-0">
+                      {language === 'mr' ? 'डिलीट' : 'Del'}
+                    </span>
+                  )}
+                </>
+              );
+            })()}
+          </span>
+          <span className="bg-slate-800 border border-slate-700 px-1.5 py-0.5 rounded text-[10px] text-slate-400 font-bold shrink-0 whitespace-nowrap">
+            {due.rooms.number}
+          </span>
         </div>
-
-        {/* Status Badge */}
-        <span className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold border shrink-0 ${statusInfo.color}`}>
+        <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold border shrink-0 ${statusInfo.color}`}>
           {statusInfo.label}
         </span>
       </div>
 
-      {/* Row 2: Progress Bar */}
-      <div className="flex flex-col gap-1.5">
-        <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all duration-500 ${
-              isFullyUnpaid
-                ? 'w-0'
-                : paidPct >= 80
-                ? 'bg-emerald-500'
-                : 'bg-amber-400'
-            }`}
-            style={{ width: `${paidPct}%` }}
-          />
-        </div>
-        <div className="flex justify-between items-center text-[11px]">
-          <span className="text-slate-500">
-            {language === 'mr' ? 'जमा:' : 'Received:'} <span className="text-slate-300 font-bold">₹{due.paid_amount.toLocaleString()}</span>
-            <span className="text-slate-600 mx-1">{language === 'mr' ? 'पैकी' : 'of'}</span>
-            <span className="text-slate-400 font-bold">₹{due.total_amount.toLocaleString()}</span>
-          </span>
-          <span className={`font-black ${isFullyUnpaid ? 'text-rose-400' : 'text-amber-300'}`}>
-            {language === 'mr' ? 'बाकी:' : 'Due:'} ₹{pending.toLocaleString()}
+      {/* Row 2: Phone | Urgency dot | Due amount + Collect button */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          {/* Tap-to-call phone */}
+          <a
+            href={`tel:${cleanPhoneDisplay(due.customers?.phone)}`}
+            onClick={(e) => e.stopPropagation()}
+            className="flex items-center gap-1 text-[11px] text-slate-500 hover:text-emerald-400 font-medium transition shrink-0"
+          >
+            <Phone className="h-3 w-3 shrink-0" />
+            {cleanPhoneDisplay(due.customers?.phone)}
+          </a>
+          {/* Urgency dot with label */}
+          <span className={`flex items-center gap-1 text-[10px] font-bold shrink-0 ${urgency.color}`}>
+            <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+              urgency.icon === 'overdue' ? 'bg-rose-400 animate-pulse' :
+              urgency.icon === 'today' ? 'bg-amber-400 animate-pulse' :
+              urgency.icon === 'soon' ? 'bg-yellow-400' : 'bg-slate-500'
+            }`} />
+            {urgency.label}
           </span>
         </div>
-      </div>
 
-      {/* Row 3: Checkout urgency + Collect button */}
-      <div className="flex justify-between items-center">
-        {/* Checkout urgency pill */}
-        <span className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${urgency.bg} ${urgency.color}`}>
-          {urgency.icon === 'overdue'
-            ? <XCircle className="h-3 w-3" />
-            : urgency.icon === 'today' || urgency.icon === 'soon'
-            ? <Clock3 className="h-3 w-3" />
-            : <CalendarClock className="h-3 w-3" />
-          }
-          {urgency.label}
-        </span>
-
-        {/* Collect Payment shortcut */}
-        <button
-          onClick={(e) => { e.stopPropagation(); onClick(due.id) }}
-          className="flex items-center gap-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 text-[11px] font-extrabold px-3 py-1.5 rounded-xl transition active:scale-95"
-        >
-          <Wallet className="h-3.5 w-3.5" />
-          {language === 'mr' ? 'पेमेंट गोळा करा' : 'Collect'}
-          <ChevronRight className="h-3 w-3 opacity-60" />
-        </button>
+        {/* Due amount + Collect button */}
+        <div className="flex items-center gap-2 shrink-0">
+          <span className={`text-xs font-black ${isFullyUnpaid ? 'text-rose-400' : 'text-amber-300'}`}>
+            ₹{pending.toLocaleString()}
+          </span>
+          <button
+            onClick={(e) => { e.stopPropagation(); onClick(due.id) }}
+            className="flex items-center gap-1 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 text-[11px] font-extrabold px-2.5 py-1.5 rounded-xl transition active:scale-95"
+          >
+            <Wallet className="h-3 w-3" />
+            {language === 'mr' ? 'गोळा करा' : 'Collect'}
+          </button>
+        </div>
       </div>
     </div>
   )
