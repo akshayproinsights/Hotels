@@ -34,6 +34,7 @@ import { useVisualViewport } from '../hooks/useVisualViewport'
 import { formatNameByLanguage } from '../utils/nameHelper'
 import DocumentLightbox from './DocumentLightbox'
 import NumericKeypad from './NumericKeypad'
+import CameraCaptureModal from './CameraCaptureModal'
 
 
 
@@ -253,6 +254,7 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
   // Documents
   const [selectedFiles, setSelectedFiles] = useState<LocalFile[]>([])
   const [guestPhoto, setGuestPhoto] = useState<LocalFile | { preview: string; file?: null } | null>(null)
+  const [isCameraOpen, setIsCameraOpen] = useState(false)
   
   // Total Amount State (for editing)
   const [totalAmount, setTotalAmount] = useState<string | number>('')
@@ -476,24 +478,11 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
     }
   }
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      const rawFiles = Array.from(e.target.files) as File[]
-      const compressed = await compressImages(rawFiles)
-      const filesArr = compressed.map((file: File) => ({
-        file,
-        preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : '',
-      }))
-      setSelectedFiles(prev => [...prev, ...filesArr])
-    }
-  }
-
-  const extractGuestDetails = async () => {
-    if (selectedFiles.length === 0) return
+  const extractGuestDetailsFromFiles = async (filesToExtract: File[]) => {
+    if (filesToExtract.length === 0) return
     setIsExtractingName(true)
     const toastId = toast.loading(language === 'mr' ? 'ओळखपत्रातून माहिती शोधत आहे...' : 'Extracting details from ID...')
     try {
-      const filesToExtract = selectedFiles.map(lf => lf.file)
       const details = await extractNameFromId(filesToExtract)
       if (details && details.name && details.name.trim()) {
         setGuestName(details.name.trim())
@@ -528,6 +517,35 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
     } finally {
       setIsExtractingName(false)
     }
+  }
+
+  const extractGuestDetails = async () => {
+    await extractGuestDetailsFromFiles(selectedFiles.map(lf => lf.file))
+  }
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const rawFiles = Array.from(e.target.files) as File[]
+      const compressed = await compressImages(rawFiles)
+      const filesArr = compressed.map((file: File) => ({
+        file,
+        preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : '',
+      }))
+      const updated = [...selectedFiles, ...filesArr]
+      setSelectedFiles(updated)
+      await extractGuestDetailsFromFiles(updated.map(lf => lf.file))
+    }
+  }
+
+  const handleCameraCaptureComplete = async (capturedFiles: File[]) => {
+    const compressed = await compressImages(capturedFiles)
+    const filesArr = compressed.map((file: File) => ({
+      file,
+      preview: URL.createObjectURL(file),
+    }))
+    const updated = [...selectedFiles, ...filesArr]
+    setSelectedFiles(updated)
+    await extractGuestDetailsFromFiles(updated.map(lf => lf.file))
   }
 
 
@@ -1331,19 +1349,15 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
               <span>{language === 'mr' ? 'ओळखपत्र अपलोड करा' : 'ID Documentation'}</span>
             </span>
             <div className="grid grid-cols-2 gap-2 mt-1.5">
-              <label className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-950 border border-slate-800 border-dashed rounded-xl cursor-pointer hover:bg-slate-900 transition text-xs font-semibold text-slate-400">
+              <button
+                type="button"
+                onClick={() => setIsCameraOpen(true)}
+                disabled={isExtractingName}
+                className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-950 border border-slate-800 border-dashed rounded-xl hover:bg-slate-900 transition text-xs font-semibold text-slate-400 disabled:opacity-50"
+              >
                 <Camera className="h-4 w-4 text-slate-500" />
                 {language === 'mr' ? 'फोटो काढा' : 'Capture ID'}
-                <input
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  multiple
-                  className="hidden"
-                  onChange={handleFileChange}
-                  disabled={isExtractingName}
-                />
-              </label>
+              </button>
               <label className="flex items-center justify-center gap-2 py-3 px-4 bg-slate-950 border border-slate-800 border-dashed rounded-xl cursor-pointer hover:bg-slate-900 transition text-xs font-semibold text-slate-400">
                 <Upload className="h-4 w-4 text-slate-500" />
                 {language === 'mr' ? 'फाईल अपलोड' : 'Upload Doc'}
@@ -1976,6 +1990,12 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
           language={language}
         />
       )}
+      <CameraCaptureModal
+        isOpen={isCameraOpen}
+        onClose={() => setIsCameraOpen(false)}
+        onCaptureComplete={handleCameraCaptureComplete}
+        language={language}
+      />
     </div>,
     document.body
   )

@@ -531,6 +531,14 @@ def check_booking_extension(booking_id: str, check_out: datetime, user=Depends(g
         "reason": "Room is available."
     }
 
+@router.get("")
+def get_all_bookings(user=Depends(get_current_user)):
+    res = supabase.table("bookings") \
+        .select("*, rooms(*), customers(*)") \
+        .order("created_at", desc=True) \
+        .execute()
+    return map_bookings_payment_mode(res.data)
+
 @router.get("/cancelled")
 def get_cancelled_bookings(user=Depends(get_current_user)):
     res = supabase.table("bookings") \

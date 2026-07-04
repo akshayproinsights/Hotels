@@ -1,12 +1,14 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit3, X, Save, AlertCircle, RefreshCw, Hotel, Users, Search, User, Phone, Calendar, Loader2, Check, Trash2 } from 'lucide-react'
+import { Plus, Edit3, X, Save, AlertCircle, RefreshCw, Hotel, Users, Search, User, Phone, Calendar, Loader2, Check, Trash2, History } from 'lucide-react'
 import api from '../api/client'
 import { Room, Customer } from '../types'
 import toast from 'react-hot-toast'
 import { searchCustomers, deleteCustomer } from '../api/customers'
+import { getAllBookings } from '../api/bookings'
 import CustomerProfileSheet from '../components/CustomerProfileSheet'
+import BookingDetailSheet from '../components/BookingDetailSheet'
 import NumericKeypad from '../components/NumericKeypad'
 import { format, parseISO } from 'date-fns'
 import { useLanguage } from '../context/LanguageContext'
@@ -78,7 +80,57 @@ export default function SettingsPage() {
   // Hide Rooms tab for the 'santosh' account (becomes santosh@snapkhata.com after login transformation)
   // While auth is still loading treat as restricted to avoid a brief Rooms tab flash
   const isSantosh = authLoading || (user?.email?.startsWith('santosh@') ?? false)
-  const [activeTab, setActiveTab] = useState<'rooms' | 'customers' | 'trash'>('customers')
+  const [activeTab, setActiveTab] = useState<'rooms' | 'customers' | 'trash' | 'history'>('history')
+
+  const [historySearchQuery, setHistorySearchQuery] = useState('')
+  const [historyStatusFilter, setHistoryStatusFilter] = useState<'all' | 'active' | 'reserved' | 'checked_out' | 'cancelled'>('all')
+  const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null)
+
+  // Fetch All Bookings for Booking History
+  const { data: allBookings = [], isLoading: isHistoryLoading, refetch: refetchHistory } = useQuery<any[]>({
+    queryKey: ['allBookings'],
+    queryFn: getAllBookings,
+    enabled: activeTab === 'history'
+  })
+
+  const filteredBookings = useMemo(() => {
+    let result = allBookings
+
+    // Filter out bookings with deleted customers
+    result = result.filter(b => {
+      const name = b.customers?.name || ''
+      return !name.startsWith('[DELETED] ')
+    })
+
+    // Filter by status
+    if (historyStatusFilter !== 'all') {
+      if (historyStatusFilter === 'active') {
+        result = result.filter(b => b.status === 'active' && b.is_checked_in)
+      } else if (historyStatusFilter === 'reserved') {
+        result = result.filter(b => b.status === 'active' && !b.is_checked_in)
+      } else {
+        result = result.filter(b => b.status === historyStatusFilter)
+      }
+    }
+
+    // Filter by search query
+    if (historySearchQuery.trim()) {
+      const q = historySearchQuery.toLowerCase()
+      result = result.filter(b => {
+        const customerName = b.customers?.name || ''
+        const customerPhone = b.customers?.phone || ''
+        const roomNumber = b.rooms?.number || ''
+        const bookingNumber = b.booking_number || ''
+        
+        return customerName.toLowerCase().includes(q) ||
+               customerPhone.includes(q) ||
+               roomNumber.toLowerCase().includes(q) ||
+               bookingNumber.toLowerCase().includes(q)
+      })
+    }
+
+    return [...result].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+  }, [allBookings, historyStatusFilter, historySearchQuery])
 
   useEffect(() => {
     if (isSantosh && activeTab === 'rooms') {
@@ -367,6 +419,8 @@ export default function SettingsPage() {
               ? (language === 'mr' ? 'खोलीच्या सेटिंग्ज' : 'Room Settings') 
               : activeTab === 'customers'
               ? (language === 'mr' ? 'ग्राहकांची यादी' : 'Customer Registry')
+              : activeTab === 'history'
+              ? (language === 'mr' ? 'बुकिंग इतिहास' : 'Booking History')
               : (language === 'mr' ? 'कचरापेटी (Trash Bin)' : 'Trash Bin')}
           </h1>
           <p className="text-slate-400 text-sm mt-1">
@@ -374,6 +428,8 @@ export default function SettingsPage() {
               ? (language === 'mr' ? 'हॉटेलच्या खोल्यांचे व्यवस्थापन आणि दर ठरवा' : 'Configure and manage hotel rooms')
               : activeTab === 'customers'
               ? (language === 'mr' ? 'ग्राहकांचा राहण्याचा इतिहास, भेटींची नोंद आणि ओळखपत्रे शोधा' : 'Look up customer stays, visits history, and uploaded ID proofs')
+              : activeTab === 'history'
+              ? (language === 'mr' ? 'केलेले सर्व बुकिंग्स शोधा, फिल्टर करा आणि व्यवस्थापित करा' : 'Search, filter, and manage all past and current bookings')
               : (language === 'mr' ? 'रद्द केलेले बुकिंग्स तपासा आणि पुनर्संचयित करा' : 'Review and restore soft-cancelled bookings')}
           </p>
         </div>
@@ -388,7 +444,18 @@ export default function SettingsPage() {
       </div>
 
       {/* Segmented Switcher */}
-      <div className="flex bg-slate-950/80 border border-slate-800/40 p-1 rounded-2xl max-w-md mb-8">
+      <div className="flex bg-slate-950/80 border border-slate-800/40 p-1 rounded-2xl max-w-lg mb-8">
+        <button
+          onClick={() => setActiveTab('history')}
+          className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-bold transition-all duration-200 ${
+            activeTab === 'history'
+              ? 'bg-slate-905 text-emerald-400 border border-slate-800 shadow-md'
+              : 'text-slate-500 hover:text-slate-300 border border-transparent'
+          }`}
+        >
+          <History className="h-4 w-4 text-emerald-500" />
+          {language === 'mr' ? 'इतिहास' : 'History'}
+        </button>
         <button
           onClick={() => setActiveTab('customers')}
           className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-bold transition-all duration-200 ${
@@ -418,7 +485,7 @@ export default function SettingsPage() {
           className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-bold transition-all duration-200 ${
             activeTab === 'trash'
               ? 'bg-slate-905 text-emerald-400 border border-slate-800 shadow-md'
-              : 'text-slate-500 hover:text-slate-300 border border-transparent'
+              : 'text-slate-550 hover:text-slate-300 border border-transparent'
           }`}
         >
           <Trash2 className="h-4 w-4 text-rose-500" />
@@ -616,6 +683,196 @@ export default function SettingsPage() {
               customer={selectedCustomer}
               onClose={() => setSelectedCustomer(null)}
             />
+          )}
+        </div>
+      ) : activeTab === 'history' ? (
+        <div className="space-y-4 animate-fade-in">
+          {/* Compact Search & Refresh Input Bar */}
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                <Search className="h-4 w-4 text-slate-500" />
+              </span>
+              <input
+                type="text"
+                placeholder={language === 'mr' ? 'नाव, फोन, रूम किंवा बुकिंग नं...' : 'Search guest, phone, room, ID...'}
+                value={historySearchQuery}
+                onChange={(e) => setHistorySearchQuery(e.target.value)}
+                className="w-full pl-10 pr-10 py-3 bg-slate-955 border border-slate-850 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-sm font-semibold"
+              />
+              {historySearchQuery && (
+                <button
+                  onClick={() => setHistorySearchQuery('')}
+                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-200"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+
+            <button
+              onClick={() => refetchHistory()}
+              disabled={isHistoryLoading}
+              className="p-3.5 rounded-2xl bg-slate-955 border border-slate-850 hover:bg-slate-900 text-slate-450 hover:text-slate-200 transition flex items-center justify-center shrink-0"
+              title="Refresh"
+            >
+              <RefreshCw className={`h-4 w-4 ${isHistoryLoading ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+
+          {/* Horizontally Scrollable Status Filter Chips */}
+          <div className="flex gap-2 overflow-x-auto pb-1.5 scrollbar-none -mx-4 px-4">
+            {[
+              { id: 'all', label: language === 'mr' ? 'सर्व' : 'All' },
+              { id: 'active', label: language === 'mr' ? 'चालू (In-House)' : 'In-House' },
+              { id: 'reserved', label: language === 'mr' ? 'आरक्षित' : 'Reserved' },
+              { id: 'checked_out', label: language === 'mr' ? 'चेक आउट' : 'Checked Out' },
+              { id: 'cancelled', label: language === 'mr' ? 'रद्द' : 'Cancelled' }
+            ].map(chip => {
+              const isActive = historyStatusFilter === chip.id
+              return (
+                <button
+                  key={chip.id}
+                  onClick={() => setHistoryStatusFilter(chip.id as any)}
+                  className={`py-2 px-4 rounded-xl text-xs font-black transition-all duration-150 border whitespace-nowrap shrink-0 ${
+                    isActive
+                      ? 'bg-emerald-500/10 text-emerald-455 border-emerald-500/35'
+                      : 'bg-slate-900/30 text-slate-400 border-slate-800/80 hover:text-slate-350 hover:bg-slate-900/50'
+                  }`}
+                >
+                  {chip.label}
+                </button>
+              )
+            })}
+          </div>
+
+          {isHistoryLoading ? (
+            <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+              <Loader2 className="animate-spin h-8 w-8 text-emerald-400 mb-3" />
+              <p className="text-xs font-semibold">{language === 'mr' ? 'बुकिंग इतिहास लोड करत आहे...' : 'Loading booking history...'}</p>
+            </div>
+          ) : filteredBookings.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 animate-fade-in">
+              {filteredBookings.map((b) => {
+                return (
+                  <div
+                    key={b.id}
+                    onClick={() => setSelectedBookingId(b.id)}
+                    className="glass-panel cursor-pointer rounded-2xl p-5 border border-slate-800/80 bg-slate-900/30 hover:border-emerald-500/20 hover:scale-[1.01] transition-all duration-200 flex flex-col justify-between min-h-[160px] active:scale-[0.99] relative overflow-hidden"
+                  >
+                    <div>
+                      <div className="flex justify-between items-start">
+                        <div className="flex items-center gap-1.5">
+                          <span className="bg-slate-955 border border-slate-850 px-2 py-0.5 rounded-md text-[10px] text-slate-400 font-extrabold whitespace-nowrap">
+                            {b.booking_number}
+                          </span>
+                          <span className="bg-slate-955 border border-slate-850 px-2 py-0.5 rounded-md text-[10px] text-emerald-400 font-extrabold whitespace-nowrap">
+                            {language === 'mr' ? 'खोली' : 'Room'} {b.rooms?.number || b.room_id}
+                          </span>
+                        </div>
+                        
+                        {/* Status Badge */}
+                        {(() => {
+                          let statusText = ''
+                          let statusStyle = ''
+                          if (b.status === 'cancelled') {
+                            statusText = language === 'mr' ? 'रद्द' : 'Cancelled'
+                            statusStyle = 'bg-rose-500/10 text-rose-450 border border-rose-500/20'
+                          } else if (b.status === 'checked_out') {
+                            statusText = language === 'mr' ? 'चेक आउट' : 'Checked Out'
+                            statusStyle = 'bg-slate-950 border border-slate-850 text-slate-400'
+                          } else if (b.status === 'active') {
+                            if (b.is_checked_in) {
+                              statusText = language === 'mr' ? 'चालू' : 'In-House'
+                              statusStyle = 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                            } else {
+                              statusText = language === 'mr' ? 'आरक्षित' : 'Reserved'
+                              statusStyle = 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                            }
+                          }
+                          return (
+                            <span className={`text-[9px] uppercase font-black tracking-wider px-2 py-0.5 rounded-full ${statusStyle} whitespace-nowrap`}>
+                              {statusText}
+                            </span>
+                          )
+                        })()}
+                      </div>
+                      
+                      {/* Customer Name & Phone */}
+                      <div className="mt-3.5">
+                        <h3 className="text-base font-black text-slate-100 flex items-center gap-1.5 truncate">
+                          👤 {(() => {
+                            const { name: dName, isDeleted } = getCustomerNameDisplay(b.customers?.name)
+                            const displayName = formatNameByLanguage(dName, language)
+                            return (
+                              <>
+                                <span className="truncate">{displayName}</span>
+                                {isDeleted && (
+                                  <span className="bg-rose-500/10 text-rose-400 px-1.5 py-0.5 rounded text-[9px] font-black border border-rose-500/20 ml-1 whitespace-nowrap">
+                                    {language === 'mr' ? 'डिलीट केलेले' : 'Deleted'}
+                                  </span>
+                                )}
+                              </>
+                            )
+                          })()}
+                        </h3>
+                        <p className="text-xs text-slate-505 font-medium mt-1">
+                          📞 {cleanPhoneDisplay(b.customers?.phone)}
+                        </p>
+                      </div>
+
+                      {/* Dates & Pricing */}
+                      <div className="mt-3.5 space-y-1.5 border-t border-slate-800/40 pt-3">
+                        <div className="flex justify-between text-[11px] font-semibold text-slate-400">
+                          <span>{language === 'mr' ? 'कालावधी:' : 'Duration:'}</span>
+                          <span className="text-slate-350">
+                            {format(parseISO(b.check_in), 'dd MMM, hh:mm a')} - {format(parseISO(b.check_out), 'dd MMM, hh:mm a')}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-[11px] font-semibold text-slate-400">
+                          <span>{language === 'mr' ? 'एकूण रक्कम:' : 'Total Amount:'}</span>
+                          <span className="text-slate-300 font-bold">₹{parseFloat(b.total_amount || 0).toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between text-[11px] font-semibold text-slate-400">
+                          <span>{language === 'mr' ? 'जमा / बाकी:' : 'Paid / Balance:'}</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-emerald-550 font-bold">₹{parseFloat(b.paid_amount || 0).toLocaleString()}</span>
+                            <span className="text-slate-700">/</span>
+                            {(() => {
+                              const balance = parseFloat(b.total_amount || 0) - parseFloat(b.paid_amount || 0)
+                              const balanceStyle = balance > 0 ? 'text-rose-455 font-bold' : 'text-slate-500 font-semibold'
+                              return <span className={balanceStyle}>₹{balance.toLocaleString()}</span>
+                            })()}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Card Footer */}
+                    <div className="mt-4 pt-3 border-t border-slate-800/40 flex justify-between items-center text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+                      <span className="flex items-center gap-1 text-slate-450 font-bold">
+                        💳 {b.payment_mode || 'Pending'}
+                      </span>
+                      <span className="text-emerald-450 hover:text-emerald-400 transition flex items-center gap-0.5">
+                        {language === 'mr' ? 'तपशील पहा' : 'View Details'} ➔
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="glass-panel rounded-3xl p-12 text-center text-slate-500 max-w-md mx-auto">
+              <Calendar className="h-10 w-10 text-emerald-500/30 mx-auto mb-3" />
+              <p className="text-sm font-semibold">
+                {language === 'mr' ? 'कोणतेही बुकिंग सापडले नाही.' : 'No bookings found.'}
+              </p>
+              <p className="text-xs text-slate-600 mt-1">
+                {language === 'mr' 
+                  ? 'फिल्टर किंवा सर्च क्वेरी बदलून पुन्हा प्रयत्न करा.' 
+                  : 'Try changing your filter settings or search query to see history.'}
+              </p>
+            </div>
           )}
         </div>
       ) : (
@@ -1131,6 +1388,19 @@ export default function SettingsPage() {
         document.body
       )}
 
+      {/* Booking detail sheet portal */}
+      {selectedBookingId && (
+        <BookingDetailSheet
+          bookingId={selectedBookingId}
+          onClose={() => setSelectedBookingId(null)}
+          onSuccess={() => {
+            refetchHistory()
+            setSelectedBookingId(null)
+          }}
+        />
+      )}
+
     </div>
   )
 }
+

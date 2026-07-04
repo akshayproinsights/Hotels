@@ -884,17 +884,35 @@ export default function ReportsPage() {
 
                           {/* Payment Mode */}
                           <td className="py-3.5 px-4 text-center">
-                            <span className={`text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-lg border ${
-                              item.payment_mode === 'Cash' 
-                                ? 'bg-amber-500/5 text-amber-400 border-amber-500/20' 
-                                : item.payment_mode === 'UPI'
-                                ? 'bg-emerald-500/5 text-emerald-400 border-emerald-500/20'
-                                : item.payment_mode === 'IDFC'
-                                ? 'bg-blue-500/5 text-blue-400 border-blue-500/20'
-                                : 'bg-slate-900 text-slate-500 border-slate-850'
-                            }`}>
-                              {item.payment_mode === 'Cash' ? t('cash') : item.payment_mode === 'UPI' ? t('upi') : item.payment_mode === 'IDFC' ? t('idfc') : '-'}
-                            </span>
+                            {(() => {
+                              // Detect split payment: notes written by checkout split-detection logic
+                              const splitNote = item.notes
+                                ? item.notes.split(' | ').find(n => n.startsWith('Paid via '))
+                                : null
+                              if (splitNote) {
+                                return (
+                                  <span
+                                    title={splitNote}
+                                    className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-lg border bg-purple-500/10 text-purple-400 border-purple-500/25 cursor-help"
+                                  >
+                                    ⚡ SPLIT
+                                  </span>
+                                )
+                              }
+                              return (
+                                <span className={`text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-lg border ${
+                                  item.payment_mode === 'Cash'
+                                    ? 'bg-amber-500/5 text-amber-400 border-amber-500/20'
+                                    : item.payment_mode === 'UPI'
+                                    ? 'bg-emerald-500/5 text-emerald-400 border-emerald-500/20'
+                                    : item.payment_mode === 'IDFC'
+                                    ? 'bg-blue-500/5 text-blue-400 border-blue-500/20'
+                                    : 'bg-slate-900 text-slate-500 border-slate-850'
+                                }`}>
+                                  {item.payment_mode === 'Cash' ? t('cash') : item.payment_mode === 'UPI' ? t('upi') : item.payment_mode === 'IDFC' ? t('idfc') : '-'}
+                                </span>
+                              )
+                            })()}
                           </td>
 
                           {/* Payment Status Badge */}

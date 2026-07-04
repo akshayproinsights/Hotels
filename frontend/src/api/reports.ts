@@ -50,6 +50,7 @@ export interface FinancialsResponse {
     status: 'active' | 'checked_out' | 'cancelled'
     created_at: string
     extra_bill_amount: number
+    notes?: string
   }>
 }
 

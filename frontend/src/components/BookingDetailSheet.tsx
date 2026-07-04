@@ -34,6 +34,7 @@ import { useLanguage } from '../context/LanguageContext'
 import { useVisualViewport } from '../hooks/useVisualViewport'
 import type { Room } from '../types'
 import NumericKeypad from './NumericKeypad'
+import CameraCaptureModal from './CameraCaptureModal'
 
 interface BookingDetailSheetProps {
   bookingId: string
@@ -101,7 +102,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
   const [editRoomMode, setEditRoomMode] = useState(false)
   const [showDatePicker, setShowDatePicker] = useState(false)
   const [pickerMonth, setPickerMonth] = useState<Date>(new Date())
-  const [activeKeypad, setActiveKeypad] = useState<'total' | 'extra' | 'paid' | 'roomPrice' | null>(null)
+  const [activeKeypad, setActiveKeypad] = useState<'total' | 'extra' | 'paid' | 'roomPrice' | 'checkoutTotal' | 'checkoutPaid' | null>(null)
 
   // Booking details drafts (for editing)
   const [draftCheckIn, setDraftCheckIn] = useState('')
@@ -116,7 +117,6 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
   const [draftRoomPrice, setDraftRoomPrice] = useState(0)
   const [editingTotal, setEditingTotal] = useState<string | number>('')
   const [editingPaid, setEditingPaid] = useState<string | number>('')
-  const [selectedPaymentMode, setSelectedPaymentMode] = useState<'Cash' | 'UPI' | 'IDFC'>('Cash')
   const [editingExtraAmount, setEditingExtraAmount] = useState<string | number>('')
   const [editingExtraNote, setEditingExtraNote] = useState<string>('')
 
@@ -127,8 +127,17 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
   // Modals/Confirmations
   const [showCheckoutConfirm, setShowCheckoutConfirm] = useState(false)
   const [showCancelConfirm, setShowCancelConfirm] = useState(false)
+
+  // Checkout amount editing states
+  const [checkoutTotalAmount, setCheckoutTotalAmount] = useState<number>(0)
+  const [checkoutPaidAmount, setCheckoutPaidAmount] = useState<number>(0)
+  const [checkoutPaymentMode, setCheckoutPaymentMode] = useState<'Cash' | 'UPI' | 'IDFC'>('Cash')
+  const [checkoutIsPaidAmountModified, setCheckoutIsPaidAmountModified] = useState<boolean>(false)
+  // Payment mode for the quick "Mark Fully Paid" button in the booking detail view
+  const [duesPaymentMode, setDuesPaymentMode] = useState<'Cash' | 'UPI' | 'IDFC'>('Cash')
   const [showRefDetails, setShowRefDetails] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
+  const [isCameraOpen, setIsCameraOpen] = useState(false)
 
   // Customer Name Edit States
   const [draftCustomerName, setDraftCustomerName] = useState('')
@@ -373,67 +382,133 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
 
   const customerPhotoDoc = customerDocs?.find((d: any) => d.doc_type === 'customer_photo') || booking?.documents?.find((d: any) => d.doc_type === 'customer_photo')
 
+  // handleMarkAsPaid: used by post-checkout "Record Dues Payment" button (keeps existing mode)
   const handleMarkAsPaid = () => {
     const updates: Parameters<typeof updateBooking>[1] = {
       payment_status: 'paid',
       paid_amount: booking.total_amount,
     }
-    if (booking.payment_mode === 'Pending') {
-      updates.payment_mode = selectedPaymentMode
+    if (!booking.payment_mode || booking.payment_mode === 'Pending') {
+      updates.payment_mode = checkoutPaymentMode || 'Cash'
     }
+    updateMutation.mutate(updates)
+  }
+
+  // handleMarkFullyPaid: used by the quick "Mark Fully Paid" button in booking detail view.
+  // Correctly records split payments: if ₹500 was paid via IDFC and user marks full via UPI,
+  // it logs a split-payment audit note so reports always show the correct breakdown.
+  const handleMarkFullyPaid = (selectedMode: 'Cash' | 'UPI' | 'IDFC') => {
+    const total = editingTotal === '' ? 0 : Number(editingTotal)
+    const prevPaid = booking.paid_amount || 0
+    const additionalPaid = total - prevPaid
+    const prevMode = booking.payment_mode
+
+    const updates: Parameters<typeof updateBooking>[1] = {
+      payment_status: 'paid',
+      paid_amount: total,
+      payment_mode: selectedMode,
+    }
+
+    // If there was a prior partial payment with a DIFFERENT mode, append split audit note
+    if (
+      prevPaid > 0 &&
+      additionalPaid > 0 &&
+      prevMode &&
+      prevMode !== 'Pending' &&
+      prevMode !== selectedMode
+    ) {
+      const splitNote = `Paid via ${prevMode}: ₹${prevPaid.toLocaleString('en-IN')} + ${selectedMode}: ₹${additionalPaid.toLocaleString('en-IN')}`
+      updates.notes = booking.notes
+        ? `${booking.notes} | ${splitNote}`
+        : splitNote
+    }
+
     updateMutation.mutate(updates)
   }
 
   const handleCheckOut = () => {
-    const updates: Parameters<typeof updateBooking>[1] = { status: 'checked_out' }
-    const dues = Math.max(0, booking.total_amount - booking.paid_amount)
-    if (dues > 0) {
-      updates.payment_status = 'paid'
-      updates.paid_amount = booking.total_amount
-      if (booking.payment_mode === 'Pending') {
-        updates.payment_mode = selectedPaymentMode
-      }
+    const duesWasCollected = !checkoutIsPaidAmountModified && (checkoutTotalAmount - checkoutPaidAmount) > 0
+    const finalPaid = duesWasCollected ? checkoutTotalAmount : checkoutPaidAmount
+    const updates: Parameters<typeof updateBooking>[1] = {
+      status: 'checked_out',
+      total_amount: checkoutTotalAmount,
+      paid_amount: finalPaid,
+      payment_mode: checkoutPaymentMode,
     }
+    if (finalPaid >= checkoutTotalAmount) {
+      updates.payment_status = 'paid'
+    } else if (finalPaid > 0) {
+      updates.payment_status = 'partial'
+    } else {
+      updates.payment_status = 'unpaid'
+    }
+
+    // If the booking had a partial payment at check-in with a DIFFERENT mode,
+    // append a split-payment audit note so there's a clear record in history.
+    const prevMode = booking.payment_mode
+    const prevPaid = booking.paid_amount || 0
+    const additionalPaid = finalPaid - prevPaid
+    if (
+      prevPaid > 0 &&
+      additionalPaid > 0 &&
+      prevMode &&
+      prevMode !== 'Pending' &&
+      prevMode !== checkoutPaymentMode
+    ) {
+      const splitNote = `Paid via ${prevMode}: ₹${prevPaid.toLocaleString('en-IN')} + ${checkoutPaymentMode}: ₹${additionalPaid.toLocaleString('en-IN')}`
+      updates.notes = booking.notes
+        ? `${booking.notes} | ${splitNote}`
+        : splitNote
+    }
+
     updateMutation.mutate(updates)
+  }
+
+  const uploadAndExtractFiles = async (files: File[]) => {
+    if (files.length === 0) return
+    setIsUploading(true)
+    const uploadToast = toast.loading(language === 'mr' ? `${files.length} ओळखपत्रे अपलोड होत आहेत...` : `Uploading ${files.length} document(s)...`)
+    try {
+      for (const file of files) {
+        const { upload_url, document_id } = await getUploadUrl(booking.id, booking.customer_id, file.name, file.type)
+        await uploadFileToR2(upload_url, file)
+        await confirmUpload(document_id)
+      }
+      toast.success(language === 'mr' ? 'ओळखपत्रे यशस्वीरित्या जोडली गेली' : 'Documents added successfully', { id: uploadToast })
+      
+      // Auto-run OCR details extraction on the uploaded ID cards
+      try {
+        const details = await extractNameFromId(files)
+        if (details && details.name && details.name.trim()) {
+          const updates: Parameters<typeof updateCustomer>[1] = { name: details.name.trim() }
+          if (details.address) updates.address = details.address.trim()
+          if (details.age) updates.age = details.age
+          
+          await updateCustomer(booking.customer_id, updates)
+          toast.success(language === 'mr' ? `ओळखपत्रातून नाव अपडेट केले: ${details.name.trim()}` : `Extracted and updated guest name: ${details.name.trim()}`)
+        }
+      } catch (ocrErr) {
+        console.error('OCR Extraction failed:', ocrErr)
+      }
+
+      refetch()
+      refetchCustomerDocs()
+    } catch (err) {
+      console.error(err)
+      toast.error(language === 'mr' ? 'काही ओळखपत्रे अपलोड करण्यात अडचण आली' : 'Failed to upload one or more documents', { id: uploadToast })
+    } finally {
+      setIsUploading(false)
+    }
   }
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      const files = Array.from(e.target.files)
-      setIsUploading(true)
-      const uploadToast = toast.loading(language === 'mr' ? `${files.length} ओळखपत्रे अपलोड होत आहेत...` : `Uploading ${files.length} document(s)...`)
-      try {
-        for (const file of files) {
-          const { upload_url, document_id } = await getUploadUrl(booking.id, booking.customer_id, file.name, file.type)
-          await uploadFileToR2(upload_url, file)
-          await confirmUpload(document_id)
-        }
-        toast.success(language === 'mr' ? 'ओळखपत्रे यशस्वीरित्या जोडली गेली' : 'Documents added successfully', { id: uploadToast })
-        
-        // Auto-run OCR details extraction on the uploaded ID cards
-        try {
-          const details = await extractNameFromId(files)
-          if (details && details.name && details.name.trim()) {
-            const updates: Parameters<typeof updateCustomer>[1] = { name: details.name.trim() }
-            if (details.address) updates.address = details.address.trim()
-            if (details.age) updates.age = details.age
-            
-            await updateCustomer(booking.customer_id, updates)
-            toast.success(language === 'mr' ? `ओळखपत्रातून नाव अपडेट केले: ${details.name.trim()}` : `Extracted and updated guest name: ${details.name.trim()}`)
-          }
-        } catch (ocrErr) {
-          console.error('OCR Extraction failed:', ocrErr)
-        }
-
-        refetch()
-        refetchCustomerDocs()
-      } catch (err) {
-        console.error(err)
-        toast.error(language === 'mr' ? 'काही ओळखपत्रे अपलोड करण्यात अडचण आली' : 'Failed to upload one or more documents', { id: uploadToast })
-      } finally {
-        setIsUploading(false)
-      }
+      await uploadAndExtractFiles(Array.from(e.target.files))
     }
+  }
+
+  const handleCameraCaptureComplete = async (capturedFiles: File[]) => {
+    await uploadAndExtractFiles(capturedFiles)
   }
 
   const handleCustomerPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -507,7 +582,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
       payment_status: isNowFullyPaid ? 'paid' : (newPaid > 0 ? 'partial' : 'unpaid'),
     }
     if (booking.payment_mode === 'Pending' && newPaid > 0) {
-      updates.payment_mode = selectedPaymentMode
+      updates.payment_mode = 'Cash'
     }
     updateMutation.mutate(updates)
   }
@@ -1607,6 +1682,69 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                 })}
               </div>
             </div>
+
+            {/* ── Quick "Mark Fully Paid" section — only when balance is due and booking is active ── */}
+            {livePendingAmount > 0 && booking.status === 'active' && (
+              <div className="mx-4 mb-4 mt-1 flex flex-col gap-2.5 bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-3.5">
+                {/* Context label */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">⚡ {language === 'mr' ? 'जमा करण्यासाठी' : 'COLLECT REMAINING'}</span>
+                  <span className="ml-auto text-xs font-black text-rose-400 tabular-nums">₹{livePendingAmount.toLocaleString('en-IN')} {language === 'mr' ? 'बाकी' : 'due'}</span>
+                </div>
+
+                {/* Show split info if previous partial payment exists with a different mode */}
+                {booking.paid_amount > 0 && (
+                  <div className="text-[10px] text-slate-500 font-semibold bg-slate-900/60 rounded-xl px-3 py-2 border border-slate-800/60">
+                    {language === 'mr'
+                      ? `आधी ${booking.payment_mode}: ₹${(booking.paid_amount || 0).toLocaleString('en-IN')} जमा · खाली नवीन पद्धत निवडा`
+                      : `Prior payment: ${booking.payment_mode} ₹${(booking.paid_amount || 0).toLocaleString('en-IN')} · Select mode for remaining ₹${livePendingAmount.toLocaleString('en-IN')}`}
+                  </div>
+                )}
+
+                {/* Mode picker for remaining dues */}
+                <div className="grid grid-cols-3 gap-1.5">
+                  {(['Cash', 'UPI', 'IDFC'] as const).map((mode) => {
+                    const modeStyles: Record<string, { icon: string; label: string; active: string }> = {
+                      Cash: { icon: '💵', label: language === 'mr' ? 'कॅश' : 'Cash', active: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/50 shadow-sm shadow-emerald-500/20' },
+                      UPI:  { icon: '📱', label: 'UPI',  active: 'bg-blue-500/20 text-blue-400 border-blue-500/50 shadow-sm shadow-blue-500/20' },
+                      IDFC: { icon: '🏦', label: 'IDFC', active: 'bg-purple-500/20 text-purple-400 border-purple-500/50 shadow-sm shadow-purple-500/20' },
+                    }
+                    const { icon, label, active } = modeStyles[mode]
+                    const isSelected = duesPaymentMode === mode
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => setDuesPaymentMode(mode)}
+                        className={`py-2 rounded-xl border text-[10px] font-black transition-all duration-200 flex flex-col items-center gap-0.5 justify-center ${
+                          isSelected ? active : 'bg-slate-900/60 border-slate-800 text-slate-500 hover:text-slate-350'
+                        }`}
+                      >
+                        <span className="text-sm">{icon}</span>
+                        <span>{label}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {/* Big Mark Fully Paid button */}
+                <button
+                  type="button"
+                  disabled={updateMutation.isPending}
+                  onClick={() => handleMarkFullyPaid(duesPaymentMode)}
+                  className="w-full py-3.5 px-4 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.99] text-slate-950 text-sm font-black rounded-2xl transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 disabled:opacity-60"
+                >
+                  {updateMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <CheckCircle className="h-4 w-4" />
+                  )}
+                  {language === 'mr'
+                    ? `⚡ पूर्ण जमा करा (₹${livePendingAmount.toLocaleString('en-IN')}) — ${duesPaymentMode}`
+                    : `⚡ Mark Fully Paid ₹${livePendingAmount.toLocaleString('en-IN')} via ${duesPaymentMode}`}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* 4. Room Card with Inline Editing */}
@@ -1843,11 +1981,15 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
               </div>
 
               <div className="grid grid-cols-2 gap-2">
-                <label className="flex items-center justify-center gap-1.5 py-2.5 px-3 bg-slate-100 dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-700 rounded-xl cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-850 transition text-xs font-semibold text-slate-600 dark:text-slate-400">
+                <button
+                  type="button"
+                  onClick={() => setIsCameraOpen(true)}
+                  disabled={isUploading}
+                  className="flex items-center justify-center gap-1.5 py-2.5 px-3 bg-slate-100 dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-700 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-850 transition text-xs font-semibold text-slate-600 dark:text-slate-400 disabled:opacity-50"
+                >
                   <Camera className="h-3.5 w-3.5 text-slate-500" />
                   {language === 'mr' ? 'फोटो काढा' : 'Capture'}
-                  <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFileChange} disabled={isUploading} multiple />
-                </label>
+                </button>
                 <label className="flex items-center justify-center gap-1.5 py-2.5 px-3 bg-slate-100 dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-700 rounded-xl cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-850 transition text-xs font-semibold text-slate-600 dark:text-slate-400">
                   <Upload className="h-3.5 w-3.5 text-slate-500" />
                   {language === 'mr' ? 'फाईल निवडा' : 'Upload File'}
@@ -1935,7 +2077,17 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                     </button>
                     <button
                       type="button"
-                      onClick={() => setShowCheckoutConfirm(true)}
+                      onClick={() => {
+                        setCheckoutTotalAmount(Number(editingTotal) || 0)
+                        setCheckoutPaidAmount(Number(editingPaid) || 0)
+                        setCheckoutPaymentMode(
+                          (['Cash', 'UPI', 'IDFC'] as const).includes(booking.payment_mode as any)
+                            ? (booking.payment_mode as 'Cash' | 'UPI' | 'IDFC')
+                            : 'Cash'
+                        )
+                        setCheckoutIsPaidAmountModified(false)
+                        setShowCheckoutConfirm(true)
+                      }}
                       className="py-3.5 px-3 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-955 text-xs font-black rounded-2xl transition flex items-center justify-center gap-1.5 shadow-lg"
                     >
                       <LogOut className="h-4 w-4" />
@@ -1945,7 +2097,13 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                 ) : (
                   <button
                     type="button"
-                    onClick={() => setShowCheckoutConfirm(true)}
+                    onClick={() => {
+                      setCheckoutTotalAmount(Number(editingTotal) || 0)
+                      setCheckoutPaidAmount(Number(editingPaid) || 0)
+                      setCheckoutPaymentMode(booking.payment_mode === 'Pending' ? 'Cash' : booking.payment_mode)
+                      setCheckoutIsPaidAmountModified(false)
+                      setShowCheckoutConfirm(true)
+                    }}
                     className="w-full py-3.5 px-3 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-955 text-xs font-black rounded-2xl transition flex items-center justify-center gap-1.5 shadow-lg"
                   >
                     <LogOut className="h-4 w-4" />
@@ -1968,18 +2126,18 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
 
       {/* Checkout Confirmation Modal */}
       {showCheckoutConfirm && (() => {
-        const dues = Math.max(0, booking.total_amount - booking.paid_amount)
+        const checkoutDues = Math.max(0, checkoutTotalAmount - checkoutPaidAmount)
         return (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-6 animate-fade-in">
             <div className="glass-panel w-full max-w-xs rounded-3xl bg-slate-900 border-slate-800 p-5 flex flex-col gap-4 text-center shadow-2xl" onClick={e => e.stopPropagation()}>
               <div className={`h-11 w-11 rounded-full flex items-center justify-center mx-auto border ${
-                dues > 0 ? 'bg-rose-500/10 text-rose-400 border-rose-500/25' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25'
+                checkoutDues > 0 ? 'bg-rose-500/10 text-rose-400 border-rose-500/25' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25'
               }`}>
                 <LogOut className="h-5 w-5" />
               </div>
               <div>
                 <h3 className="text-base font-extrabold text-slate-100">
-                  {dues > 0 ? (language === 'mr' ? 'पेमेंट आणि चेकआऊट' : 'Collect & Checkout') : (language === 'mr' ? 'चेकआऊटची खात्री करा' : 'Confirm Checkout')}
+                  {checkoutDues > 0 ? (language === 'mr' ? 'पेमेंट आणि चेकआऊट' : 'Collect & Checkout') : (language === 'mr' ? 'चेकआऊटची खात्री करा' : 'Confirm Checkout')}
                 </h3>
                 <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
                   {language === 'mr' ? (
@@ -1989,36 +2147,84 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                   )}
                 </p>
 
-                {dues > 0 && (
-                  <div className="mt-3 bg-rose-500/10 border border-rose-500/20 px-3 py-2 rounded-xl text-xs font-black text-rose-350 flex flex-col gap-1 items-center justify-center">
-                    <span>{language === 'mr' ? `⚠️ प्रलंबित रक्कम: ₹${dues.toLocaleString()}` : `⚠️ Dues Pending: ₹${dues.toLocaleString()}`}</span>
-                    {booking.payment_mode !== 'Pending' && (
-                      <span className="text-[10px] text-rose-400/80 font-medium">
-                        {language === 'mr' ? `पेमेंट मोड: ${booking.payment_mode === 'Cash' ? 'कॅश' : booking.payment_mode === 'UPI' ? 'UPI' : 'IDFC'}` : `Payment Mode: ${booking.payment_mode}`}
-                      </span>
-                    )}
+                {/* Compact Payment breakdown */}
+                <div className="bg-slate-950/60 border border-slate-800 rounded-xl overflow-hidden mt-3.5 text-left">
+                  <div className="flex justify-between items-center px-3 py-2 border-b border-slate-800/60">
+                    <span className="text-[11px] text-slate-400 font-semibold">
+                      {language === 'mr' ? 'एकूण बिल' : 'Total Bill'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setActiveKeypad('checkoutTotal')}
+                      className="flex items-center gap-1.5 bg-slate-850 hover:bg-slate-800 active:scale-[0.98] border border-slate-750 px-2 py-0.5 rounded-lg text-slate-200 transition"
+                    >
+                      <span className="text-[10px] text-slate-455 font-black">₹</span>
+                      <span className="text-xs font-black tabular-nums">{checkoutTotalAmount}</span>
+                    </button>
                   </div>
+                  <div className="flex justify-between items-center px-3 py-2 border-b border-slate-800/60">
+                    <span className="text-[11px] text-slate-400 font-semibold">
+                      {language === 'mr' ? 'आधीच दिले' : 'Already Paid'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setActiveKeypad('checkoutPaid')}
+                      className="flex items-center gap-1.5 bg-slate-850 hover:bg-slate-800 active:scale-[0.98] border border-slate-750 px-2 py-0.5 rounded-lg text-emerald-400 transition"
+                    >
+                      <span className="text-[10px] text-emerald-500 font-black">₹</span>
+                      <span className="text-xs font-black tabular-nums">{checkoutPaidAmount}</span>
+                    </button>
+                  </div>
+                  <div className="flex justify-between items-center px-3 py-2">
+                    <span className={`text-[10px] font-black uppercase tracking-wide ${
+                      checkoutDues > 0 ? 'text-rose-455' : 'text-emerald-400'
+                    }`}>
+                      {checkoutDues > 0
+                        ? (language === 'mr' ? '⚠️ बाकी रक्कम' : '⚠️ Balance Due')
+                        : (language === 'mr' ? '✅ सर्व पूर्ण' : '✅ All Settled')}
+                    </span>
+                    <span className={`text-sm font-black ${
+                      checkoutDues > 0 ? 'text-rose-400' : 'text-emerald-400'
+                    }`}>
+                      ₹{checkoutDues.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Quick Fully Paid Button */}
+                {checkoutDues > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCheckoutPaidAmount(checkoutTotalAmount)
+                      setCheckoutIsPaidAmountModified(true)
+                    }}
+                    className="w-full mt-2.5 py-2 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 active:scale-[0.98] border border-emerald-500/30 text-emerald-400 text-[11px] font-black rounded-xl transition flex items-center justify-center gap-2 shadow-sm"
+                  >
+                    ⚡ {language === 'mr' ? `पूर्ण भरले (₹${checkoutDues})` : `Mark Fully Paid (₹${checkoutDues.toLocaleString()})`}
+                  </button>
                 )}
 
-                {dues > 0 && booking.payment_mode === 'Pending' && (
-                  <div className="flex flex-col gap-2 mt-3.5 text-left bg-slate-955/40 p-3 rounded-2xl border border-slate-800">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 text-center block">
-                      {language === 'mr' ? 'पेमेंट मोड निवडा:' : 'Select Payment Mode:'}
+                {/* Payment mode selector — only relevant when dues > 0 */}
+                {checkoutDues > 0 ? (
+                  <div className="flex flex-col gap-1 mt-3 text-left bg-slate-955/40 p-2.5 rounded-2xl border border-slate-800">
+                    <span className="text-[9px] font-black uppercase tracking-wider text-slate-500 text-center block">
+                      {language === 'mr' ? 'पेमेंट मोड निवडा:' : 'Select Payment Mode for Dues:'}
                     </span>
-                    <div className="grid grid-cols-3 gap-2 mt-1">
+                    <div className="grid grid-cols-3 gap-1.5 mt-1">
                       {(['Cash', 'UPI', 'IDFC'] as const).map((mode) => (
                         <button
                           key={mode}
                           type="button"
-                          onClick={() => setSelectedPaymentMode(mode)}
-                          className={`py-2 px-3 rounded-xl border text-xs font-bold transition text-center ${
-                            selectedPaymentMode === mode
+                          onClick={() => setCheckoutPaymentMode(mode)}
+                          className={`py-1.5 px-2 rounded-xl border text-[10px] font-bold transition text-center ${
+                            checkoutPaymentMode === mode
                               ? mode === 'Cash'
                                 ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40'
                                 : mode === 'UPI'
                                 ? 'bg-blue-500/15 text-blue-400 border-blue-500/40'
                                 : 'bg-purple-500/15 text-purple-400 border-purple-500/40'
-                              : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                              : 'bg-slate-900 border-slate-800 text-slate-455 hover:text-slate-200'
                           }`}
                         >
                           {mode === 'Cash' ? (language === 'mr' ? '💵 कॅश' : '💵 Cash') : mode === 'UPI' ? (language === 'mr' ? '📱 UPI' : '📱 UPI') : (language === 'mr' ? '🏦 IDFC' : '🏦 IDFC')}
@@ -2026,19 +2232,19 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                       ))}
                     </div>
                   </div>
-                )}
-
-                {dues <= 0 && (
-                  <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-black bg-emerald-500/10 border-emerald-500/20 text-emerald-350">
-                    {language === 'mr' ? '✅ सर्व पेमेंट पूर्ण (काही बाकी नाही)' : '✅ Settled (No Dues)'}
+                ) : checkoutPaidAmount > 0 && (
+                  <div className="mt-3 py-2 px-3 bg-emerald-500/8 border border-emerald-500/20 rounded-xl text-center">
+                    <span className="text-[10px] text-emerald-400 font-bold">
+                      ✅ {language === 'mr' ? `${booking.payment_mode || 'पेमेंट'} द्वारे पूर्ण पेमेंट झाले आहे` : `Payment fully settled via ${booking.payment_mode || 'prior payment'}`}
+                    </span>
                   </div>
                 )}
               </div>
-              <div className="grid grid-cols-2 gap-3 mt-3">
+              <div className="grid grid-cols-2 gap-3 mt-1">
                 <button
                   type="button"
                   onClick={() => setShowCheckoutConfirm(false)}
-                  className="py-2.5 px-4 bg-slate-955 border border-slate-800 text-slate-350 hover:text-slate-200 text-xs font-bold rounded-xl transition"
+                  className="py-2.5 px-4 bg-slate-800 border border-slate-700 text-slate-300 text-xs font-bold rounded-xl transition hover:bg-slate-700"
                 >
                   {language === 'mr' ? 'रद्द करा' : 'Cancel'}
                 </button>
@@ -2046,7 +2252,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                   type="button"
                   onClick={() => { setShowCheckoutConfirm(false); handleCheckOut() }}
                   className={`py-2.5 px-4 text-slate-955 text-xs font-black rounded-xl transition shadow-lg ${
-                    dues > 0 ? 'bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-500 shadow-emerald-500/15' : 'bg-rose-500 hover:bg-rose-450 active:bg-rose-550 shadow-rose-500/15'
+                    checkoutDues > 0 ? 'bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-500 shadow-emerald-500/15' : 'bg-rose-500 hover:bg-rose-450 active:bg-rose-550 shadow-rose-500/15'
                   }`}
                 >
                   {language === 'mr' ? 'निश्चित करा' : 'Confirm'}
@@ -2110,6 +2316,10 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
               ? editingPaid
               : activeKeypad === 'roomPrice'
               ? draftRoomPrice
+              : activeKeypad === 'checkoutTotal'
+              ? checkoutTotalAmount
+              : activeKeypad === 'checkoutPaid'
+              ? checkoutPaidAmount
               : ''
           }
           onDone={(val) => {
@@ -2128,16 +2338,23 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
             } else if (activeKeypad === 'roomPrice') {
               const numVal = Number(val) || 0
               setDraftRoomPrice(numVal)
+            } else if (activeKeypad === 'checkoutTotal') {
+              const numVal = Number(val) || 0
+              setCheckoutTotalAmount(numVal)
+            } else if (activeKeypad === 'checkoutPaid') {
+              const numVal = Number(val) || 0
+              setCheckoutPaidAmount(numVal)
+              setCheckoutIsPaidAmountModified(true)
             }
             setActiveKeypad(null)
           }}
           onClose={() => setActiveKeypad(null)}
           label={
-            activeKeypad === 'total'
+            activeKeypad === 'total' || activeKeypad === 'checkoutTotal'
               ? (language === 'mr' ? 'एकूण बिल टाका' : 'Enter Total Bill')
               : activeKeypad === 'extra'
               ? (language === 'mr' ? 'अतिरिक्त शुल्क टाका' : 'Enter Extra Charges')
-              : activeKeypad === 'paid'
+              : activeKeypad === 'paid' || activeKeypad === 'checkoutPaid'
               ? (language === 'mr' ? 'भरलेली रक्कम टाका' : 'Enter Amount Paid')
               : (language === 'mr' ? 'खोलीचे भाडे टाका' : 'Enter Room Price')
           }
@@ -2147,6 +2364,12 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
       )}
       {renderDatePickerModal()}
       {renderIDProofViewer()}
+      <CameraCaptureModal
+        isOpen={isCameraOpen}
+        onClose={() => setIsCameraOpen(false)}
+        onCaptureComplete={handleCameraCaptureComplete}
+        language={language}
+      />
     </div>,
     document.body
   )

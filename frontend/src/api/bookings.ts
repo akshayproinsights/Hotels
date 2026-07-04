@@ -63,3 +63,9 @@ export async function checkBookingExtension(
 export async function deleteBooking(bookingId: string): Promise<void> {
   await api.delete(`/bookings/${bookingId}`)
 }
+
+export async function getAllBookings(): Promise<Booking[]> {
+  const res = await api.get<Booking[]>('/bookings')
+  return res.data
+}
+

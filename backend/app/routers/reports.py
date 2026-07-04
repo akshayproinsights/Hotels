@@ -124,11 +124,12 @@ def get_financials(
                 "check_out": b["check_out"],
                 "total_amount": float(b["total_amount"] or 0.0),
                 "paid_amount": float(b["paid_amount"] or 0.0),
-                "payment_mode": "IDFC" if (b.get("payment_mode") == "UPI" and ("[Paid via IDFC Bank]" in (b.get("notes") or "") or "[IDFC Bank]" in (b.get("notes") or ""))) else (b.get("payment_mode") or "Pending"),
+                "payment_mode": b.get("payment_mode") or "Pending",
                 "payment_status": b.get("payment_status") or "unpaid",
                 "status": b["status"],
                 "created_at": b["created_at"],
-                "extra_bill_amount": float(b.get("extra_bill_amount") or 0.0)
+                "extra_bill_amount": float(b.get("extra_bill_amount") or 0.0),
+                "notes": b.get("notes") or "",
             }
             ledger.append(ledger_item)
             
@@ -141,11 +142,39 @@ def get_financials(
             
             total_revenue += paid
             
-            # Payment mode aggregation
-            mode = ledger_item["payment_mode"]
-            if mode not in payment_modes:
-                payment_modes[mode] = 0.0
-            payment_modes[mode] += paid
+            # Payment mode aggregation — handle split payments correctly.
+            # If the notes field contains a split-payment audit trail like
+            # "Paid via IDFC: ₹500 + UPI: ₹1,000" we credit each mode
+            # its actual portion. Otherwise fall back to the full paid_amount
+            # under the single payment_mode.
+            notes_str = b.get("notes") or ""
+            split_note = next(
+                (part for part in notes_str.split(" | ") if part.startswith("Paid via ")),
+                None
+            )
+            if split_note:
+                # Parse "Paid via IDFC: ₹500 + UPI: ₹1,000"
+                try:
+                    rest = split_note[len("Paid via "):]  # "IDFC: ₹500 + UPI: ₹1,000"
+                    parts = rest.split(" + ")             # ["IDFC: ₹500", "UPI: ₹1,000"]
+                    for part in parts:
+                        seg_mode, seg_amt_str = part.split(": ₹")
+                        seg_amt = float(seg_amt_str.replace(",", ""))
+                        seg_mode = seg_mode.strip()
+                        if seg_mode not in payment_modes:
+                            payment_modes[seg_mode] = 0.0
+                        payment_modes[seg_mode] += seg_amt
+                except Exception:
+                    # If parsing fails, fall back to normal single-mode credit
+                    mode = ledger_item["payment_mode"]
+                    if mode not in payment_modes:
+                        payment_modes[mode] = 0.0
+                    payment_modes[mode] += paid
+            else:
+                mode = ledger_item["payment_mode"]
+                if mode not in payment_modes:
+                    payment_modes[mode] = 0.0
+                payment_modes[mode] += paid
             
             # Room type aggregation
             rtype = r_info.get("room_type")

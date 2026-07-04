@@ -10,6 +10,7 @@ import { getCustomerBookings } from '../api/customers'
 import { listCustomerDocs, getUploadUrl, uploadFileToR2, confirmUpload } from '../api/documents'
 import { compressImage, compressImages } from '../utils/imageCompressor'
 import DocumentLightbox from './DocumentLightbox'
+import CameraCaptureModal from './CameraCaptureModal'
 import { useVisualViewport } from '../hooks/useVisualViewport'
 import { formatNameByLanguage } from '../utils/nameHelper'
 import { useLanguage } from '../context/LanguageContext'
@@ -24,6 +25,7 @@ export default function CustomerProfileSheet({ customer, onClose }: CustomerProf
   const { language } = useLanguage()
   const [selectedDoc, setSelectedDoc] = useState<Document | null>(null)
   const [isUploading, setIsUploading] = useState(false)
+  const [isCameraOpen, setIsCameraOpen] = useState(false)
 
   React.useEffect(() => {
     const originalOverflow = document.body.style.overflow
@@ -45,41 +47,49 @@ export default function CustomerProfileSheet({ customer, onClose }: CustomerProf
     queryFn: () => listCustomerDocs(customer.id),
   })
 
+  const uploadFiles = async (rawFiles: File[]) => {
+    if (rawFiles.length === 0) return
+    if (bookings.length === 0) {
+      toast.error('Cannot upload documents for a customer with no bookings')
+      return
+    }
+
+    setIsUploading(true)
+    const uploadToast = toast.loading(`Compressing & uploading ${rawFiles.length} document(s)...`)
+
+    // Associate with the customer's latest booking ID
+    const latestBookingId = bookings[0].id
+
+    try {
+      const files = await compressImages(rawFiles)
+      for (const file of files) {
+        const { upload_url, document_id } = await getUploadUrl(
+          latestBookingId,
+          customer.id,
+          file.name,
+          file.type
+        )
+        await uploadFileToR2(upload_url, file)
+        await confirmUpload(document_id)
+      }
+      toast.success('Documents added successfully', { id: uploadToast })
+      refetchDocs()
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to upload one or more documents', { id: uploadToast })
+    } finally {
+      setIsUploading(false)
+    }
+  }
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      if (bookings.length === 0) {
-        toast.error('Cannot upload documents for a customer with no bookings')
-        return
-      }
-
-      const rawFiles = Array.from(e.target.files)
-      setIsUploading(true)
-      const uploadToast = toast.loading(`Compressing & uploading ${rawFiles.length} document(s)...`)
-
-      // Associate with the customer's latest booking ID
-      const latestBookingId = bookings[0].id
-
-      try {
-        const files = await compressImages(rawFiles)
-        for (const file of files) {
-          const { upload_url, document_id } = await getUploadUrl(
-            latestBookingId,
-            customer.id,
-            file.name,
-            file.type
-          )
-          await uploadFileToR2(upload_url, file)
-          await confirmUpload(document_id)
-        }
-        toast.success('Documents added successfully', { id: uploadToast })
-        refetchDocs()
-      } catch (err) {
-        console.error(err)
-        toast.error('Failed to upload one or more documents', { id: uploadToast })
-      } finally {
-        setIsUploading(false)
-      }
+      await uploadFiles(Array.from(e.target.files))
     }
+  }
+
+  const handleCameraCaptureComplete = async (capturedFiles: File[]) => {
+    await uploadFiles(capturedFiles)
   }
 
   const handleCustomerPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -308,19 +318,15 @@ export default function CustomerProfileSheet({ customer, onClose }: CustomerProf
             {/* Document upload zone */}
             {bookings.length > 0 && (
               <div className="grid grid-cols-2 gap-2 mt-1">
-                <label className="flex items-center justify-center gap-1.5 py-2 px-3 bg-slate-950 border border-slate-850 border-dashed rounded-xl cursor-pointer hover:bg-slate-900 transition text-xs font-semibold text-slate-400">
+                <button
+                  type="button"
+                  onClick={() => setIsCameraOpen(true)}
+                  disabled={isUploading}
+                  className="flex items-center justify-center gap-1.5 py-2 px-3 bg-slate-950 border border-slate-850 border-dashed rounded-xl hover:bg-slate-900 transition text-xs font-semibold text-slate-400 disabled:opacity-50"
+                >
                   <Camera className="h-3.5 w-3.5 text-slate-500" />
                   Capture
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    className="hidden"
-                    onChange={handleFileChange}
-                    disabled={isUploading}
-                    multiple
-                  />
-                </label>
+                </button>
                 <label className="flex items-center justify-center gap-1.5 py-2 px-3 bg-slate-950 border border-slate-850 border-dashed rounded-xl cursor-pointer hover:bg-slate-900 transition text-xs font-semibold text-slate-400">
                   <Upload className="h-3.5 w-3.5 text-slate-500" />
                   Upload ID
@@ -433,6 +439,12 @@ export default function CustomerProfileSheet({ customer, onClose }: CustomerProf
           onClose={() => setSelectedDoc(null)}
         />
       )}
+      <CameraCaptureModal
+        isOpen={isCameraOpen}
+        onClose={() => setIsCameraOpen(false)}
+        onCaptureComplete={handleCameraCaptureComplete}
+        language={language}
+      />
     </div>,
     document.body
   )

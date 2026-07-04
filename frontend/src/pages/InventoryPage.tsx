@@ -8,6 +8,7 @@ import RoomCard from '../components/RoomCard'
 import BlockRoomSheet from '../components/BlockRoomSheet'
 import BookingDetailSheet from '../components/BookingDetailSheet'
 import type { InventoryRoom } from '../types'
+import NumericKeypad from '../components/NumericKeypad'
 import { useLanguage } from '../context/LanguageContext'
 import { formatNameByLanguage } from '../utils/nameHelper'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -41,12 +42,33 @@ export default function InventoryPage() {
     totalAmount: number
     paidAmount: number
     paymentMode: 'Cash' | 'UPI' | 'IDFC' | 'Pending'
+    isPaidAmountModified?: boolean
   } | null>(null)
-  const [quickPaymentMode, setQuickPaymentMode] = useState<'Cash' | 'UPI' | 'IDFC'>('Cash')
+  const [quickPaymentMode, setQuickPaymentMode] = useState<'Cash' | 'UPI' | 'IDFC'>('IDFC')
+  const [activeKeypad, setActiveKeypad] = useState<'total' | 'paid' | null>(null)
 
   // Check-in mutation (fires directly from Quick Action sheet)
   const quickCheckInMutation = useMutation({
-    mutationFn: (bookingId: string) => updateBooking(bookingId, { is_checked_in: true }),
+    mutationFn: ({ bookingId, totalAmount, paidAmount, paymentMode }: { bookingId: string; totalAmount: number; paidAmount: number; paymentMode: 'Cash' | 'UPI' | 'IDFC' | 'Pending' }) => {
+      const updates: Parameters<typeof updateBooking>[1] = {
+        is_checked_in: true,
+        total_amount: totalAmount,
+        paid_amount: paidAmount,
+      }
+      // Always save the selected payment mode — never silently discard it.
+      // Only payment_status depends on how much was actually paid.
+      updates.payment_mode = paymentMode
+      if (paidAmount > 0) {
+        if (paidAmount >= totalAmount && totalAmount > 0) {
+          updates.payment_status = 'paid'
+        } else {
+          updates.payment_status = 'partial'
+        }
+      } else {
+        updates.payment_status = 'unpaid'
+      }
+      return updateBooking(bookingId, updates)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inventory'] })
       queryClient.invalidateQueries({ queryKey: ['dailyReport'] })
@@ -62,12 +84,50 @@ export default function InventoryPage() {
 
   // Check-out mutation (fires directly from Quick Action sheet)
   const quickCheckOutMutation = useMutation({
-    mutationFn: ({ bookingId, paymentMode, dues, totalAmount }: { bookingId: string; paymentMode: 'Cash' | 'UPI' | 'IDFC'; dues: number; totalAmount: number }) => {
-      const updates: Parameters<typeof updateBooking>[1] = { status: 'checked_out' }
-      if (dues > 0) {
+    mutationFn: ({
+      bookingId,
+      paymentMode,
+      totalAmount,
+      paidAmount,
+      duesWasCollected,
+      previousMode,
+      previousPaid,
+      previousNotes,
+    }: {
+      bookingId: string
+      paymentMode: 'Cash' | 'UPI' | 'IDFC'
+      totalAmount: number
+      paidAmount: number
+      duesWasCollected: boolean
+      previousMode: string
+      previousPaid: number
+      previousNotes?: string | null
+    }) => {
+      const finalPaid = duesWasCollected ? totalAmount : paidAmount
+      const updates: Parameters<typeof updateBooking>[1] = {
+        status: 'checked_out',
+        total_amount: totalAmount,
+        paid_amount: finalPaid,
+        payment_mode: paymentMode,
+      }
+      if (finalPaid >= totalAmount) {
         updates.payment_status = 'paid'
-        updates.paid_amount = totalAmount   // ← critical: mark fully paid
-        updates.payment_mode = paymentMode
+      } else if (finalPaid > 0) {
+        updates.payment_status = 'partial'
+      } else {
+        updates.payment_status = 'unpaid'
+      }
+      // Detect split payment: previous partial payment used a different mode
+      const additionalPaid = finalPaid - previousPaid
+      if (
+        previousPaid > 0 &&
+        additionalPaid > 0 &&
+        previousMode &&
+        previousMode !== 'Pending' &&
+        previousMode !== paymentMode
+      ) {
+        const splitNote = `Paid via ${previousMode}: ₹${previousPaid.toLocaleString('en-IN')} + ${paymentMode}: ₹${additionalPaid.toLocaleString('en-IN')}`
+        updates.notes = previousNotes ? `${previousNotes} | ${splitNote}` : splitNote
       }
       return updateBooking(bookingId, updates)
     },
@@ -1050,16 +1110,29 @@ export default function InventoryPage() {
                         {!isCheckedOut && (
                           <button
                             type="button"
-                            onClick={() => {
-                              setQuickPaymentMode('Cash')
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (!isCheckedIn) {
+                                setSelectedBookingId(b.id)
+                                setQuickActionRoom(null)
+                                return
+                              }
+                              // Initialise from booking's saved mode so the picker reflects reality
+                              const savedMode = b.payment_mode
+                              setQuickPaymentMode(
+                                (['Cash', 'UPI', 'IDFC'] as const).includes(savedMode as any)
+                                  ? (savedMode as 'Cash' | 'UPI' | 'IDFC')
+                                  : 'IDFC'
+                              )
                               setQuickConfirm({
                                 bookingId: b.id,
-                                action: isCheckedIn ? 'checkout' : 'checkin',
+                                action: 'checkout',
                                 customerName: dName,
                                 dues,
                                 totalAmount: b.total_amount || 0,
                                 paidAmount: b.paid_amount || 0,
                                 paymentMode: b.payment_mode || 'Pending',
+                                isPaidAmountModified: false,
                               })
                             }}
                             className={`w-full py-3 text-[11px] font-black flex items-center justify-center gap-2 transition-all active:brightness-90 ${
@@ -1120,8 +1193,8 @@ export default function InventoryPage() {
                       </div>
                     </div>
 
-                    {/* ── Checkout only: payment breakdown + mode picker ── */}
-                    {quickConfirm.action === 'checkout' && (
+                    {/* ── Payment breakdown + mode picker ── */}
+                    {(quickConfirm.action === 'checkout' || quickConfirm.action === 'checkin') && (
                       <>
                         {/* Payment breakdown — compact 3-row table */}
                         <div className="bg-slate-950/60 border border-slate-800 rounded-xl overflow-hidden">
@@ -1129,13 +1202,27 @@ export default function InventoryPage() {
                             <span className="text-[11px] text-slate-400 font-semibold">
                               {language === 'mr' ? 'एकूण बिल' : 'Total Bill'}
                             </span>
-                            <span className="text-sm font-black text-slate-200">₹{quickConfirm.totalAmount.toLocaleString()}</span>
+                            <button
+                              type="button"
+                              onClick={() => setActiveKeypad('total')}
+                              className="flex items-center gap-1.5 bg-slate-850 hover:bg-slate-800 active:scale-[0.98] border border-slate-750 px-2.5 py-1 rounded-lg text-slate-200 transition"
+                            >
+                              <span className="text-xs text-slate-400 font-black">₹</span>
+                              <span className="text-sm font-black tabular-nums">{quickConfirm.totalAmount.toLocaleString('en-IN')}</span>
+                            </button>
                           </div>
                           <div className="flex justify-between items-center px-3 py-2 border-b border-slate-800/60">
                             <span className="text-[11px] text-slate-400 font-semibold">
                               {language === 'mr' ? 'आधीच दिले' : 'Already Paid'}
                             </span>
-                            <span className="text-sm font-black text-emerald-400">₹{quickConfirm.paidAmount.toLocaleString()}</span>
+                            <button
+                              type="button"
+                              onClick={() => setActiveKeypad('paid')}
+                              className="flex items-center gap-1.5 bg-slate-850 hover:bg-slate-800 active:scale-[0.98] border border-slate-750 px-2.5 py-1 rounded-lg text-emerald-400 transition"
+                            >
+                              <span className="text-xs text-emerald-550 font-black">₹</span>
+                              <span className="text-sm font-black tabular-nums">{quickConfirm.paidAmount.toLocaleString('en-IN')}</span>
+                            </button>
                           </div>
                           <div className="flex justify-between items-center px-3 py-2.5">
                             <span className={`text-[11px] font-black uppercase tracking-wide ${
@@ -1153,8 +1240,29 @@ export default function InventoryPage() {
                           </div>
                         </div>
 
-                        {/* Payment mode picker — single-line horizontal buttons */}
+                        {/* Quick Fully Paid Button */}
                         {quickConfirm.dues > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setQuickConfirm(prev => {
+                                if (!prev) return null
+                                return {
+                                  ...prev,
+                                  paidAmount: prev.totalAmount,
+                                  dues: 0,
+                                  isPaidAmountModified: true,
+                                }
+                              })
+                            }}
+                            className="w-full py-2.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 active:scale-[0.98] border border-emerald-500/30 text-emerald-400 text-xs font-black rounded-xl transition flex items-center justify-center gap-2 shadow-sm"
+                          >
+                            ⚡ {language === 'mr' ? `पूर्ण भरले (₹${quickConfirm.dues})` : `Mark Fully Paid (₹${quickConfirm.dues.toLocaleString()})`}
+                          </button>
+                        )}
+
+                        {/* Payment mode picker — single-line horizontal buttons */}
+                        {(quickConfirm.dues > 0 || quickConfirm.paidAmount > 0) && (
                           <div className="flex flex-col gap-1.5">
                             <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 text-center">
                               {language === 'mr' ? 'पेमेंट कसे?' : 'Payment via'}
@@ -1199,13 +1307,25 @@ export default function InventoryPage() {
                         disabled={quickCheckInMutation.isPending || quickCheckOutMutation.isPending}
                         onClick={() => {
                           if (quickConfirm.action === 'checkin') {
-                            quickCheckInMutation.mutate(quickConfirm.bookingId)
+                            quickCheckInMutation.mutate({
+                              bookingId: quickConfirm.bookingId,
+                              totalAmount: quickConfirm.totalAmount,
+                              paidAmount: quickConfirm.paidAmount,
+                              paymentMode: quickPaymentMode,  // always use selected mode
+                            })
                           } else {
+                            const duesWasCollected = !quickConfirm.isPaidAmountModified && quickConfirm.dues > 0;
+                            // Find the booking object so we can pass previous payment info
+                            const bkg = roomBookings.find((rb: any) => rb.id === quickConfirm.bookingId)
                             quickCheckOutMutation.mutate({
                               bookingId: quickConfirm.bookingId,
                               paymentMode: quickPaymentMode,
-                              dues: quickConfirm.dues,
                               totalAmount: quickConfirm.totalAmount,
+                              paidAmount: quickConfirm.paidAmount,
+                              duesWasCollected,
+                              previousMode: bkg?.payment_mode || 'Pending',
+                              previousPaid: bkg?.paid_amount || 0,
+                              previousNotes: bkg?.notes || null,
                             })
                           }
                         }}
@@ -1218,7 +1338,7 @@ export default function InventoryPage() {
                         {(quickCheckInMutation.isPending || quickCheckOutMutation.isPending) ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
                         ) : quickConfirm.action === 'checkin' ? (
-                          <><CheckCircle className="h-3.5 w-3.5" /> {language === 'mr' ? 'चेक-इन करा' : 'Confirm'}</>
+                          <><CheckCircle className="h-3.5 w-3.5" /> {language === 'mr' ? 'चेक-इन करा' : 'Confirm Check-In'}</>
                         ) : quickConfirm.dues > 0 ? (
                           <><LogOut className="h-3.5 w-3.5" /> {language === 'mr' ? 'Collect & Checkout' : 'Collect & Checkout'}</>
                         ) : (
@@ -1228,6 +1348,54 @@ export default function InventoryPage() {
                     </div>
                   </div>
                 </div>
+              )}
+
+              {activeKeypad !== null && quickConfirm && (
+                <NumericKeypad
+                  value={
+                    activeKeypad === 'total'
+                      ? quickConfirm.totalAmount
+                      : activeKeypad === 'paid'
+                      ? quickConfirm.paidAmount
+                      : ''
+                  }
+                  onDone={(val) => {
+                    const numVal = Number(val) || 0
+                    if (activeKeypad === 'total') {
+                      setQuickConfirm((prev) => {
+                        if (!prev) return null
+                        const newTotal = numVal
+                        const newDues = Math.max(0, newTotal - prev.paidAmount)
+                        return {
+                          ...prev,
+                          totalAmount: newTotal,
+                          dues: newDues,
+                        }
+                      })
+                    } else if (activeKeypad === 'paid') {
+                      setQuickConfirm((prev) => {
+                        if (!prev) return null
+                        const newPaid = numVal
+                        const newDues = Math.max(0, prev.totalAmount - newPaid)
+                        return {
+                          ...prev,
+                          paidAmount: newPaid,
+                          dues: newDues,
+                          isPaidAmountModified: true,
+                        }
+                      })
+                    }
+                    setActiveKeypad(null)
+                  }}
+                  onClose={() => setActiveKeypad(null)}
+                  label={
+                    activeKeypad === 'total'
+                      ? (language === 'mr' ? 'एकूण बिल टाका' : 'Enter Total Bill')
+                      : (language === 'mr' ? 'भरलेली रक्कम टाका' : 'Enter Amount Paid')
+                  }
+                  language={language}
+                  keypadType="currency"
+                />
               )}
             </div>
           </div>

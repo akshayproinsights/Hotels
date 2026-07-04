@@ -76,11 +76,8 @@ def call_gemini_extract_details(
     mime_type: str | None = None
 ) -> dict:
     from app.config import settings
-    api_key = settings.gemini_api_key
-    if not api_key:
-        raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured in backend environment variables")
-
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    from app.utils.gemini_client import generate_content_robust
+    from google.genai import types
 
     # Normalize input to list of (file_bytes, mime_type)
     normalized_files = []
@@ -113,66 +110,54 @@ def call_gemini_extract_details(
         "{\"name\": \"John Doe (जॉन डो)\", \"address\": \"123 Main St, New York, NY\", \"age\": 34}"
     )
 
-    parts = [{"text": prompt}]
+    contents = [prompt]
     for file_bytes, mtype in normalized_files:
-        base64_data = base64.b64encode(file_bytes).decode("utf-8")
-        parts.append({
-            "inlineData": {
-                "mimeType": mtype,
-                "data": base64_data
-            }
-        })
+        contents.append(
+            types.Part.from_bytes(
+                data=file_bytes,
+                mime_type=mtype
+            )
+        )
 
-    payload = {
-        "contents": [
-            {
-                "parts": parts
-            }
-        ]
-    }
-
-    req_data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=req_data,
-        headers={"Content-Type": "application/json"},
-        method="POST"
+    config = types.GenerateContentConfig(
+        response_mime_type="application/json",
+        temperature=0.1,
     )
 
     try:
-        with urllib.request.urlopen(req) as response:
-            res_data = response.read().decode("utf-8")
-            res_json = json.loads(res_data)
-            text = res_json["candidates"][0]["content"]["parts"][0]["text"].strip()
+        response = generate_content_robust(
+            model="gemini-3.1-flash-lite",
+            contents=contents,
+            config=config,
+            use_free_key=True
+        )
+        text = response.text.strip()
+        
+        # Clean up potential markdown formatting (like ```json ... ```)
+        if text.startswith("```"):
+            lines = text.splitlines()
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            text = "\n".join(lines).strip()
             
-            # Clean up potential markdown formatting (like ```json ... ```)
-            if text.startswith("```"):
-                lines = text.splitlines()
-                if lines[0].startswith("```"):
-                    lines = lines[1:]
-                if lines and lines[-1].startswith("```"):
-                    lines = lines[:-1]
-                text = "\n".join(lines).strip()
-                
-            try:
-                details = json.loads(text)
-                name_val = details.get("name")
-                addr_val = details.get("address")
-                return {
-                    "name": name_val.strip() if name_val else "",
-                    "address": addr_val.strip() if addr_val else "",
-                    "age": details.get("age")
-                }
-            except json.JSONDecodeError:
-                # Fallback: if JSON fails to parse, return text as name
-                return {"name": text, "address": "", "age": None}
-    except urllib.error.HTTPError as e:
-        err_msg = e.read().decode("utf-8")
-        print(f"Gemini API Error: {err_msg}")
-        raise HTTPException(status_code=500, detail=f"Gemini API Error: {err_msg}")
+        try:
+            details = json.loads(text)
+            name_val = details.get("name")
+            addr_val = details.get("address")
+            return {
+                "name": name_val.strip() if name_val else "",
+                "address": addr_val.strip() if addr_val else "",
+                "age": details.get("age")
+            }
+        except json.JSONDecodeError:
+            # Fallback: if JSON fails to parse, return text as name
+            return {"name": text, "address": "", "age": None}
     except Exception as e:
-        print(f"Error calling Gemini API: {str(e)}")
+        print(f"Error calling Gemini robust API client: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to process image: {str(e)}")
+
 
 @router.post("/extract-name")
 async def extract_name(

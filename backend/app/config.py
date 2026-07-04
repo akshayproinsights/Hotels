@@ -11,9 +11,13 @@ class Settings(BaseSettings):
     r2_bucket: str
     r2_public_url: str
     gemini_api_key: str | None = None
+    vertex_project: str | None = None
+    vertex_location: str = "global"
+    gemini_api_key_free: str | None = None
 
     class Config:
         env_file = ".env"
         extra = "ignore"
+
 
 settings = Settings()
