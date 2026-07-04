@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { format, addDays, subDays, parseISO } from 'date-fns'
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Layers, ShieldAlert, Loader2, X, ChevronDown, ChevronUp } from 'lucide-react'
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Layers, ShieldAlert, Loader2, X, ChevronDown, ChevronUp, CheckCircle, LogOut } from 'lucide-react'
 import { useInventory } from '../hooks/useInventory'
 import RoomCard from '../components/RoomCard'
 import BlockRoomSheet from '../components/BlockRoomSheet'
@@ -11,7 +12,7 @@ import { useLanguage } from '../context/LanguageContext'
 import { formatNameByLanguage } from '../utils/nameHelper'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { cancelBooking, restoreBooking } from '../api/bookings'
+import { cancelBooking, restoreBooking, updateBooking } from '../api/bookings'
 import { getCustomerNameDisplay } from '../utils/customer'
 import { formatIST_AMPM, formatIST_Date } from '../utils/istTime'
 
@@ -30,6 +31,58 @@ export default function InventoryPage() {
   const [quickActionRoom, setQuickActionRoom] = useState<InventoryRoom | null>(null)
   const [cancelConfirmBooking, setCancelConfirmBooking] = useState<{ id: string; roomNumber: string; customerName: string } | null>(null)
   const [activeFilter, setActiveFilter] = useState<'all' | 'vacant' | 'due-out' | 'in-house' | 'unpaid' | 'arrivals'>('all')
+
+  // Quick action inline confirm state
+  const [quickConfirm, setQuickConfirm] = useState<{
+    bookingId: string
+    action: 'checkin' | 'checkout'
+    customerName: string
+    dues: number
+    totalAmount: number
+    paidAmount: number
+    paymentMode: 'Cash' | 'UPI' | 'IDFC' | 'Pending'
+  } | null>(null)
+  const [quickPaymentMode, setQuickPaymentMode] = useState<'Cash' | 'UPI' | 'IDFC'>('Cash')
+
+  // Check-in mutation (fires directly from Quick Action sheet)
+  const quickCheckInMutation = useMutation({
+    mutationFn: (bookingId: string) => updateBooking(bookingId, { is_checked_in: true }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['inventory'] })
+      queryClient.invalidateQueries({ queryKey: ['dailyReport'] })
+      queryClient.invalidateQueries({ queryKey: ['monthlyReport'] })
+      toast.success(language === 'mr' ? '✅ चेक-इन यशस्वी!' : '✅ Checked in successfully!')
+      setQuickConfirm(null)
+      setQuickActionRoom(null)
+    },
+    onError: (err: any) => {
+      toast.error(err.response?.data?.detail || (language === 'mr' ? 'चेक-इन अयशस्वी' : 'Check-in failed'))
+    }
+  })
+
+  // Check-out mutation (fires directly from Quick Action sheet)
+  const quickCheckOutMutation = useMutation({
+    mutationFn: ({ bookingId, paymentMode, dues, totalAmount }: { bookingId: string; paymentMode: 'Cash' | 'UPI' | 'IDFC'; dues: number; totalAmount: number }) => {
+      const updates: Parameters<typeof updateBooking>[1] = { status: 'checked_out' }
+      if (dues > 0) {
+        updates.payment_status = 'paid'
+        updates.paid_amount = totalAmount   // ← critical: mark fully paid
+        updates.payment_mode = paymentMode
+      }
+      return updateBooking(bookingId, updates)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['inventory'] })
+      queryClient.invalidateQueries({ queryKey: ['dailyReport'] })
+      queryClient.invalidateQueries({ queryKey: ['monthlyReport'] })
+      toast.success(language === 'mr' ? '🚪 चेकआऊट यशस्वी!' : '🚪 Checked out successfully!')
+      setQuickConfirm(null)
+      setQuickActionRoom(null)
+    },
+    onError: (err: any) => {
+      toast.error(err.response?.data?.detail || (language === 'mr' ? 'चेकआऊट अयशस्वी' : 'Checkout failed'))
+    }
+  })
 
   const cancelMutation = useMutation({
     mutationFn: (bookingId: string) => cancelBooking(bookingId),
@@ -125,24 +178,26 @@ export default function InventoryPage() {
     }
   }, [urlDate, selectedDate])
 
+  // Lock body scroll when quick action sheet is open so the page doesn't jump
+  useEffect(() => {
+    if (quickActionRoom) {
+      document.body.style.overflow = 'hidden'
+      document.body.style.position = 'fixed'
+      document.body.style.width = '100%'
+    } else {
+      document.body.style.overflow = ''
+      document.body.style.position = ''
+      document.body.style.width = ''
+    }
+    return () => {
+      document.body.style.overflow = ''
+      document.body.style.position = ''
+      document.body.style.width = ''
+    }
+  }, [quickActionRoom])
+
   const { data, isLoading, isError, refetch } = useInventory(selectedDate)
 
-  const formatFriendlyDateTime = (isoString: string) => {
-    if (!isoString) return ''
-    const istDate = formatIST_Date(isoString) // YYYY-MM-DD
-    const d = parseISO(istDate)
-    const timeStr = formatIST_AMPM(isoString) // hh:mm AM/PM
-    const monthsMr = ['जानेवारी', 'फेब्रुवारी', 'मार्च', 'एप्रिल', 'मे', 'जून', 'जुलै', 'ऑगस्ट', 'सप्टेंबर', 'ऑक्टोबर', 'नोव्हेंबर', 'डिसेंबर']
-    const monthsEn = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-    
-    if (language === 'mr') {
-      const monthStr = monthsMr[d.getMonth()]
-      return `${d.getDate()} ${monthStr}, ${timeStr}`
-    } else {
-      const monthStr = monthsEn[d.getMonth()]
-      return `${d.getDate()} ${monthStr}, ${timeStr}`
-    }
-  }
 
   const handlePrevDay = () => {
     const newDate = format(subDays(parseISO(selectedDate), 1), 'yyyy-MM-dd')
@@ -849,39 +904,69 @@ export default function InventoryPage() {
           (b: any) => b.room_id === quickActionRoom.id && (b.status === 'active' || b.status === 'checked_out')
         ).sort((a: any, b: any) => a.check_in.localeCompare(b.check_in))
 
-        const latestBooking = roomBookings.length > 0
-          ? [...roomBookings].sort((a: any, b: any) => b.check_out.localeCompare(a.check_out))[0]
-          : null
 
-        return (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-xs p-6 animate-fade-in">
-            <div className="glass-panel w-full max-w-sm rounded-3xl bg-slate-900 border-slate-800 p-5 flex flex-col gap-4 text-center shadow-2xl relative">
-              <button
-                onClick={() => setQuickActionRoom(null)}
-                className="absolute top-4 right-4 text-slate-500 hover:text-slate-350 transition animate-pulse"
-              >
-                <X className="h-4.5 w-4.5" />
-              </button>
-              <div className="text-left mt-2">
-                <h3 className="text-sm font-extrabold text-slate-100 uppercase tracking-wider">
-                  {language === 'mr' ? `खोली ${quickActionRoom.number} - त्वरित कृती` : `Room ${quickActionRoom.number} - Quick Action`}
-                </h3>
-                <p className="text-[10px] text-slate-500 font-bold uppercase mt-1">
-                  {language === 'mr' ? 'आजचे बुकिंग (Today\'s Bookings):' : 'Today\'s Bookings:'}
-                </p>
+        return createPortal(
+          <div 
+            className="fixed inset-0 z-[110] flex items-end md:items-center justify-center bg-black/60 backdrop-blur-sm p-0 md:p-6"
+            onClick={() => { setQuickActionRoom(null); setQuickConfirm(null) }}
+          >
+            <div 
+              className="glass-panel w-full md:max-w-sm rounded-t-[32px] md:rounded-3xl bg-slate-900 border-t md:border border-slate-800/80 p-5 pt-3 md:pt-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))] md:pb-5 flex flex-col gap-4 text-left shadow-2xl relative animate-slide-up md:animate-fade-in"
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Sleek Drag Handle for Mobile PWA */}
+              <div className="md:hidden mx-auto w-12 h-1 bg-slate-800 rounded-full mb-1 cursor-pointer" onClick={() => { setQuickActionRoom(null); setQuickConfirm(null) }} />
+
+              {/* Header */}
+              <div className="flex justify-between items-center mt-1">
+                <div>
+                  <h3 className="text-sm font-extrabold text-slate-100 uppercase tracking-wider">
+                    {language === 'mr' ? `खोली ${quickActionRoom.number}` : `Room ${quickActionRoom.number}`}
+                  </h3>
+                  <p className="text-[10px] text-slate-550 font-bold uppercase mt-1">
+                    {language === 'mr' ? 'टॅप करा — तपशील उघडेल' : 'Tap card to open full details'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setQuickActionRoom(null); setQuickConfirm(null) }}
+                  className="p-1.5 rounded-xl bg-slate-850 border border-slate-800/40 text-slate-400 hover:text-slate-200 transition"
+                  title={language === 'mr' ? 'बंद करा' : 'Close'}
+                >
+                  <X className="h-4 w-4" />
+                </button>
               </div>
 
-              <div className="flex flex-col gap-2.5 max-h-[260px] overflow-y-auto pr-1">
+              <div className="flex flex-col gap-3 max-h-[400px] overflow-y-auto pr-0.5">
                 {roomBookings.length === 0 ? (
-                  <p className="text-xs text-slate-500 py-4 italic">
+                  <p className="text-xs text-slate-500 py-4 italic text-center">
                     {language === 'mr' ? 'कोणतेही बुकिंग नाही' : 'No bookings found'}
                   </p>
                 ) : (
                   roomBookings.map((b: any) => {
                     const { name: dName, isDeleted } = getCustomerNameDisplay(b.customers?.name);
-                    const checkInFormatted = formatFriendlyDateTime(b.check_in);
-                    const checkOutFormatted = formatFriendlyDateTime(b.check_out);
                     const isCheckedOut = b.status === 'checked_out';
+                    const isCheckedIn = b.is_checked_in;
+                    const dues = Math.max(0, (b.total_amount || 0) - (b.paid_amount || 0));
+                    const isPaid = dues <= 0;
+
+                    // ID indicator: based on actual uploaded documents from the backend
+                    const hasIdProof = Array.isArray(b.documents) && b.documents.length > 0
+
+                    // Format dates into separate date + time for the 2-col block
+                    const formatQuickDate = (iso: string) => {
+                      const istDate = formatIST_Date(iso)
+                      const d = new Date(istDate + 'T00:00:00')
+                      const months = language === 'mr'
+                        ? ['जाने','फेब्रु','मार्च','एप्रि','मे','जून','जुलै','ऑग','सप्टें','ऑक्टो','नोव्हें','डिसें']
+                        : ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+                      return `${d.getDate()} ${months[d.getMonth()]}`
+                    }
+
+                    const inDate = formatQuickDate(b.check_in)
+                    const outDate = formatQuickDate(b.check_out)
+                    const inTime = formatIST_AMPM(b.check_in)
+                    const outTime = formatIST_AMPM(b.check_out)
 
                     return (
                       <div
@@ -890,94 +975,263 @@ export default function InventoryPage() {
                           setSelectedBookingId(b.id)
                           setQuickActionRoom(null)
                         }}
-                        className="text-left bg-slate-955/40 border border-slate-850 p-3 rounded-2xl flex flex-col gap-2 hover:border-slate-800 transition cursor-pointer"
+                        className={`text-left border rounded-2xl flex flex-col gap-0 transition cursor-pointer active:scale-[0.985] overflow-hidden select-none ${
+                          isCheckedOut
+                            ? 'bg-slate-900/60 border-slate-800/60 opacity-60'
+                            : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                        }`}
                       >
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-black text-slate-150 flex items-center gap-1">
+                        {/* ── Guest name + status badge ── */}
+                        <div className="flex items-center justify-between px-3.5 pt-3.5 pb-2.5">
+                          <span className="text-[13px] font-black text-slate-100 flex items-center gap-1.5 truncate leading-tight">
                             👤 {formatNameByLanguage(dName, language)}
                             {isDeleted && (
-                              <span className="bg-rose-500/10 text-rose-400 px-1 py-0.5 rounded text-[8px] font-black border border-rose-500/20">
+                              <span className="bg-rose-500/10 text-rose-400 px-1 py-0.5 rounded text-[8px] font-black border border-rose-500/20 shrink-0">
                                 {language === 'mr' ? 'डिलीट' : 'Del'}
                               </span>
                             )}
                           </span>
-                          <span className={`text-[9px] px-2 py-0.5 rounded-full font-black border uppercase tracking-wider ${
+                          <span className={`text-[9px] px-2.5 py-1 rounded-full font-black border uppercase tracking-wider shrink-0 ml-2 ${
                             isCheckedOut
                               ? 'bg-slate-800/40 text-slate-550 border-slate-750/30'
-                              : b.is_checked_in
-                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25'
-                                : 'bg-amber-500/10 text-amber-400 border-amber-500/25'
+                              : isCheckedIn
+                                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25'
+                                : 'bg-amber-500/15 text-amber-400 border-amber-500/25'
                           }`}>
                             {isCheckedOut
                               ? (language === 'mr' ? 'चेकआऊट' : 'Checked Out')
-                              : b.is_checked_in
+                              : isCheckedIn
                                 ? (language === 'mr' ? 'आत आहेत' : 'Checked In')
                                 : (language === 'mr' ? 'आरक्षित' : 'Reserved')}
                           </span>
                         </div>
 
-                        <div className="text-[10px] text-slate-400 font-semibold leading-relaxed">
-                          <div>📅 {language === 'mr' ? 'चेक-इन:' : 'In:'} {checkInFormatted}</div>
-                          <div>📅 {language === 'mr' ? 'चेक-आउट:' : 'Out:'} {checkOutFormatted}</div>
+                        {/* ── In / Out 2-col date+time block ── */}
+                        <div className="grid grid-cols-2 mx-3.5 mb-3 rounded-xl overflow-hidden border border-slate-800/70">
+                          <div className="flex flex-col items-start px-3 py-2.5 bg-sky-500/6 border-r border-slate-800/70">
+                            <span className="text-[8px] font-black uppercase tracking-widest text-sky-400 mb-1">
+                              {language === 'mr' ? '🚌 आगमन' : '🚌 In'}
+                            </span>
+                            <span className="text-[15px] font-black text-slate-100 leading-none tabular-nums">{inTime}</span>
+                            <span className="text-[10px] font-bold text-slate-400 mt-1">{inDate}</span>
+                          </div>
+                          <div className="flex flex-col items-start px-3 py-2.5 bg-orange-500/5">
+                            <span className="text-[8px] font-black uppercase tracking-widest text-orange-400 mb-1">
+                              {language === 'mr' ? '🚪 प्रस्थान' : '🚪 Out'}
+                            </span>
+                            <span className="text-[15px] font-black text-slate-100 leading-none tabular-nums">{outTime}</span>
+                            <span className="text-[10px] font-bold text-slate-400 mt-1">{outDate}</span>
+                          </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-2 mt-1">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setSelectedBookingId(b.id)
-                              setQuickActionRoom(null)
-                            }}
-                            className="py-2 px-2.5 bg-slate-850 hover:bg-slate-800 text-slate-200 text-[10px] font-bold rounded-xl transition flex items-center justify-center gap-1 border border-slate-750"
-                          >
-                            📋 {language === 'mr' ? 'तपशील' : 'Details'}
-                          </button>
-
-                          {!isCheckedOut && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setCancelConfirmBooking({
-                                  id: b.id,
-                                  roomNumber: String(quickActionRoom.number),
-                                  customerName: dName
-                                })
-                                setQuickActionRoom(null)
-                              }}
-                              className="py-2 px-2.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-450 text-[10px] font-bold rounded-xl transition flex items-center justify-center gap-1 border border-rose-500/20"
-                            >
-                              ❌ {language === 'mr' ? 'रद्द करा' : 'Cancel'}
-                            </button>
+                        {/* ── Payment + ID status chips ── */}
+                        <div className="flex items-center gap-2 px-3.5 pb-3">
+                          {isPaid ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-black px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
+                              ✅ {language === 'mr' ? 'पेमेंट पूर्ण' : 'Paid'}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-black px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/20 whitespace-nowrap">
+                              ⚠️ {language === 'mr' ? `₹${dues.toLocaleString()} बाकी` : `₹${dues.toLocaleString()} Due`}
+                            </span>
+                          )}
+                          {hasIdProof ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-black px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
+                              🪪 {language === 'mr' ? 'ID ✓' : 'ID ✓'}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-black px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/20 whitespace-nowrap">
+                              🪪 {language === 'mr' ? 'ID ✗' : 'ID ✗'}
+                            </span>
                           )}
                         </div>
+
+                        {/* ── Single primary action: Check In OR Check Out ── */}
+                        {!isCheckedOut && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setQuickPaymentMode('Cash')
+                              setQuickConfirm({
+                                bookingId: b.id,
+                                action: isCheckedIn ? 'checkout' : 'checkin',
+                                customerName: dName,
+                                dues,
+                                totalAmount: b.total_amount || 0,
+                                paidAmount: b.paid_amount || 0,
+                                paymentMode: b.payment_mode || 'Pending',
+                              })
+                            }}
+                            className={`w-full py-3 text-[11px] font-black flex items-center justify-center gap-2 transition-all active:brightness-90 ${
+                              isCheckedIn
+                                ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
+                                : 'bg-amber-500 hover:bg-amber-400 text-slate-950'
+                            }`}
+                          >
+                            {isCheckedIn ? (
+                              <><LogOut className="h-3.5 w-3.5" /> {language === 'mr' ? 'चेकआऊट करा' : 'Check Out'}</>
+                            ) : (
+                              <><CheckCircle className="h-3.5 w-3.5" /> {language === 'mr' ? 'चेक-इन करा' : 'Check In'}</>
+                            )}
+                          </button>
+                        )}
                       </div>
-                    );
+                    )
                   })
                 )}
               </div>
 
-              {latestBooking?.check_out && (
-                <div className="border-t border-slate-850 pt-3 mt-1 flex flex-col gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setBookingCheckInISO(latestBooking.check_out)
-                      setSelectedRoomForBooking(quickActionRoom)
-                      setQuickActionRoom(null)
-                    }}
-                    className="w-full py-3.5 px-4 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.99] text-slate-950 text-xs font-black rounded-2xl transition flex items-center justify-center gap-1.5 shadow-lg"
+              {/* ── Inline Quick Confirm Overlay ── */}
+              {quickConfirm && (
+                <div
+                  className="absolute inset-0 z-10 flex items-center justify-center bg-black/70 backdrop-blur-sm rounded-t-[32px] md:rounded-3xl p-3 animate-fade-in"
+                  onClick={() => setQuickConfirm(null)}
+                >
+                  <div
+                    className="bg-slate-900 border border-slate-800 rounded-2xl p-4 w-full max-w-sm flex flex-col gap-3 shadow-2xl overflow-y-auto max-h-[80vh]"
+                    onClick={e => e.stopPropagation()}
                   >
-                    ➕ {language === 'mr'
-                      ? `पुढील बुकिंग करा (${formatFriendlyDateTime(latestBooking.check_out)} पासून)`
-                      : `Book Next Guest (from ${formatFriendlyDateTime(latestBooking.check_out)})`}
-                  </button>
+                    {/* Icon + Title compact row */}
+                    <div className="flex items-center gap-3">
+                      <div className={`h-9 w-9 shrink-0 rounded-full flex items-center justify-center border ${
+                        quickConfirm.action === 'checkin'
+                          ? 'bg-amber-500/10 text-amber-400 border-amber-500/25'
+                          : quickConfirm.dues > 0
+                            ? 'bg-rose-500/10 text-rose-400 border-rose-500/25'
+                            : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25'
+                      }`}>
+                        {quickConfirm.action === 'checkin'
+                          ? <CheckCircle className="h-4 w-4" />
+                          : <LogOut className="h-4 w-4" />}
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="text-sm font-extrabold text-slate-100 leading-tight">
+                          {quickConfirm.action === 'checkin'
+                            ? (language === 'mr' ? 'चेक-इन निश्चित करा' : 'Confirm Check-In')
+                            : quickConfirm.dues > 0
+                              ? (language === 'mr' ? 'पेमेंट घेऊन चेकआऊट' : 'Collect & Checkout')
+                              : (language === 'mr' ? 'चेकआऊट निश्चित करा' : 'Confirm Checkout')}
+                        </h3>
+                        <p className="text-[11px] text-slate-400 mt-0.5 truncate">
+                          <span className="font-extrabold text-slate-300">{quickConfirm.customerName}</span>
+                          {' · '}{language === 'mr' ? 'खोली' : 'Room'}{' '}
+                          <span className="font-extrabold text-slate-300">{quickActionRoom?.number}</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* ── Checkout only: payment breakdown + mode picker ── */}
+                    {quickConfirm.action === 'checkout' && (
+                      <>
+                        {/* Payment breakdown — compact 3-row table */}
+                        <div className="bg-slate-950/60 border border-slate-800 rounded-xl overflow-hidden">
+                          <div className="flex justify-between items-center px-3 py-2 border-b border-slate-800/60">
+                            <span className="text-[11px] text-slate-400 font-semibold">
+                              {language === 'mr' ? 'एकूण बिल' : 'Total Bill'}
+                            </span>
+                            <span className="text-sm font-black text-slate-200">₹{quickConfirm.totalAmount.toLocaleString()}</span>
+                          </div>
+                          <div className="flex justify-between items-center px-3 py-2 border-b border-slate-800/60">
+                            <span className="text-[11px] text-slate-400 font-semibold">
+                              {language === 'mr' ? 'आधीच दिले' : 'Already Paid'}
+                            </span>
+                            <span className="text-sm font-black text-emerald-400">₹{quickConfirm.paidAmount.toLocaleString()}</span>
+                          </div>
+                          <div className="flex justify-between items-center px-3 py-2.5">
+                            <span className={`text-[11px] font-black uppercase tracking-wide ${
+                              quickConfirm.dues > 0 ? 'text-rose-400' : 'text-emerald-400'
+                            }`}>
+                              {quickConfirm.dues > 0
+                                ? (language === 'mr' ? '⚠️ बाकी रक्कम' : '⚠️ Balance Due')
+                                : (language === 'mr' ? '✅ सर्व पूर्ण' : '✅ All Settled')}
+                            </span>
+                            <span className={`text-base font-black ${
+                              quickConfirm.dues > 0 ? 'text-rose-400' : 'text-emerald-400'
+                            }`}>
+                              ₹{quickConfirm.dues.toLocaleString()}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Payment mode picker — single-line horizontal buttons */}
+                        {quickConfirm.dues > 0 && (
+                          <div className="flex flex-col gap-1.5">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 text-center">
+                              {language === 'mr' ? 'पेमेंट कसे?' : 'Payment via'}
+                            </span>
+                            <div className="grid grid-cols-3 gap-2">
+                              {(['Cash', 'UPI', 'IDFC'] as const).map((mode) => (
+                                <button
+                                  key={mode}
+                                  type="button"
+                                  onClick={() => setQuickPaymentMode(mode)}
+                                  className={`py-2 px-2 rounded-xl border text-[11px] font-black transition flex items-center justify-center gap-1.5 ${
+                                    quickPaymentMode === mode
+                                      ? mode === 'Cash'
+                                        ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/50'
+                                        : mode === 'UPI'
+                                        ? 'bg-blue-500/20 text-blue-400 border-blue-500/50'
+                                        : 'bg-purple-500/20 text-purple-400 border-purple-500/50'
+                                      : 'bg-slate-800/60 border-slate-700 text-slate-400'
+                                  }`}
+                                >
+                                  {mode === 'Cash' ? '💵' : mode === 'UPI' ? '📱' : '🏦'}
+                                  <span>{mode === 'Cash' ? (language === 'mr' ? 'कॅश' : 'Cash') : mode}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    {/* Action buttons */}
+                    <div className="grid grid-cols-2 gap-2 mt-1">
+                      <button
+                        type="button"
+                        onClick={() => setQuickConfirm(null)}
+                        className="py-2.5 px-3 bg-slate-800 border border-slate-700 text-slate-300 text-xs font-bold rounded-xl transition hover:bg-slate-700"
+                      >
+                        {language === 'mr' ? 'परत' : 'Back'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={quickCheckInMutation.isPending || quickCheckOutMutation.isPending}
+                        onClick={() => {
+                          if (quickConfirm.action === 'checkin') {
+                            quickCheckInMutation.mutate(quickConfirm.bookingId)
+                          } else {
+                            quickCheckOutMutation.mutate({
+                              bookingId: quickConfirm.bookingId,
+                              paymentMode: quickPaymentMode,
+                              dues: quickConfirm.dues,
+                              totalAmount: quickConfirm.totalAmount,
+                            })
+                          }
+                        }}
+                        className={`py-2.5 px-3 text-slate-950 text-xs font-black rounded-xl transition shadow-lg disabled:opacity-60 flex items-center justify-center gap-1.5 whitespace-nowrap ${
+                          quickConfirm.action === 'checkin'
+                            ? 'bg-amber-500 hover:bg-amber-400'
+                            : 'bg-emerald-500 hover:bg-emerald-400'
+                        }`}
+                      >
+                        {(quickCheckInMutation.isPending || quickCheckOutMutation.isPending) ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : quickConfirm.action === 'checkin' ? (
+                          <><CheckCircle className="h-3.5 w-3.5" /> {language === 'mr' ? 'चेक-इन करा' : 'Confirm'}</>
+                        ) : quickConfirm.dues > 0 ? (
+                          <><LogOut className="h-3.5 w-3.5" /> {language === 'mr' ? 'Collect & Checkout' : 'Collect & Checkout'}</>
+                        ) : (
+                          <><LogOut className="h-3.5 w-3.5" /> {language === 'mr' ? 'चेकआऊट करा' : 'Checkout'}</>
+                        )}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
           </div>
-        )
+        , document.body)
       })()}
 
       {/* Cancellation Confirmation Modal */}

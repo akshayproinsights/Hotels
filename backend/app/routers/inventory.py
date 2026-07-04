@@ -16,7 +16,7 @@ def get_inventory(query_date: date = Query(alias="date", default=date.today()),
     # Fetch all bookings active or checked_out on this date
     date_str = query_date.isoformat()
     bookings_res = supabase.table("bookings") \
-        .select("id,room_id,room_type,customer_id,check_in,check_out,payment_status,status,total_amount,paid_amount,is_checked_in,customers(name,phone),rooms(number)") \
+        .select("id,room_id,room_type,customer_id,check_in,check_out,payment_status,payment_mode,status,total_amount,paid_amount,is_checked_in,customers(name,phone),rooms(number),documents(id)") \
         .in_("status", ["active", "checked_out"]) \
         .lte("check_in", f"{date_str}T23:59:59+05:30") \
         .gte("check_out",  f"{date_str}T00:00:00+05:30") \

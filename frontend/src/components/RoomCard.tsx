@@ -91,13 +91,13 @@ export default function RoomCard({ room, onClick, onLongPress, dailyBookings, se
       }
     }
 
-    // IN-HOUSE — solid slate/indigo
+    // STAYOVER — solid slate/indigo
     if (isInHouse) {
       return {
         border: 'border-slate-200 hover:border-slate-400/30 border-l-4 border-l-slate-400 dark:border-slate-800/80',
         bg: '',
         badgeClass: 'bg-slate-500 text-white',
-        badgeText: language === 'mr' ? 'मुक्काम' : 'In-House',
+        badgeText: language === 'mr' ? 'मुक्कामी' : 'Stayover',
       }
     }
 

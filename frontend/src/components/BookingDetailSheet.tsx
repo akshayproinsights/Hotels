@@ -1923,43 +1923,35 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
               </div>
             ) : (
               <div className="flex flex-col gap-3">
-                <div className="grid grid-cols-2 gap-3">
-                  {livePendingAmount > 0 ? (
-                    <>
-                      <button
-                        type="button"
-                        onClick={handleMarkAsPaid}
-                        className="py-3.5 px-3 bg-slate-955 hover:bg-emerald-500/10 border border-slate-800 hover:border-emerald-500/20 text-slate-350 hover:text-emerald-400 text-xs font-bold rounded-2xl transition flex items-center justify-center gap-1.5 shadow-sm"
-                      >
-                        <CheckCircle className="h-4 w-4 text-emerald-500" />
-                        {language === 'mr' ? 'फक्त पेमेंट नोंदवा' : 'Collect Payment Only'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setShowCheckoutConfirm(true)}
-                        className="py-3.5 px-3 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-955 text-xs font-black rounded-2xl transition flex items-center justify-center gap-1.5 shadow-lg"
-                      >
-                        <LogOut className="h-4 w-4" />
-                        {language === 'mr' ? 'पेमेंट + चेकआऊट करा' : 'Collect & Checkout'}
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <div className="py-3.5 px-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-extrabold rounded-2xl flex items-center justify-center gap-1.5">
-                        <CheckCircle className="h-4 w-4" />
-                        {language === 'mr' ? 'पूर्ण जमा (देय नाही)' : 'Paid In Full'}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setShowCheckoutConfirm(true)}
-                        className="py-3.5 px-3 bg-slate-955 hover:bg-rose-500/15 border border-slate-800 hover:border-rose-500/25 text-slate-300 hover:text-rose-450 text-xs font-bold rounded-2xl transition flex items-center justify-center gap-1.5"
-                      >
-                        <LogOut className="h-4 w-4 text-slate-500" />
-                        {language === 'mr' ? 'चेकआऊट करा' : 'Checkout Customer'}
-                      </button>
-                    </>
-                  )}
-                </div>
+                {livePendingAmount > 0 ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={handleMarkAsPaid}
+                      className="py-3.5 px-3 bg-slate-955 hover:bg-emerald-500/10 border border-slate-800 hover:border-emerald-500/20 text-slate-350 hover:text-emerald-400 text-xs font-bold rounded-2xl transition flex items-center justify-center gap-1.5 shadow-sm"
+                    >
+                      <CheckCircle className="h-4 w-4 text-emerald-500" />
+                      {language === 'mr' ? 'फक्त पेमेंट नोंदवा' : 'Collect Payment Only'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowCheckoutConfirm(true)}
+                      className="py-3.5 px-3 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-955 text-xs font-black rounded-2xl transition flex items-center justify-center gap-1.5 shadow-lg"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      {language === 'mr' ? 'पेमेंट + चेकआऊट करा' : 'Collect & Checkout'}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowCheckoutConfirm(true)}
+                    className="w-full py-3.5 px-3 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-955 text-xs font-black rounded-2xl transition flex items-center justify-center gap-1.5 shadow-lg"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    {language === 'mr' ? 'चेकआऊट करा' : 'Checkout Customer'}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setShowCancelConfirm(true)}
