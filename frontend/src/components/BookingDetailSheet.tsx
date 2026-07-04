@@ -84,6 +84,8 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
     queryFn: () => getBooking(bookingId),
   })
 
+  const hasSplitPayment = booking ? !!(booking.checkout_payment_mode && booking.paid_amount > booking.deposit_amount) : false
+
   // Fetch all documents for this guest
   const { data: customerDocs, refetch: refetchCustomerDocs } = useQuery({
     queryKey: ['customerDocs', booking?.customer_id],
@@ -1601,11 +1603,13 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
                 </button>
               </div>
 
-              {/* Row: Advance Paid (tappable to edit) */}
+              {/* Row: Advance Paid (tappable to edit if not split) */}
               <div className="flex items-center justify-between py-2 border-b border-slate-800/40">
                 <div className="flex flex-col gap-0.5">
-                  <span className="text-sm font-semibold text-emerald-400">{language === 'mr' ? 'आगाऊ रक्कम भरली' : 'Advance Paid'}</span>
-                  {booking.payment_mode && booking.payment_mode !== 'Pending' && Number(editingPaid) > 0 && (
+                  <span className="text-sm font-semibold text-emerald-400">
+                    {language === 'mr' ? 'आगाऊ रक्कम भरली' : 'Advance Paid'}
+                  </span>
+                  {booking.payment_mode && booking.payment_mode !== 'Pending' && (
                     <span className="text-[10px] text-slate-500 font-semibold">
                       {language === 'mr' ? `${booking.payment_mode} द्वारे` : `via ${booking.payment_mode}`}
                     </span>
@@ -1613,14 +1617,39 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
                 </div>
                 <button
                   type="button"
-                  onClick={() => setActiveKeypad('paid')}
-                  className="flex items-center gap-1 bg-slate-800/60 hover:bg-slate-800 border border-emerald-700/30 rounded-xl px-3 py-1.5 transition active:scale-[0.97]"
+                  onClick={() => !hasSplitPayment && setActiveKeypad('paid')}
+                  disabled={hasSplitPayment}
+                  className={`flex items-center gap-1 bg-slate-800/60 rounded-xl px-3 py-1.5 transition ${
+                    hasSplitPayment ? 'cursor-not-allowed border border-slate-850 opacity-80' : 'hover:bg-slate-800 border border-emerald-700/30 active:scale-[0.97]'
+                  }`}
                 >
                   <span className="text-emerald-500 text-sm font-black">₹</span>
-                  <span className="text-base font-black text-emerald-400 tabular-nums">{Number(editingPaid).toLocaleString('en-IN')}</span>
-                  <Edit2 className="h-3 w-3 text-slate-500 ml-1" />
+                  <span className="text-base font-black text-emerald-400 tabular-nums">
+                    {(hasSplitPayment ? booking.deposit_amount : Number(editingPaid)).toLocaleString('en-IN')}
+                  </span>
+                  {!hasSplitPayment && <Edit2 className="h-3 w-3 text-slate-500 ml-1" />}
                 </button>
               </div>
+
+              {/* Row: Paid at Checkout (only shown if split payment) */}
+              {hasSplitPayment && (
+                <div className="flex items-center justify-between py-2 border-b border-slate-800/40">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-sm font-semibold text-emerald-400">
+                      {language === 'mr' ? 'चेकआऊट दरम्यान भरले' : 'Paid at Checkout'}
+                    </span>
+                    <span className="text-[10px] text-slate-500 font-semibold">
+                      {language === 'mr' ? `${booking.checkout_payment_mode} द्वारे` : `via ${booking.checkout_payment_mode}`}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1 bg-slate-800/30 border border-slate-850 rounded-xl px-3 py-1.5 cursor-not-allowed opacity-80">
+                    <span className="text-emerald-500 text-sm font-black">₹</span>
+                    <span className="text-base font-black text-emerald-400/80 tabular-nums">
+                      {(booking.paid_amount - booking.deposit_amount).toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {/* Balance row — the big number */}
               <div className={`flex items-center justify-between py-3 rounded-xl mt-1 px-3 ${
@@ -2043,34 +2072,24 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
             ) : (
               <div className="flex flex-col gap-3">
                 {livePendingAmount > 0 ? (
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      type="button"
-                      onClick={handleMarkAsPaid}
-                      className="py-3.5 px-3 bg-slate-955 hover:bg-emerald-500/10 border border-slate-800 hover:border-emerald-500/20 text-slate-350 hover:text-emerald-400 text-xs font-bold rounded-2xl transition flex items-center justify-center gap-1.5 shadow-sm"
-                    >
-                      <CheckCircle className="h-4 w-4 text-emerald-500" />
-                      {language === 'mr' ? 'फक्त पेमेंट नोंदवा' : 'Collect Payment Only'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCheckoutTotalAmount(Number(editingTotal) || 0)
-                        setCheckoutPaidAmount(Number(editingPaid) || 0)
-                        setCheckoutPaymentMode(
-                          (['Cash', 'UPI', 'IDFC'] as const).includes(booking.payment_mode as any)
-                            ? (booking.payment_mode as 'Cash' | 'UPI' | 'IDFC')
-                            : 'IDFC'
-                        )
-                        setCheckoutIsPaidAmountModified(false)
-                        setShowCheckoutConfirm(true)
-                      }}
-                      className="py-3.5 px-3 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-955 text-xs font-black rounded-2xl transition flex items-center justify-center gap-1.5 shadow-lg"
-                    >
-                      <LogOut className="h-4 w-4" />
-                      {language === 'mr' ? 'पेमेंट + चेकआऊट करा' : 'Collect & Checkout'}
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCheckoutTotalAmount(Number(editingTotal) || 0)
+                      setCheckoutPaidAmount(Number(editingPaid) || 0)
+                      setCheckoutPaymentMode(
+                        (['Cash', 'UPI', 'IDFC'] as const).includes(booking.payment_mode as any)
+                          ? (booking.payment_mode as 'Cash' | 'UPI' | 'IDFC')
+                          : 'IDFC'
+                      )
+                      setCheckoutIsPaidAmountModified(false)
+                      setShowCheckoutConfirm(true)
+                    }}
+                    className="w-full py-3.5 px-3 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-955 text-xs font-black rounded-2xl transition flex items-center justify-center gap-1.5 shadow-lg"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    {language === 'mr' ? 'पेमेंट + चेकआऊट करा' : 'Collect & Checkout'}
+                  </button>
                 ) : (
                   <button
                     type="button"

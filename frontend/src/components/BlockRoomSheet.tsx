@@ -1838,9 +1838,20 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
                               : (language === 'mr' ? `→ ${paymentMode} द्वारे पूर्ण भरले (₹${total})` : `→ Fully Paid via ${paymentMode} (₹${total})`)}
                           </span>
                         </div>
-                        <span className="text-lg font-black bg-emerald-600/30 px-3 py-1 rounded-xl border border-emerald-600/10">
-                          ₹{total}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          {paid > 0 && due > 0 && (
+                            <span className="text-base font-bold bg-white/40 text-emerald-950 px-3 py-1 rounded-xl border border-emerald-600/20 shadow-sm flex flex-col items-center leading-tight">
+                              <span className="text-[9px] uppercase tracking-wider opacity-80">{language === 'mr' ? 'आत्ता भरा' : 'Pay Now'}</span>
+                              ₹{paid}
+                            </span>
+                          )}
+                          <span className="text-base font-black bg-emerald-600/30 text-emerald-950 px-3 py-1 rounded-xl border border-emerald-600/10 flex flex-col items-center leading-tight">
+                            {paid > 0 && due > 0 && (
+                              <span className="text-[9px] uppercase tracking-wider opacity-80">{language === 'mr' ? 'एकूण' : 'Total'}</span>
+                            )}
+                            ₹{total}
+                          </span>
+                        </div>
                       </button>
                     </>
                   ) : (
@@ -1876,9 +1887,20 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
                               : (language === 'mr' ? `→ ${paymentMode} द्वारे पूर्ण भरले (₹${total})` : `→ Fully Paid via ${paymentMode} (₹${total})`)}
                           </span>
                         </div>
-                        <span className="text-lg font-black bg-emerald-600/30 px-3 py-1 rounded-xl border border-emerald-600/10">
-                          ₹{total}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          {paid > 0 && due > 0 && (
+                            <span className="text-base font-bold bg-white/40 text-emerald-950 px-3 py-1 rounded-xl border border-emerald-600/20 shadow-sm flex flex-col items-center leading-tight">
+                              <span className="text-[9px] uppercase tracking-wider opacity-80">{language === 'mr' ? 'आत्ता भरा' : 'Pay Now'}</span>
+                              ₹{paid}
+                            </span>
+                          )}
+                          <span className="text-base font-black bg-emerald-600/30 text-emerald-950 px-3 py-1 rounded-xl border border-emerald-600/10 flex flex-col items-center leading-tight">
+                            {paid > 0 && due > 0 && (
+                              <span className="text-[9px] uppercase tracking-wider opacity-80">{language === 'mr' ? 'एकूण' : 'Total'}</span>
+                            )}
+                            ₹{total}
+                          </span>
+                        </div>
                       </button>
                     </>
                   )}

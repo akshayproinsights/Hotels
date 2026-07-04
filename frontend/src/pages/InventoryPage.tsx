@@ -32,7 +32,7 @@ export default function InventoryPage() {
   const [isBriefExpanded, setIsBriefExpanded] = useState<boolean>(false)
   const [quickActionRoom, setQuickActionRoom] = useState<InventoryRoom | null>(null)
   const [cancelConfirmBooking, setCancelConfirmBooking] = useState<{ id: string; roomNumber: string; customerName: string } | null>(null)
-  const [activeFilter, setActiveFilter] = useState<'all' | 'vacant' | 'due-out' | 'in-house' | 'unpaid' | 'arrivals'>('all')
+  const [activeFilter, setActiveFilter] = useState<'all' | 'vacant' | 'due-out' | 'stayover' | 'unpaid' | 'arrivals'>('all')
 
   // Quick action inline confirm state
   const [quickConfirm, setQuickConfirm] = useState<{
@@ -328,8 +328,8 @@ export default function InventoryPage() {
   // UNPAID: any checked-in guest (due out or stayover) with unpaid/partial balance
   const unpaidCount = data.summary.unpaid
 
-  // IN-HOUSE: checked-in guests who are NOT due out today (stayovers)
-  const inHouseCount = dailyBookingsAll.filter(
+  // STAYOVERS: all checked-in guests who are NOT checking out today
+  const stayoverCount = dailyBookingsAll.filter(
     (b: any) => b.status === 'active' && b.is_checked_in && formatIST_Date(b.check_out) !== selectedDate
   ).length
 
@@ -790,24 +790,24 @@ export default function InventoryPage() {
           }`}>{dueOutCount}</span>
         </button>
 
-        {/* IN-HOUSE */}
+        {/* STAYOVERS */}
         <button
-          onClick={() => setActiveFilter(activeFilter === 'in-house' ? 'all' : 'in-house')}
+          onClick={() => setActiveFilter(activeFilter === 'stayover' ? 'all' : 'stayover')}
           className={`glass-panel flex flex-col items-center justify-center p-1.5 rounded-xl sm:rounded-2xl sm:items-start sm:p-3.5 transition-all duration-200 active:scale-95 ${
-            activeFilter === 'in-house'
+            activeFilter === 'stayover'
               ? 'bg-sky-500/20 border-sky-400/60 ring-1 ring-sky-400/40 shadow-lg shadow-sky-500/10'
-              : inHouseCount > 0 ? 'bg-sky-500/8 border-sky-500/20 hover:bg-sky-500/12' : 'bg-slate-500/5 border-slate-800 hover:bg-slate-500/10'
+              : stayoverCount > 0 ? 'bg-sky-500/8 border-sky-500/20 hover:bg-sky-500/12' : 'bg-slate-500/5 border-slate-800 hover:bg-slate-500/10'
           }`}
         >
           <span className={`text-[9px] sm:text-[10px] uppercase font-bold tracking-wider flex items-center gap-1 sm:gap-1.5 ${
-            inHouseCount > 0 ? 'text-sky-400' : 'text-slate-500'
+            stayoverCount > 0 ? 'text-sky-400' : 'text-slate-500'
           }`}>
             <span>🏨</span>
-            <span className="truncate">{language === 'mr' ? 'मुक्काम' : 'In-House'}</span>
+            <span className="truncate">{language === 'mr' ? 'मुक्काम' : 'Stayovers'}</span>
           </span>
           <span className={`text-xs sm:text-2xl font-black mt-0.5 sm:mt-2 tabular-nums ${
-            inHouseCount > 0 ? 'text-sky-300' : 'text-slate-500'
-          }`}>{inHouseCount}</span>
+            stayoverCount > 0 ? 'text-sky-300' : 'text-slate-500'
+          }`}>{stayoverCount}</span>
         </button>
 
         {/* UNPAID */}
@@ -840,12 +840,12 @@ export default function InventoryPage() {
           <span className={`text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-lg ${
             activeFilter === 'vacant' ? 'bg-emerald-500/15 text-emerald-400' :
             activeFilter === 'due-out' ? 'bg-amber-500/15 text-amber-400' :
-            activeFilter === 'in-house' ? 'bg-sky-500/15 text-sky-400' :
+            activeFilter === 'stayover' ? 'bg-sky-500/15 text-sky-400' :
             activeFilter === 'unpaid' ? 'bg-rose-500/15 text-rose-400' : ''
           }`}>
             {activeFilter === 'vacant' ? (language === 'mr' ? 'रिकाम्या खोल्या' : 'Vacant Rooms') :
              activeFilter === 'due-out' ? (language === 'mr' ? 'आज निघणारे' : 'Due Out Today') :
-             activeFilter === 'in-house' ? (language === 'mr' ? 'मुक्कामी ग्राहक' : 'In-House Guests') :
+             activeFilter === 'stayover' ? (language === 'mr' ? 'मुक्कामी ग्राहक' : 'Stayovers') :
              activeFilter === 'unpaid' ? (language === 'mr' ? 'बाकी रक्कम' : 'Unpaid Dues') : ''}
           </span>
           <button
@@ -898,7 +898,7 @@ export default function InventoryPage() {
                       matchesFilter = roomBookings.length === 0
                     } else if (activeFilter === 'due-out') {
                       matchesFilter = roomBookings.some((b: any) => formatIST_Date(b.check_out) === selectedDate)
-                    } else if (activeFilter === 'in-house') {
+                    } else if (activeFilter === 'stayover') {
                       matchesFilter = roomBookings.some((b: any) => b.is_checked_in && formatIST_Date(b.check_out) !== selectedDate)
                     } else if (activeFilter === 'unpaid') {
                       matchesFilter = roomBookings.some((b: any) => b.is_checked_in && ['unpaid', 'partial'].includes(b.payment_status))
@@ -1122,10 +1122,9 @@ export default function InventoryPage() {
                                 setQuickActionRoom(null)
                                 return
                               }
-                              // Check Out: open booking detail sheet with auto-checkout mode
-                              // Staff see the full bill first, then confirm checkout — no shortcut modals
+                              // Check Out: open booking detail sheet
                               setSelectedBookingId(b.id)
-                              setAutoCheckoutMode(true)
+                              setAutoCheckoutMode(false)
                               setQuickActionRoom(null)
                             }}
                             className={`w-full py-3 text-[11px] font-black flex items-center justify-center gap-2 transition-all active:brightness-90 ${

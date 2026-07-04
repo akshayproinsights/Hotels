@@ -850,9 +850,55 @@ export default function SettingsPage() {
                     
                     {/* Card Footer */}
                     <div className="mt-4 pt-3 border-t border-slate-800/40 flex justify-between items-center text-[10px] text-slate-500 font-bold uppercase tracking-wider">
-                      <span className="flex items-center gap-1 text-slate-450 font-bold">
-                        💳 {b.payment_mode || 'Pending'}
-                      </span>
+                      <div className="flex items-center gap-1 text-slate-450 font-bold">
+                        <span>💳</span>
+                        {(() => {
+                          const advMode = b.payment_mode
+                          const coMode = b.checkout_payment_mode
+                          const depAmt = b.deposit_amount || 0
+                          const duesAmt = (b.paid_amount || 0) - depAmt
+
+                          const modeColor = (mode: string) => {
+                            if (mode === 'Cash') return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                            if (mode === 'UPI') return 'bg-blue-500/10 text-blue-400 border-blue-500/20 border'
+                            if (mode === 'IDFC') return 'bg-purple-500/10 text-purple-400 border-purple-500/20 border'
+                            return 'bg-slate-800 text-slate-400 border-slate-700'
+                          }
+
+                          if (coMode && advMode && advMode !== 'Pending' && coMode !== advMode && depAmt > 0 && duesAmt > 0) {
+                            return (
+                              <div className="flex flex-col items-start gap-0.5 ml-1">
+                                <div className="flex items-center gap-1">
+                                  <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded border ${modeColor(advMode)}`}>
+                                    {advMode === 'Cash' ? (language === 'mr' ? 'कॅश' : 'Cash') : advMode}
+                                  </span>
+                                  <span className="text-slate-600 text-[9px] font-bold">→</span>
+                                  <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded border ${modeColor(coMode)}`}>
+                                    {coMode === 'Cash' ? (language === 'mr' ? 'कॅश' : 'Cash') : coMode}
+                                  </span>
+                                </div>
+                                <span className="text-[9px] text-slate-500 font-bold lowercase tracking-normal">
+                                  ₹{depAmt.toLocaleString('en-IN')} + ₹{duesAmt.toLocaleString('en-IN')}
+                                </span>
+                              </div>
+                            )
+                          }
+
+                          if (coMode && (!advMode || advMode === 'Pending')) {
+                            return (
+                              <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded border ml-1 ${modeColor(coMode)}`}>
+                                {coMode === 'Cash' ? (language === 'mr' ? 'कॅश' : 'Cash') : coMode}
+                              </span>
+                            )
+                          }
+
+                          return (
+                            <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded border ml-1 ${modeColor(advMode || 'Pending')}`}>
+                              {(advMode === 'Cash' && language === 'mr') ? 'कॅश' : (advMode || 'Pending')}
+                            </span>
+                          )
+                        })()}
+                      </div>
                       <span className="text-emerald-450 hover:text-emerald-400 transition flex items-center gap-0.5">
                         {language === 'mr' ? 'तपशील पहा' : 'View Details'} ➔
                       </span>

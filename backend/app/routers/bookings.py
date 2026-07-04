@@ -566,11 +566,13 @@ def update_booking(booking_id: str, body: BookingUpdate, user=Depends(get_curren
         has_explicit_dates = "check_in" in original_updates or "check_out" in original_updates
 
         # Auto-fill actual check-in / check-out times on status change/check-in action
-        if updates.get("is_checked_in") is True and "check_in" not in original_updates:
+        # NOTE: We do NOT overwrite check_in (the scheduled date) with now() because:
+        #   1. If now() > check_out, Postgres raises "range lower bound must be <= upper bound"
+        #   2. Changing the date range can trigger the no-overlap exclusion constraint
+        # Instead, only record actual_checkin_time to capture the physical arrival timestamp.
+        if updates.get("is_checked_in") is True and "actual_checkin_time" not in updates:
             now_time = datetime.now(timezone.utc)
-            updates["check_in"] = now_time.isoformat()
-            if "actual_checkin_time" not in updates:
-                updates["actual_checkin_time"] = now_time.isoformat()
+            updates["actual_checkin_time"] = now_time.isoformat()
 
         if updates.get("status") == "checked_out" and "check_out" not in original_updates:
             now_time = datetime.now(timezone.utc)

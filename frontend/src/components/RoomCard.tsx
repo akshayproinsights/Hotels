@@ -119,9 +119,14 @@ export default function RoomCard({ room, onClick, onLongPress, dailyBookings, se
       className={`glass-panel w-full text-left rounded-xl sm:rounded-2xl p-2.5 sm:p-3.5 flex flex-col justify-between min-h-[72px] sm:min-h-[96px] transition-all duration-300 transform hover:-translate-y-0.5 hover:shadow-md ${styles.bg} ${styles.border}`}
     >
       <div className="flex justify-between items-start w-full gap-1">
-        <span className="text-xl sm:text-2xl font-black tracking-tight text-slate-100">
-          {room.number}
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-xl sm:text-2xl font-black tracking-tight text-slate-100">
+            {room.number}
+          </span>
+          {activeBooking?.is_checked_in && (
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" title="Checked In" />
+          )}
+        </div>
         {/* Solid pill badge — always legible on mobile/sunlight */}
         <span className={`text-[8px] sm:text-[9px] uppercase tracking-wider font-black px-1.5 py-0.5 rounded-md whitespace-nowrap ${styles.badgeClass}`}>
           {styles.badgeText}
