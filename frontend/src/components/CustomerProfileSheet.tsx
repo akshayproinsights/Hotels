@@ -399,17 +399,30 @@ export default function CustomerProfileSheet({ customer, onClose }: CustomerProf
                         <div className="text-slate-500 font-medium">
                           Total Bill: <span className="text-slate-300 font-bold">₹{booking.total_amount}</span>
                         </div>
-                        <div className="flex items-center gap-1.5">
-                          {isPaid ? (
-                            <span className="text-emerald-400 font-bold flex items-center gap-1 text-[10px]">
-                              <CheckCircle className="h-3 w-3" /> Fully Paid
-                            </span>
-                          ) : (
-                            <span className="text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded text-[10px] font-black border border-rose-500/10">
-                              ₹{pending} Dues
-                            </span>
-                          )}
-                          <span className="text-slate-500 text-[10px]">({booking.payment_mode})</span>
+                        <div className="flex flex-col items-end gap-0.5">
+                          <div className="flex items-center gap-1.5">
+                            {isPaid ? (
+                              <span className="text-emerald-400 font-bold flex items-center gap-1 text-[10px]">
+                                <CheckCircle className="h-3 w-3" /> Fully Paid
+                              </span>
+                            ) : (
+                              <span className="text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded text-[10px] font-black border border-rose-500/10">
+                                ₹{pending} Dues
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 text-[9px] text-slate-500 font-medium">
+                            {booking.payment_mode && booking.payment_mode !== 'Pending' && (
+                              <span className="bg-slate-800 px-1.5 py-0.5 rounded-md">
+                                Adv: {booking.payment_mode}
+                              </span>
+                            )}
+                            {(booking as any).checkout_payment_mode && (
+                              <span className="bg-slate-800 px-1.5 py-0.5 rounded-md">
+                                Due: {(booking as any).checkout_payment_mode}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>

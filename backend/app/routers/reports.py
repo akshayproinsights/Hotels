@@ -65,7 +65,7 @@ def get_financials(
         
         # 3. Query bookings checking in within date range
         bookings_res = supabase.table("bookings") \
-            .select("id, booking_number, check_in, check_out, total_amount, paid_amount, payment_mode, payment_status, status, created_at, extra_bill_amount, notes, rooms(room_type, number), customers(name, phone)") \
+            .select("id, booking_number, check_in, check_out, total_amount, paid_amount, deposit_amount, payment_mode, checkout_payment_mode, payment_status, status, created_at, extra_bill_amount, notes, rooms(room_type, number), customers(name, phone)") \
             .gte("check_in", start_iso) \
             .lte("check_in", end_iso) \
             .order("check_in") \
@@ -124,7 +124,9 @@ def get_financials(
                 "check_out": b["check_out"],
                 "total_amount": float(b["total_amount"] or 0.0),
                 "paid_amount": float(b["paid_amount"] or 0.0),
+                "deposit_amount": float(b.get("deposit_amount") or 0.0),
                 "payment_mode": b.get("payment_mode") or "Pending",
+                "checkout_payment_mode": b.get("checkout_payment_mode"),
                 "payment_status": b.get("payment_status") or "unpaid",
                 "status": b["status"],
                 "created_at": b["created_at"],
@@ -142,21 +144,30 @@ def get_financials(
             
             total_revenue += paid
             
-            # Payment mode aggregation — handle split payments correctly.
-            # If the notes field contains a split-payment audit trail like
-            # "Paid via IDFC: ₹500 + UPI: ₹1,000" we credit each mode
-            # its actual portion. Otherwise fall back to the full paid_amount
-            # under the single payment_mode.
+            # ── Payment mode aggregation ────────────────────────────────────────────
+            # Priority:
+            #  1. Structured split note: "Paid via IDFC: ₹500 + UPI: ₹2,500" (system-generated at checkout)
+            #  2. Informational bracket note: "[Paid via IDFC Bank]" (manually typed by staff)
+            #  3. checkout_payment_mode ≠ payment_mode + deposit_amount (structured columns)
+            #  4. Single payment_mode fallback
             notes_str = b.get("notes") or ""
+
+            # Pattern 1: System-generated structured split note (starts with "Paid via " followed by Mode: ₹Amount)
             split_note = next(
-                (part for part in notes_str.split(" | ") if part.startswith("Paid via ")),
+                (part.strip() for part in notes_str.split(" | ")
+                 if part.strip().startswith("Paid via ") and ": ₹" in part),
                 None
             )
+
+            # Pattern 2: Manually typed bracket note e.g. "[Paid via IDFC Bank]"
+            import re as _re
+            bracket_match = _re.search(r'\[Paid via ([A-Za-z]+)[^\]]*\]', notes_str)
+
             if split_note:
-                # Parse "Paid via IDFC: ₹500 + UPI: ₹1,000"
+                # Parse "Paid via IDFC: ₹500 + UPI: ₹2,500" — ground truth written at checkout
                 try:
-                    rest = split_note[len("Paid via "):]  # "IDFC: ₹500 + UPI: ₹1,000"
-                    parts = rest.split(" + ")             # ["IDFC: ₹500", "UPI: ₹1,000"]
+                    rest = split_note[len("Paid via "):]   # "IDFC: ₹500 + UPI: ₹2,500"
+                    parts = rest.split(" + ")               # ["IDFC: ₹500", "UPI: ₹2,500"]
                     for part in parts:
                         seg_mode, seg_amt_str = part.split(": ₹")
                         seg_amt = float(seg_amt_str.replace(",", ""))
@@ -165,16 +176,43 @@ def get_financials(
                             payment_modes[seg_mode] = 0.0
                         payment_modes[seg_mode] += seg_amt
                 except Exception:
-                    # If parsing fails, fall back to normal single-mode credit
+                    # Parse failed — fall back to full paid_amount under payment_mode
                     mode = ledger_item["payment_mode"]
                     if mode not in payment_modes:
                         payment_modes[mode] = 0.0
                     payment_modes[mode] += paid
+
+            elif bracket_match:
+                # Staff typed "[Paid via IDFC Bank]" — treat as paid via that mode.
+                # Use paid_amount if available, otherwise fall back to total_amount
+                # (staff noted payment but forgot to update paid_amount field).
+                note_mode = bracket_match.group(1).strip()  # e.g. "IDFC", "UPI", "Cash"
+                effective_amt = paid if paid > 0 else total
+                if note_mode not in payment_modes:
+                    payment_modes[note_mode] = 0.0
+                payment_modes[note_mode] += effective_amt
+
             else:
-                mode = ledger_item["payment_mode"]
-                if mode not in payment_modes:
-                    payment_modes[mode] = 0.0
-                payment_modes[mode] += paid
+                # No payment note — try structured columns
+                checkout_mode = b.get("checkout_payment_mode")
+                deposit_amt = float(b.get("deposit_amount") or 0.0)
+                advance_mode = b.get("payment_mode") or "Pending"
+
+                if checkout_mode and checkout_mode != advance_mode and deposit_amt > 0:
+                    # Split: different modes, payment_mode not overwritten
+                    dues_amt = max(0.0, paid - deposit_amt)
+                    if advance_mode not in payment_modes:
+                        payment_modes[advance_mode] = 0.0
+                    payment_modes[advance_mode] += deposit_amt
+                    if checkout_mode not in payment_modes:
+                        payment_modes[checkout_mode] = 0.0
+                    payment_modes[checkout_mode] += dues_amt
+                else:
+                    # Single mode — prefer checkout_payment_mode if available
+                    mode = checkout_mode or advance_mode
+                    if mode not in payment_modes:
+                        payment_modes[mode] = 0.0
+                    payment_modes[mode] += paid
             
             # Room type aggregation
             rtype = r_info.get("room_type")

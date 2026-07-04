@@ -52,6 +52,7 @@ export interface Booking {
   total_amount: number
   paid_amount: number
   payment_mode: 'Cash' | 'UPI' | 'IDFC' | 'Pending'
+  checkout_payment_mode?: 'Cash' | 'UPI' | 'IDFC' | null  // NEW — separate mode used when collecting dues at checkout
   payment_status: 'paid' | 'unpaid' | 'partial' | 'reserved'
   deposit_amount: number
   occupation?: string | null
@@ -137,6 +138,7 @@ export interface BookingUpdate {
   room_price?: number
   paid_amount?: number
   payment_mode?: 'Cash' | 'UPI' | 'IDFC' | 'Pending'
+  checkout_payment_mode?: 'Cash' | 'UPI' | 'IDFC'  // NEW — separate checkout collection mode
   payment_status?: 'paid' | 'unpaid' | 'partial' | 'reserved'
   status?: 'active' | 'checked_out' | 'cancelled'
   notes?: string

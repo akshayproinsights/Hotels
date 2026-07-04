@@ -26,6 +26,7 @@ export default function InventoryPage() {
   const [selectedDate, setSelectedDate] = useState(initialDate)
   const [selectedRoomForBooking, setSelectedRoomForBooking] = useState<InventoryRoom | null>(null)
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null)
+  const [autoCheckoutMode, setAutoCheckoutMode] = useState(false)
   const [bookingCheckInISO, setBookingCheckInISO] = useState<string | undefined>(undefined)
   const [briefTab, setBriefTab] = useState<'arrivals' | 'checkouts' | 'staying'>('arrivals')
   const [isBriefExpanded, setIsBriefExpanded] = useState<boolean>(false)
@@ -947,10 +948,12 @@ export default function InventoryPage() {
       {selectedBookingId && (
         <BookingDetailSheet
           bookingId={selectedBookingId}
-          onClose={() => setSelectedBookingId(null)}
+          autoCheckout={autoCheckoutMode}
+          onClose={() => { setSelectedBookingId(null); setAutoCheckoutMode(false) }}
           onSuccess={(action) => {
             if (action === 'checkout') {
               setSelectedBookingId(null)
+              setAutoCheckoutMode(false)
             }
             refetch()
           }}
@@ -1113,27 +1116,17 @@ export default function InventoryPage() {
                             onClick={(e) => {
                               e.stopPropagation()
                               if (!isCheckedIn) {
+                                // Check In: just open booking detail sheet
                                 setSelectedBookingId(b.id)
+                                setAutoCheckoutMode(false)
                                 setQuickActionRoom(null)
                                 return
                               }
-                              // Initialise from booking's saved mode so the picker reflects reality
-                              const savedMode = b.payment_mode
-                              setQuickPaymentMode(
-                                (['Cash', 'UPI', 'IDFC'] as const).includes(savedMode as any)
-                                  ? (savedMode as 'Cash' | 'UPI' | 'IDFC')
-                                  : 'IDFC'
-                              )
-                              setQuickConfirm({
-                                bookingId: b.id,
-                                action: 'checkout',
-                                customerName: dName,
-                                dues,
-                                totalAmount: b.total_amount || 0,
-                                paidAmount: b.paid_amount || 0,
-                                paymentMode: b.payment_mode || 'Pending',
-                                isPaidAmountModified: false,
-                              })
+                              // Check Out: open booking detail sheet with auto-checkout mode
+                              // Staff see the full bill first, then confirm checkout — no shortcut modals
+                              setSelectedBookingId(b.id)
+                              setAutoCheckoutMode(true)
+                              setQuickActionRoom(null)
                             }}
                             className={`w-full py-3 text-[11px] font-black flex items-center justify-center gap-2 transition-all active:brightness-90 ${
                               isCheckedIn

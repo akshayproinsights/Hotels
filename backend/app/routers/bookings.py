@@ -165,6 +165,7 @@ class BookingUpdate(BaseModel):
     room_price: Optional[float] = None
     paid_amount: Optional[float] = None
     payment_mode: Optional[str] = None
+    checkout_payment_mode: Optional[str] = None   # NEW — mode used to collect at checkout
     payment_status: Optional[str] = None
     status: Optional[str] = None          # "checked_out" | "cancelled"
     notes: Optional[str] = None

@@ -1663,7 +1663,8 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
               statusColor = 'text-blue-400 bg-blue-500/10 border-blue-500/20'
             }
 
-            const pct = total > 0 ? Math.min(100, (paid / total) * 100) : 0
+
+
 
             return (
               <div className="mt-2 border border-slate-800 bg-slate-950/40 rounded-3xl overflow-hidden shadow-2xl flex flex-col flex-shrink-0">
@@ -1744,7 +1745,7 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
                   {/* Row 3: Quick Payment Chips — non-technical friendly */}
                   <div className="flex flex-col gap-2">
                     <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                      {language === 'mr' ? 'किती भरले?' : 'Amount Received'}
+                      {language === 'mr' ? 'किती आगाऊ भरले?' : 'Advance collected?'}
                     </span>
                     <div className="grid grid-cols-3 gap-1.5">
                       {/* Chip 1: Pay Later */}
@@ -1793,21 +1794,13 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
                       </button>
                     </div>
 
-                    {/* Progress bar */}
-                    <div className="flex justify-between text-[10px] font-bold text-slate-500">
-                      <span>{language === 'mr' ? 'भरले: ' : 'Paid: '}₹{paid}</span>
-                      <span className={due > 0 ? 'text-rose-400' : 'text-emerald-400'}>
-                        {due > 0
-                          ? `${language === 'mr' ? 'बाकी: ' : 'Due: '}₹${due}`
-                          : `✓ ${language === 'mr' ? 'पूर्ण भरले' : 'Fully Settled'}`
-                        }
-                      </span>
-                    </div>
-                    <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-emerald-400 transition-all duration-300"
-                        style={{ width: `${pct}%` }}
-                      />
+                    {/* Simple balance note — no progress bar */}
+                    <div className={`text-[10px] font-bold px-1 ${
+                      due > 0 ? 'text-rose-400' : 'text-emerald-400'
+                    }`}>
+                      {due > 0
+                        ? (language === 'mr' ? `₹${due} नंतर वसूल करा` : `₹${due} balance to collect at checkout`)
+                        : (language === 'mr' ? '✓ पूर्ण भरले — बाकी काही नाही' : '✓ Fully settled — nothing to collect at checkout')}
                     </div>
                   </div>
                 </div>

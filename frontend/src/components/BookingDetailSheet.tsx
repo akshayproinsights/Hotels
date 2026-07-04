@@ -40,9 +40,10 @@ interface BookingDetailSheetProps {
   bookingId: string
   onClose: () => void
   onSuccess: (action?: 'checkout' | 'update') => void
+  autoCheckout?: boolean  // If true, auto-open the checkout receipt sheet on load
 }
 
-export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: BookingDetailSheetProps) {
+export default function BookingDetailSheet({ bookingId, onClose, onSuccess, autoCheckout }: BookingDetailSheetProps) {
   const { language, t } = useLanguage()
   const viewport = useVisualViewport()
   const queryClient = useQueryClient()
@@ -131,10 +132,10 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
   // Checkout amount editing states
   const [checkoutTotalAmount, setCheckoutTotalAmount] = useState<number>(0)
   const [checkoutPaidAmount, setCheckoutPaidAmount] = useState<number>(0)
-  const [checkoutPaymentMode, setCheckoutPaymentMode] = useState<'Cash' | 'UPI' | 'IDFC'>('Cash')
+  const [checkoutPaymentMode, setCheckoutPaymentMode] = useState<'Cash' | 'UPI' | 'IDFC'>('IDFC')
   const [checkoutIsPaidAmountModified, setCheckoutIsPaidAmountModified] = useState<boolean>(false)
   // Payment mode for the quick "Mark Fully Paid" button in the booking detail view
-  const [duesPaymentMode, setDuesPaymentMode] = useState<'Cash' | 'UPI' | 'IDFC'>('Cash')
+  const [duesPaymentMode, setDuesPaymentMode] = useState<'Cash' | 'UPI' | 'IDFC'>('IDFC')
   const [showRefDetails, setShowRefDetails] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   const [isCameraOpen, setIsCameraOpen] = useState(false)
@@ -176,6 +177,24 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
       }
     }
   }, [booking, showDatePicker, editRoomMode, isEditingName, activeKeypad])
+
+  // Auto-open checkout receipt when autoCheckout=true and booking has loaded
+  useEffect(() => {
+    if (!autoCheckout || !booking || showCheckoutConfirm) return
+    if (booking.status !== 'active') return
+    // Initialise checkout amounts from current booking data
+    setCheckoutTotalAmount(Number(booking.total_amount) || 0)
+    setCheckoutPaidAmount(Number(booking.paid_amount) || 0)
+    setCheckoutPaymentMode(
+      (['Cash', 'UPI', 'IDFC'] as const).includes(booking.payment_mode as any)
+        ? (booking.payment_mode as 'Cash' | 'UPI' | 'IDFC')
+        : 'IDFC'
+    )
+    setCheckoutIsPaidAmountModified(false)
+    setShowCheckoutConfirm(true)
+  // Only run once when booking first loads
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [booking?.id, autoCheckout])
 
   // Fetch available rooms when dates change in edit mode
   useEffect(() => {
@@ -389,34 +408,40 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
       paid_amount: booking.total_amount,
     }
     if (!booking.payment_mode || booking.payment_mode === 'Pending') {
-      updates.payment_mode = checkoutPaymentMode || 'Cash'
+      updates.payment_mode = checkoutPaymentMode || 'IDFC'
     }
     updateMutation.mutate(updates)
   }
 
-  // handleMarkFullyPaid: used by the quick "Mark Fully Paid" button in booking detail view.
+  // handleMarkFullyPaid: used by the quick "Collect" button in booking detail view.
   // Correctly records split payments: if ₹500 was paid via IDFC and user marks full via UPI,
-  // it logs a split-payment audit note so reports always show the correct breakdown.
+  // it logs a split-payment audit note AND preserves the original advance payment_mode so
+  // reports always show the correct IDFC/UPI breakdown.
   const handleMarkFullyPaid = (selectedMode: 'Cash' | 'UPI' | 'IDFC') => {
     const total = editingTotal === '' ? 0 : Number(editingTotal)
     const prevPaid = booking.paid_amount || 0
     const additionalPaid = total - prevPaid
     const prevMode = booking.payment_mode
 
-    const updates: Parameters<typeof updateBooking>[1] = {
-      payment_status: 'paid',
-      paid_amount: total,
-      payment_mode: selectedMode,
-    }
-
-    // If there was a prior partial payment with a DIFFERENT mode, append split audit note
-    if (
+    const isSplit = (
       prevPaid > 0 &&
       additionalPaid > 0 &&
       prevMode &&
       prevMode !== 'Pending' &&
       prevMode !== selectedMode
-    ) {
+    )
+
+    const updates: Parameters<typeof updateBooking>[1] = {
+      payment_status: 'paid',
+      paid_amount: total,
+      // Preserve the original advance mode — don't overwrite with checkout mode.
+      // If Pending (no prior payment), set it to the selected mode.
+      payment_mode: (!prevMode || prevMode === 'Pending') ? selectedMode : prevMode,
+      checkout_payment_mode: selectedMode,  // always record what mode was used to collect
+    }
+
+    // If split: append audit note so reports correctly attribute amounts per mode
+    if (isSplit) {
       const splitNote = `Paid via ${prevMode}: ₹${prevPaid.toLocaleString('en-IN')} + ${selectedMode}: ₹${additionalPaid.toLocaleString('en-IN')}`
       updates.notes = booking.notes
         ? `${booking.notes} | ${splitNote}`
@@ -427,15 +452,18 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
   }
 
   const handleCheckOut = () => {
-    const duesWasCollected = !checkoutIsPaidAmountModified && (checkoutTotalAmount - checkoutPaidAmount) > 0
-    const finalPaid = duesWasCollected ? checkoutTotalAmount : checkoutPaidAmount
+    const totalAmt = checkoutTotalAmount
+    const prevPaid = booking.paid_amount || 0
+    // If user hasn't modified paid amount, treat all dues as collected
+    const finalPaid = !checkoutIsPaidAmountModified ? totalAmt : checkoutPaidAmount
     const updates: Parameters<typeof updateBooking>[1] = {
       status: 'checked_out',
-      total_amount: checkoutTotalAmount,
+      total_amount: totalAmt,
       paid_amount: finalPaid,
-      payment_mode: checkoutPaymentMode,
+      payment_mode: booking.payment_mode !== 'Pending' && prevPaid > 0 ? booking.payment_mode : checkoutPaymentMode,
+      checkout_payment_mode: checkoutPaymentMode,  // NEW — always track checkout mode separately
     }
-    if (finalPaid >= checkoutTotalAmount) {
+    if (finalPaid >= totalAmt) {
       updates.payment_status = 'paid'
     } else if (finalPaid > 0) {
       updates.payment_status = 'partial'
@@ -445,17 +473,15 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
 
     // If the booking had a partial payment at check-in with a DIFFERENT mode,
     // append a split-payment audit note so there's a clear record in history.
-    const prevMode = booking.payment_mode
-    const prevPaid = booking.paid_amount || 0
     const additionalPaid = finalPaid - prevPaid
     if (
       prevPaid > 0 &&
       additionalPaid > 0 &&
-      prevMode &&
-      prevMode !== 'Pending' &&
-      prevMode !== checkoutPaymentMode
+      booking.payment_mode &&
+      booking.payment_mode !== 'Pending' &&
+      booking.payment_mode !== checkoutPaymentMode
     ) {
-      const splitNote = `Paid via ${prevMode}: ₹${prevPaid.toLocaleString('en-IN')} + ${checkoutPaymentMode}: ₹${additionalPaid.toLocaleString('en-IN')}`
+      const splitNote = `Paid via ${booking.payment_mode}: ₹${prevPaid.toLocaleString('en-IN')} + ${checkoutPaymentMode}: ₹${additionalPaid.toLocaleString('en-IN')}`
       updates.notes = booking.notes
         ? `${booking.notes} | ${splitNote}`
         : splitNote
@@ -536,6 +562,18 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
     ? ((booking.payment_status === 'unpaid' && booking.paid_amount > 0) ? 'partial' : booking.payment_status)
     : 'unpaid'
 
+  // Detect inconsistency: notes say "Paid via X" but payment_status is still unpaid/reserved
+  const hasPaymentNoteInconsistency = (() => {
+    if (!booking) return false
+    const notesStr = booking.notes || ''
+    const statusIsUnresolved = ['unpaid', 'reserved'].includes(booking.payment_status)
+    // Check for [Paid via X Bank] pattern (manually typed)
+    const hasBracketPaid = /\[Paid via [A-Za-z]+[^\]]*\]/i.test(notesStr)
+    // Check for structured split note pattern (system-generated)
+    const hasStructuredPaid = notesStr.split(' | ').some(p => p.trim().startsWith('Paid via ') && p.includes(': ₹'))
+    return statusIsUnresolved && (hasBracketPaid || hasStructuredPaid)
+  })()
+
   const getStatusBadgeStyles = (status: string) => {
     switch (status) {
       case 'hold':
@@ -582,20 +620,15 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
       payment_status: isNowFullyPaid ? 'paid' : (newPaid > 0 ? 'partial' : 'unpaid'),
     }
     if (booking.payment_mode === 'Pending' && newPaid > 0) {
-      updates.payment_mode = 'Cash'
+      updates.payment_mode = 'IDFC'
     }
     updateMutation.mutate(updates)
   }
 
-  const handleSavePaymentMode = (newMode: 'Cash' | 'UPI' | 'IDFC' | 'Pending') => {
-    if (newMode === booking.payment_mode) return
-    const currentPaid = editingPaid === '' ? 0 : Number(editingPaid)
-    const currentTotal = editingTotal === '' ? 0 : Number(editingTotal)
-    const updates: Parameters<typeof updateBooking>[1] = { payment_mode: newMode }
-    const isNowFullyPaid = currentPaid >= currentTotal
-    updates.payment_status = isNowFullyPaid ? 'paid' : (currentPaid > 0 ? 'partial' : 'unpaid')
-    updateMutation.mutate(updates)
-  }
+
+  // handleSavePaymentMode is now handled inline in the new Smart Bill Card
+  // (kept as a no-op reference to avoid breaking any future re-integration)
+
 
   const handleSaveExtraCharges = (valueToSave?: string | number) => {
     const val = valueToSave !== undefined ? valueToSave : editingExtraAmount
@@ -1281,7 +1314,8 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
     )
   }
 
-  const amountInputCls = "bg-transparent outline-none text-2xl font-black text-right w-28 tabular-nums [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+  // amountInputCls no longer needed — replaced by tappable receipt-style rows in the Smart Bill Card
+
 
   return createPortal(
     <div
@@ -1509,11 +1543,12 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
             )}
           </div>
 
-          {/* 3. Payment Details */}
+          {/* 3. Smart Bill Card — all payment info in one place */}
           <div className="glass-panel rounded-2xl overflow-hidden border border-slate-800 bg-slate-955/40 shadow-lg flex-shrink-0">
+            {/* Header */}
             <div className="px-5 py-3.5 bg-slate-850 border-b border-slate-800 flex items-center justify-between">
               <span className="text-xs font-black uppercase tracking-wider text-slate-400">
-                💰 {language === 'mr' ? 'पेमेंट' : 'PAYMENT'}
+                💰 {language === 'mr' ? 'बिल सारांश' : 'BILL SUMMARY'}
               </span>
               <span className="text-[11px] text-slate-550 font-medium">
                 {language === 'mr'
@@ -1522,57 +1557,26 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
               </span>
             </div>
 
-            <div className="px-4 py-3 flex items-center justify-between border-b border-slate-800/60">
-              <div>
-                <div className="text-sm font-bold text-slate-300">{language === 'mr' ? 'एकूण बिल' : 'Total Bill'}</div>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-xl px-3 py-2">
-                  <span className="text-slate-400 text-lg font-black">₹</span>
-                  <input
-                    id="input-total-amount"
-                    type="text"
-                    readOnly
-                    value={editingTotal}
-                    onClick={() => setActiveKeypad('total')}
-                    className={`${amountInputCls} cursor-pointer`}
-                  />
-                </div>
-                {editingTotal !== booking.total_amount && (
-                  <button onClick={() => handleSaveTotalAmount()} className="px-3 py-2 bg-emerald-500 text-slate-955 text-xs font-black rounded-lg">
-                    {language === 'mr' ? 'जतन' : 'Save'}
-                  </button>
-                )}
-              </div>
-            </div>
+            <div className="px-4 pt-3 pb-1 flex flex-col gap-0">
 
-            <div className="px-4 py-3 flex flex-col gap-2.5 bg-slate-900/40 border-b border-slate-800/60">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-bold text-slate-300">
-                    {language === 'mr' ? 'अतिरिक्त शुल्क' : 'Extra Charges'}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-xl px-3 py-2">
-                     <span className="text-slate-400 text-lg font-black">₹</span>
-                     <input
-                       id="input-extra-charges-amount"
-                       type="text"
-                       readOnly
-                       value={editingExtraAmount}
-                       onClick={() => setActiveKeypad('extra')}
-                       className={`${amountInputCls} cursor-pointer`}
-                     />
-                  </div>
-                </div>
+              {/* Row: Total Bill (tappable to edit) */}
+              <div className="flex items-center justify-between py-2 border-b border-slate-800/40">
+                <span className="text-sm font-semibold text-slate-400">{language === 'mr' ? 'एकूण बिल' : 'Total Bill'}</span>
+                <button
+                  type="button"
+                  onClick={() => setActiveKeypad('total')}
+                  className="flex items-center gap-1 bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 rounded-xl px-3 py-1.5 transition active:scale-[0.97]"
+                >
+                  <span className="text-slate-400 text-sm font-black">₹</span>
+                  <span className="text-base font-black text-slate-100 tabular-nums">{Number(editingTotal).toLocaleString('en-IN')}</span>
+                  <Edit2 className="h-3 w-3 text-slate-500 ml-1" />
+                </button>
               </div>
 
-              <div className="flex flex-col gap-1.5">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                  {language === 'mr' ? 'तपशील (उदा. चहा, पाणी)' : 'Item Details / Notes'}
-                </span>
-                <div className="flex gap-2">
+              {/* Row: Extra Charges */}
+              <div className="flex items-start justify-between py-2 border-b border-slate-800/40 gap-3">
+                <div className="flex flex-col gap-1 flex-1 min-w-0">
+                  <span className="text-sm font-semibold text-slate-400">{language === 'mr' ? 'अतिरिक्त शुल्क' : 'Extra Charges'}</span>
                   <input
                     id="input-extra-charges-note"
                     type="text"
@@ -1580,128 +1584,72 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                     onChange={(e) => setEditingExtraNote(e.target.value)}
                     onBlur={() => handleSaveExtraCharges()}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        handleSaveExtraCharges()
-                        e.currentTarget.blur()
-                      }
+                      if (e.key === 'Enter') { handleSaveExtraCharges(); e.currentTarget.blur() }
                     }}
                     placeholder={language === 'mr' ? 'चहा, नाश्ता इ.' : 'e.g. Tea, breakfast, laundry'}
-                    className="flex-1 bg-slate-800 border border-slate-700/80 rounded-xl px-3 py-2 text-xs font-bold text-slate-200 focus:outline-none focus:border-slate-500 transition"
+                    className="bg-slate-800/50 border border-slate-700/60 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold text-slate-300 focus:outline-none focus:border-emerald-500/50 transition placeholder-slate-600"
                   />
-                  {(editingExtraAmount !== (booking.extra_bill_amount || 0) || editingExtraNote !== (booking.extra_bill_note || '')) && (
-                    <button
-                      type="button"
-                      onClick={() => handleSaveExtraCharges()}
-                      className="px-3 py-2 bg-emerald-500 text-slate-955 text-xs font-black rounded-xl transition hover:bg-emerald-450"
-                    >
-                      {language === 'mr' ? 'जतन' : 'Save'}
-                    </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveKeypad('extra')}
+                  className="flex items-center gap-1 bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 rounded-xl px-3 py-1.5 transition active:scale-[0.97] flex-shrink-0 mt-0.5"
+                >
+                  <span className="text-slate-400 text-sm font-black">+₹</span>
+                  <span className="text-base font-black text-slate-300 tabular-nums">{Number(editingExtraAmount).toLocaleString('en-IN')}</span>
+                  <Edit2 className="h-3 w-3 text-slate-500 ml-1" />
+                </button>
+              </div>
+
+              {/* Row: Advance Paid (tappable to edit) */}
+              <div className="flex items-center justify-between py-2 border-b border-slate-800/40">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-sm font-semibold text-emerald-400">{language === 'mr' ? 'आगाऊ रक्कम भरली' : 'Advance Paid'}</span>
+                  {booking.payment_mode && booking.payment_mode !== 'Pending' && Number(editingPaid) > 0 && (
+                    <span className="text-[10px] text-slate-500 font-semibold">
+                      {language === 'mr' ? `${booking.payment_mode} द्वारे` : `via ${booking.payment_mode}`}
+                    </span>
                   )}
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveKeypad('paid')}
+                  className="flex items-center gap-1 bg-slate-800/60 hover:bg-slate-800 border border-emerald-700/30 rounded-xl px-3 py-1.5 transition active:scale-[0.97]"
+                >
+                  <span className="text-emerald-500 text-sm font-black">₹</span>
+                  <span className="text-base font-black text-emerald-400 tabular-nums">{Number(editingPaid).toLocaleString('en-IN')}</span>
+                  <Edit2 className="h-3 w-3 text-slate-500 ml-1" />
+                </button>
+              </div>
+
+              {/* Balance row — the big number */}
+              <div className={`flex items-center justify-between py-3 rounded-xl mt-1 px-3 ${
+                livePendingAmount > 0 ? 'bg-rose-500/8 border border-rose-500/20' : 'bg-emerald-500/8 border border-emerald-500/20'
+              }`}>
+                <span className={`text-sm font-black uppercase tracking-wide ${livePendingAmount > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                  {livePendingAmount > 0
+                    ? (language === 'mr' ? '⚠️ वसूल करायचे' : '⚠️ To Collect')
+                    : (language === 'mr' ? '✅ पूर्ण भरले' : '✅ Fully Settled')}
+                </span>
+                <span className={`text-3xl font-black tabular-nums ${livePendingAmount > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                  ₹{livePendingAmount.toLocaleString('en-IN')}
+                </span>
               </div>
             </div>
 
-            <div className="px-4 py-3 flex items-center justify-between border-b border-slate-800/60">
-              <div>
-                <div className="text-sm font-bold text-emerald-400">{language === 'mr' ? 'जमा केलेली रक्कम' : 'Amount Paid'}</div>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-xl px-3 py-2">
-                  <span className="text-emerald-500 text-lg font-black">₹</span>
-                  <input
-                    id="input-paid-amount"
-                    type="text"
-                    readOnly
-                    value={editingPaid}
-                    onClick={() => setActiveKeypad('paid')}
-                    className={`${amountInputCls} cursor-pointer`}
-                  />
-                </div>
-                {String(editingPaid) !== String(booking.paid_amount) && (
-                  <button onClick={() => handleSavePaidAmount()} className="px-3 py-2 bg-emerald-500 text-slate-955 text-xs font-black rounded-lg">
-                    {language === 'mr' ? 'जतन' : 'Save'}
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {(() => {
-              const pct = liveTotal > 0 ? Math.min(100, (livePaid / liveTotal) * 100) : 0
-              return (
-                <div className="px-4 py-2 bg-slate-900/40 border-b border-slate-800/60">
-                  <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
-                    <div className={`h-full rounded-full transition-all duration-500 ${pct >= 100 ? 'bg-emerald-400' : pct > 0 ? 'bg-amber-400' : 'bg-slate-700'}`} style={{ width: `${pct}%` }} />
-                  </div>
-                  <div className="flex justify-between mt-1.5 text-[9px] font-bold text-slate-500 uppercase">
-                    <span>{Math.round(pct)}% {language === 'mr' ? 'भरले' : 'paid'}</span>
-                    <span>{language === 'mr' ? 'एकूण' : 'Total'}: ₹{liveTotal}</span>
-                  </div>
-                </div>
-              )
-            })()}
-
-            <div className={`px-4 py-3 flex items-center justify-between ${
-              livePendingAmount > 0 ? 'bg-rose-500/5 border-b border-rose-500/15' : 'bg-emerald-500/5 border-b border-emerald-500/15'
-            }`}>
-              <div>
-                <div className={`text-base font-black ${livePendingAmount > 0 ? 'text-rose-450' : 'text-emerald-400'}`}>
-                  {livePendingAmount > 0 ? (language === 'mr' ? '⚠️ बाकी रक्कम' : '⚠️ Balance Due') : (language === 'mr' ? '✅ पूर्ण भरले' : '✅ Fully Paid')}
-                </div>
-              </div>
-              <span className={`text-3xl font-black tabular-nums ${livePendingAmount > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
-                ₹{livePendingAmount.toLocaleString('en-IN')}
-              </span>
-            </div>
-
-            <div className="px-4 py-3 flex flex-col gap-2 bg-slate-900/10">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{language === 'mr' ? 'पेमेंट पद्धत' : 'PAYMENT MODE'}</span>
-              <div className="grid grid-cols-3 gap-1.5">
-                {(['Cash', 'UPI', 'IDFC'] as const).map((mode) => {
-                  const styles: Record<string, { icon: string; label: string; active: string }> = {
-                    Cash: { icon: '💵', label: language === 'mr' ? 'कॅश' : 'Cash', active: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40' },
-                    UPI:  { icon: '📱', label: 'UPI',  active: 'bg-blue-500/15 text-blue-400 border-blue-500/40' },
-                    IDFC: { icon: '🏦', label: 'IDFC', active: 'bg-purple-500/15 text-purple-400 border-purple-500/40' },
-                  }
-                  const { icon, label, active } = styles[mode]
-                  const isSelected = booking.payment_mode === mode
-                  return (
-                    <button
-                      key={mode}
-                      type="button"
-                      onClick={() => handleSavePaymentMode(mode)}
-                      className={`py-2.5 rounded-xl border text-[10px] font-black transition-all duration-200 flex flex-col items-center gap-1 justify-center ${
-                        isSelected
-                          ? active
-                          : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-350'
-                      }`}
-                    >
-                      <span className="text-sm">{icon}</span>
-                      <span>{label}</span>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-
-            {/* ── Quick "Mark Fully Paid" section — only when balance is due and booking is active ── */}
+            {/* ── Collect section — only when balance > 0 and booking is active ── */}
             {livePendingAmount > 0 && booking.status === 'active' && (
-              <div className="mx-4 mb-4 mt-1 flex flex-col gap-2.5 bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-3.5">
-                {/* Context label */}
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">⚡ {language === 'mr' ? 'जमा करण्यासाठी' : 'COLLECT REMAINING'}</span>
-                  <span className="ml-auto text-xs font-black text-rose-400 tabular-nums">₹{livePendingAmount.toLocaleString('en-IN')} {language === 'mr' ? 'बाकी' : 'due'}</span>
-                </div>
-
-                {/* Show split info if previous partial payment exists with a different mode */}
+              <div className="mx-4 mb-4 mt-3 flex flex-col gap-2.5">
+                {/* Show prior payment info if split */}
                 {booking.paid_amount > 0 && (
                   <div className="text-[10px] text-slate-500 font-semibold bg-slate-900/60 rounded-xl px-3 py-2 border border-slate-800/60">
                     {language === 'mr'
-                      ? `आधी ${booking.payment_mode}: ₹${(booking.paid_amount || 0).toLocaleString('en-IN')} जमा · खाली नवीन पद्धत निवडा`
-                      : `Prior payment: ${booking.payment_mode} ₹${(booking.paid_amount || 0).toLocaleString('en-IN')} · Select mode for remaining ₹${livePendingAmount.toLocaleString('en-IN')}`}
+                      ? `आधी ${booking.payment_mode}: ₹${(booking.paid_amount || 0).toLocaleString('en-IN')} जमा`
+                      : `Advance paid via ${booking.payment_mode}: ₹${(booking.paid_amount || 0).toLocaleString('en-IN')}`}
                   </div>
                 )}
 
-                {/* Mode picker for remaining dues */}
+                {/* Payment mode for collection */}
                 <div className="grid grid-cols-3 gap-1.5">
                   {(['Cash', 'UPI', 'IDFC'] as const).map((mode) => {
                     const modeStyles: Record<string, { icon: string; label: string; active: string }> = {
@@ -1727,7 +1675,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                   })}
                 </div>
 
-                {/* Big Mark Fully Paid button */}
+                {/* Big Collect button */}
                 <button
                   type="button"
                   disabled={updateMutation.isPending}
@@ -1740,13 +1688,27 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                     <CheckCircle className="h-4 w-4" />
                   )}
                   {language === 'mr'
-                    ? `⚡ पूर्ण जमा करा (₹${livePendingAmount.toLocaleString('en-IN')}) — ${duesPaymentMode}`
-                    : `⚡ Mark Fully Paid ₹${livePendingAmount.toLocaleString('en-IN')} via ${duesPaymentMode}`}
+                    ? `⚡ ₹${livePendingAmount.toLocaleString('en-IN')} जमा करा — ${duesPaymentMode}`
+                    : `⚡ Collect ₹${livePendingAmount.toLocaleString('en-IN')} via ${duesPaymentMode}`}
                 </button>
+              </div>
+            )}
+
+            {/* Settled badge when fully paid */}
+            {livePendingAmount === 0 && booking.status === 'active' && (
+              <div className="mx-4 mb-4 mt-2 py-2.5 px-3 bg-emerald-500/8 border border-emerald-500/20 rounded-xl text-center">
+                <span className="text-[11px] text-emerald-400 font-bold">
+                  ✅ {language === 'mr'
+                    ? `${booking.payment_mode || 'पेमेंट'} द्वारे पूर्ण पेमेंट`
+                    : `Fully paid via ${booking.payment_mode || 'prior payment'}`}
+                </span>
               </div>
             )}
           </div>
 
+
+
+          {/* 4. Room Card with Inline Editing */}
           {/* 4. Room Card with Inline Editing */}
           <div className="glass-panel p-4 rounded-2xl bg-slate-955/40 border border-slate-800/80 flex flex-col gap-4 flex-shrink-0">
             <div className="flex justify-between items-center border-b border-slate-805/50 pb-2">
@@ -2000,6 +1962,21 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
           </div>
 
           {/* 6. Notes */}
+          {hasPaymentNoteInconsistency && (
+            <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl text-xs leading-relaxed flex-shrink-0 flex items-start gap-2">
+              <span className="text-amber-400 text-base leading-none mt-0.5">⚠️</span>
+              <div>
+                <span className="font-bold text-amber-400 block mb-0.5">
+                  {language === 'mr' ? 'नोंद आणि पेमेंट स्टेटस जुळत नाहीत' : 'Payment Mismatch'}
+                </span>
+                <span className="text-amber-300/80">
+                  {language === 'mr'
+                    ? 'नोंदीत पेमेंट झाल्याचे लिहिले आहे, पण स्टेटस "न भरलेले" आहे. कृपया Paid Amount आणि Payment Status अपडेट करा.'
+                    : 'Notes say payment was received, but payment status is still unpaid/reserved. Please update the Paid Amount and Payment Status to match.'}
+                </span>
+              </div>
+            </div>
+          )}
           {booking.notes && (
             <div className="p-3 bg-slate-955/40 border border-slate-805 rounded-2xl text-xs text-slate-400 leading-relaxed flex-shrink-0">
               <span className="font-bold text-slate-500 block mb-1 uppercase tracking-wider">{language === 'mr' ? 'नोंद' : 'Notes'}</span>
@@ -2083,7 +2060,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                         setCheckoutPaymentMode(
                           (['Cash', 'UPI', 'IDFC'] as const).includes(booking.payment_mode as any)
                             ? (booking.payment_mode as 'Cash' | 'UPI' | 'IDFC')
-                            : 'Cash'
+                            : 'IDFC'
                         )
                         setCheckoutIsPaidAmountModified(false)
                         setShowCheckoutConfirm(true)
@@ -2100,7 +2077,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
                     onClick={() => {
                       setCheckoutTotalAmount(Number(editingTotal) || 0)
                       setCheckoutPaidAmount(Number(editingPaid) || 0)
-                      setCheckoutPaymentMode(booking.payment_mode === 'Pending' ? 'Cash' : booking.payment_mode)
+                      setCheckoutPaymentMode(booking.payment_mode === 'Pending' ? 'IDFC' : booking.payment_mode)
                       setCheckoutIsPaidAmountModified(false)
                       setShowCheckoutConfirm(true)
                     }}
@@ -2124,138 +2101,181 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess }: Bo
         </div>
       </div>
 
-      {/* Checkout Confirmation Modal */}
+      {/* Checkout Confirmation Modal — Receipt Style */}
       {showCheckoutConfirm && (() => {
         const checkoutDues = Math.max(0, checkoutTotalAmount - checkoutPaidAmount)
+        const guestName = formatNameByLanguage(getCustomerNameDisplay(booking.customers?.name).name, language)
+        const hasAdvance = (booking.paid_amount || 0) > 0 && booking.payment_mode && booking.payment_mode !== 'Pending'
+        const extraAmt = booking.extra_bill_amount || 0
         return (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-6 animate-fade-in">
-            <div className="glass-panel w-full max-w-xs rounded-3xl bg-slate-900 border-slate-800 p-5 flex flex-col gap-4 text-center shadow-2xl" onClick={e => e.stopPropagation()}>
-              <div className={`h-11 w-11 rounded-full flex items-center justify-center mx-auto border ${
-                checkoutDues > 0 ? 'bg-rose-500/10 text-rose-400 border-rose-500/25' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25'
-              }`}>
-                <LogOut className="h-5 w-5" />
+          <div className="absolute inset-0 z-50 flex items-end justify-center bg-black/85 backdrop-blur-sm animate-fade-in" onClick={() => setShowCheckoutConfirm(false)}>
+            <div
+              className="glass-panel w-full max-w-lg rounded-t-3xl bg-slate-900 border-t border-slate-800 flex flex-col shadow-2xl max-h-[92dvh] overflow-y-auto"
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Handle */}
+              <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
+                <div className="w-10 h-1 rounded-full bg-slate-700" />
               </div>
-              <div>
-                <h3 className="text-base font-extrabold text-slate-100">
-                  {checkoutDues > 0 ? (language === 'mr' ? 'पेमेंट आणि चेकआऊट' : 'Collect & Checkout') : (language === 'mr' ? 'चेकआऊटची खात्री करा' : 'Confirm Checkout')}
-                </h3>
-                <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
-                  {language === 'mr' ? (
-                    <>ग्राहक <span className="font-extrabold text-slate-200">{formatNameByLanguage(getCustomerNameDisplay(booking.customers?.name).name, language)}</span> यांना खोली क्रमांक <span className="font-extrabold text-slate-200">{booking.rooms?.number || booking.room_id}</span> मधून चेकआऊट करायचे आहे का?</>
-                  ) : (
-                    <>Check out <span className="font-extrabold text-slate-200">{formatNameByLanguage(getCustomerNameDisplay(booking.customers?.name).name, language)}</span> from Room <span className="font-extrabold text-slate-200">{booking.rooms?.number || booking.room_id}</span>?</>
-                  )}
-                </p>
 
-                {/* Compact Payment breakdown */}
-                <div className="bg-slate-950/60 border border-slate-800 rounded-xl overflow-hidden mt-3.5 text-left">
-                  <div className="flex justify-between items-center px-3 py-2 border-b border-slate-800/60">
-                    <span className="text-[11px] text-slate-400 font-semibold">
-                      {language === 'mr' ? 'एकूण बिल' : 'Total Bill'}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setActiveKeypad('checkoutTotal')}
-                      className="flex items-center gap-1.5 bg-slate-850 hover:bg-slate-800 active:scale-[0.98] border border-slate-750 px-2 py-0.5 rounded-lg text-slate-200 transition"
-                    >
-                      <span className="text-[10px] text-slate-455 font-black">₹</span>
-                      <span className="text-xs font-black tabular-nums">{checkoutTotalAmount}</span>
-                    </button>
+              {/* Header */}
+              <div className="px-5 pt-2 pb-3 border-b border-slate-800/60 flex-shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className={`h-10 w-10 rounded-2xl flex items-center justify-center flex-shrink-0 ${
+                    checkoutDues > 0 ? 'bg-amber-500/15 text-amber-400' : 'bg-emerald-500/15 text-emerald-400'
+                  }`}>
+                    <LogOut className="h-5 w-5" />
                   </div>
-                  <div className="flex justify-between items-center px-3 py-2 border-b border-slate-800/60">
-                    <span className="text-[11px] text-slate-400 font-semibold">
-                      {language === 'mr' ? 'आधीच दिले' : 'Already Paid'}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setActiveKeypad('checkoutPaid')}
-                      className="flex items-center gap-1.5 bg-slate-850 hover:bg-slate-800 active:scale-[0.98] border border-slate-750 px-2 py-0.5 rounded-lg text-emerald-400 transition"
-                    >
-                      <span className="text-[10px] text-emerald-500 font-black">₹</span>
-                      <span className="text-xs font-black tabular-nums">{checkoutPaidAmount}</span>
-                    </button>
+                  <div>
+                    <h3 className="text-base font-extrabold text-slate-100">
+                      {language === 'mr' ? '🏨 चेकआऊट' : '🏨 Check Out'}
+                    </h3>
+                    <p className="text-xs text-slate-400 font-medium mt-0.5">
+                      <span className="text-slate-200 font-bold">{guestName}</span>
+                      {' · '}{language === 'mr' ? 'खोली' : 'Room'} <span className="text-slate-200 font-bold">{booking.rooms?.number || booking.room_id}</span>
+                    </p>
                   </div>
-                  <div className="flex justify-between items-center px-3 py-2">
-                    <span className={`text-[10px] font-black uppercase tracking-wide ${
-                      checkoutDues > 0 ? 'text-rose-455' : 'text-emerald-400'
-                    }`}>
+                </div>
+              </div>
+
+              {/* Receipt Body */}
+              <div className="px-5 py-4 flex flex-col gap-3">
+
+                {/* Bill breakdown — receipt style */}
+                <div className="bg-slate-950/60 border border-slate-800 rounded-2xl overflow-hidden">
+                  {/* Room charge */}
+                  <div className="flex justify-between items-center px-4 py-2.5 border-b border-slate-800/50">
+                    <span className="text-xs text-slate-400 font-semibold">
+                      {language === 'mr'
+                        ? `खोली (₹${booking.room_price} × ${(() => {
+                            const ci = new Date(booking.check_in); const co = new Date(booking.check_out)
+                            return Math.max(1, Math.round((co.getTime() - ci.getTime()) / 86400000))
+                          })()} रात्र)`
+                        : `Room (₹${booking.room_price} × ${(() => {
+                            const ci = new Date(booking.check_in); const co = new Date(booking.check_out)
+                            return Math.max(1, Math.round((co.getTime() - ci.getTime()) / 86400000))
+                          })()} night${Math.max(1, Math.round((new Date(booking.check_out).getTime() - new Date(booking.check_in).getTime()) / 86400000)) !== 1 ? 's' : ''})`}
+                    </span>
+                    <span className="text-sm font-black text-slate-200 tabular-nums">
+                      ₹{(checkoutTotalAmount - extraAmt).toLocaleString('en-IN')}
+                    </span>
+                  </div>
+
+                  {/* Extra charges — only if > 0 */}
+                  {extraAmt > 0 && (
+                    <div className="flex justify-between items-center px-4 py-2.5 border-b border-slate-800/50">
+                      <span className="text-xs text-slate-400 font-semibold">
+                        {booking.extra_bill_note || (language === 'mr' ? 'अतिरिक्त शुल्क' : 'Extra Charges')}
+                      </span>
+                      <span className="text-sm font-black text-slate-300 tabular-nums">+₹{extraAmt.toLocaleString('en-IN')}</span>
+                    </div>
+                  )}
+
+                  {/* Advance paid — only if > 0 */}
+                  {hasAdvance && (
+                    <div className="flex justify-between items-center px-4 py-2.5 border-b border-slate-800/50">
+                      <span className="text-xs text-emerald-500 font-semibold">
+                        {language === 'mr' ? `आगाऊ भरले (${booking.payment_mode})` : `Advance paid (${booking.payment_mode})`}
+                      </span>
+                      <span className="text-sm font-black text-emerald-400 tabular-nums">
+                        −₹{(booking.paid_amount || 0).toLocaleString('en-IN')}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* To Collect / Fully Settled */}
+                  <div className={`flex justify-between items-center px-4 py-3 ${
+                    checkoutDues > 0 ? 'bg-amber-500/8' : 'bg-emerald-500/8'
+                  }`}>
+                    <span className={`text-sm font-black uppercase tracking-wide ${checkoutDues > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
                       {checkoutDues > 0
-                        ? (language === 'mr' ? '⚠️ बाकी रक्कम' : '⚠️ Balance Due')
-                        : (language === 'mr' ? '✅ सर्व पूर्ण' : '✅ All Settled')}
+                        ? (language === 'mr' ? '💰 वसूल करा' : '💰 Collect Now')
+                        : (language === 'mr' ? '✅ पूर्ण भरले' : '✅ Fully Settled')}
                     </span>
-                    <span className={`text-sm font-black ${
-                      checkoutDues > 0 ? 'text-rose-400' : 'text-emerald-400'
-                    }`}>
-                      ₹{checkoutDues.toLocaleString()}
+                    <span className={`text-2xl font-black tabular-nums ${checkoutDues > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                      ₹{checkoutDues > 0 ? checkoutDues.toLocaleString('en-IN') : checkoutTotalAmount.toLocaleString('en-IN')}
                     </span>
                   </div>
                 </div>
 
-                {/* Quick Fully Paid Button */}
+                {/* Payment mode — only when there are dues */}
                 {checkoutDues > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCheckoutPaidAmount(checkoutTotalAmount)
-                      setCheckoutIsPaidAmountModified(true)
-                    }}
-                    className="w-full mt-2.5 py-2 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 active:scale-[0.98] border border-emerald-500/30 text-emerald-400 text-[11px] font-black rounded-xl transition flex items-center justify-center gap-2 shadow-sm"
-                  >
-                    ⚡ {language === 'mr' ? `पूर्ण भरले (₹${checkoutDues})` : `Mark Fully Paid (₹${checkoutDues.toLocaleString()})`}
-                  </button>
-                )}
-
-                {/* Payment mode selector — only relevant when dues > 0 */}
-                {checkoutDues > 0 ? (
-                  <div className="flex flex-col gap-1 mt-3 text-left bg-slate-955/40 p-2.5 rounded-2xl border border-slate-800">
-                    <span className="text-[9px] font-black uppercase tracking-wider text-slate-500 text-center block">
-                      {language === 'mr' ? 'पेमेंट मोड निवडा:' : 'Select Payment Mode for Dues:'}
+                  <div className="flex flex-col gap-2">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 text-center">
+                      {language === 'mr' ? 'कसे भरत आहेत?' : 'How are they paying?'}
                     </span>
-                    <div className="grid grid-cols-3 gap-1.5 mt-1">
-                      {(['Cash', 'UPI', 'IDFC'] as const).map((mode) => (
-                        <button
-                          key={mode}
-                          type="button"
-                          onClick={() => setCheckoutPaymentMode(mode)}
-                          className={`py-1.5 px-2 rounded-xl border text-[10px] font-bold transition text-center ${
-                            checkoutPaymentMode === mode
-                              ? mode === 'Cash'
-                                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40'
-                                : mode === 'UPI'
-                                ? 'bg-blue-500/15 text-blue-400 border-blue-500/40'
-                                : 'bg-purple-500/15 text-purple-400 border-purple-500/40'
-                              : 'bg-slate-900 border-slate-800 text-slate-455 hover:text-slate-200'
-                          }`}
-                        >
-                          {mode === 'Cash' ? (language === 'mr' ? '💵 कॅश' : '💵 Cash') : mode === 'UPI' ? (language === 'mr' ? '📱 UPI' : '📱 UPI') : (language === 'mr' ? '🏦 IDFC' : '🏦 IDFC')}
-                        </button>
-                      ))}
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {(['Cash', 'UPI', 'IDFC'] as const).map((mode) => {
+                        const modeInfo: Record<string, { icon: string; label: string; active: string }> = {
+                          Cash: { icon: '💵', label: language === 'mr' ? 'कॅश' : 'Cash', active: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/50' },
+                          UPI:  { icon: '📱', label: 'UPI',  active: 'bg-blue-500/20 text-blue-400 border-blue-500/50' },
+                          IDFC: { icon: '🏦', label: 'IDFC', active: 'bg-purple-500/20 text-purple-400 border-purple-500/50' },
+                        }
+                        const { icon, label, active } = modeInfo[mode]
+                        return (
+                          <button
+                            key={mode}
+                            type="button"
+                            onClick={() => setCheckoutPaymentMode(mode)}
+                            className={`py-2.5 rounded-2xl border text-[11px] font-black transition-all duration-150 flex flex-col items-center gap-1 justify-center ${
+                              checkoutPaymentMode === mode ? active : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300'
+                            }`}
+                          >
+                            <span className="text-base">{icon}</span>
+                            <span>{label}</span>
+                          </button>
+                        )
+                      })}
                     </div>
                   </div>
-                ) : checkoutPaidAmount > 0 && (
-                  <div className="mt-3 py-2 px-3 bg-emerald-500/8 border border-emerald-500/20 rounded-xl text-center">
-                    <span className="text-[10px] text-emerald-400 font-bold">
-                      ✅ {language === 'mr' ? `${booking.payment_mode || 'पेमेंट'} द्वारे पूर्ण पेमेंट झाले आहे` : `Payment fully settled via ${booking.payment_mode || 'prior payment'}`}
+                )}
+
+                {/* Already settled message */}
+                {checkoutDues === 0 && (
+                  <div className="py-2 px-3 bg-emerald-500/8 border border-emerald-500/20 rounded-xl text-center">
+                    <span className="text-[11px] text-emerald-400 font-bold">
+                      ✅ {language === 'mr'
+                        ? `${booking.payment_mode || ''} द्वारे चेक-इन वेळी पूर्ण भरले`
+                        : `Fully paid via ${booking.payment_mode || 'prior payment'} at check-in`}
                     </span>
                   </div>
                 )}
               </div>
-              <div className="grid grid-cols-2 gap-3 mt-1">
+
+              {/* Action Buttons */}
+              <div className="px-5 pb-6 pt-1 flex flex-col gap-2 flex-shrink-0">
+                {/* Primary action */}
+                <button
+                  type="button"
+                  disabled={updateMutation.isPending}
+                  onClick={() => { setShowCheckoutConfirm(false); handleCheckOut() }}
+                  className={`w-full py-4 px-4 text-slate-950 font-black rounded-2xl transition flex items-center justify-center gap-2 shadow-xl disabled:opacity-60 ${
+                    checkoutDues > 0
+                      ? 'bg-emerald-500 hover:bg-emerald-400 shadow-emerald-500/20'
+                      : 'bg-emerald-500 hover:bg-emerald-400 shadow-emerald-500/20'
+                  }`}
+                >
+                  {updateMutation.isPending ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <LogOut className="h-5 w-5" />
+                  )}
+                  <span className="text-sm">
+                    {checkoutDues > 0
+                      ? (language === 'mr'
+                          ? `₹${checkoutDues.toLocaleString('en-IN')} जमा करा व चेकआऊट`
+                          : `Collect ₹${checkoutDues.toLocaleString('en-IN')} via ${checkoutPaymentMode} & Checkout`)
+                      : (language === 'mr' ? 'चेकआऊट निश्चित करा' : 'Confirm Checkout')}
+                  </span>
+                </button>
+
+                {/* Back button */}
                 <button
                   type="button"
                   onClick={() => setShowCheckoutConfirm(false)}
-                  className="py-2.5 px-4 bg-slate-800 border border-slate-700 text-slate-300 text-xs font-bold rounded-xl transition hover:bg-slate-700"
+                  className="w-full py-3 px-4 bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 text-slate-300 text-sm font-bold rounded-2xl transition"
                 >
-                  {language === 'mr' ? 'रद्द करा' : 'Cancel'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setShowCheckoutConfirm(false); handleCheckOut() }}
-                  className={`py-2.5 px-4 text-slate-955 text-xs font-black rounded-xl transition shadow-lg ${
-                    checkoutDues > 0 ? 'bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-500 shadow-emerald-500/15' : 'bg-rose-500 hover:bg-rose-450 active:bg-rose-550 shadow-rose-500/15'
-                  }`}
-                >
-                  {language === 'mr' ? 'निश्चित करा' : 'Confirm'}
+                  ← {language === 'mr' ? 'परत जा' : 'Back'}
                 </button>
               </div>
             </div>

@@ -885,9 +885,56 @@ export default function ReportsPage() {
                           {/* Payment Mode */}
                           <td className="py-3.5 px-4 text-center">
                             {(() => {
-                              // Detect split payment: notes written by checkout split-detection logic
+                              const modeColor = (mode: string) => {
+                                if (mode === 'Cash') return 'bg-amber-500/10 text-amber-400 border-amber-500/25'
+                                if (mode === 'UPI')  return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25'
+                                if (mode === 'IDFC') return 'bg-blue-500/10 text-blue-400 border-blue-500/25'
+                                return 'bg-slate-900 text-slate-500 border-slate-800'
+                              }
+                              const modeLabel = (mode: string) => {
+                                if (mode === 'Cash') return t('cash')
+                                if (mode === 'UPI')  return t('upi')
+                                if (mode === 'IDFC') return t('idfc')
+                                return mode || '-'
+                              }
+
+                              // ── Structured split: checkout_payment_mode column ──────────────
+                              const checkoutMode = (item as any).checkout_payment_mode
+                              const depositAmt   = (item as any).deposit_amount || 0
+                              const advanceMode  = item.payment_mode
+
+                              if (checkoutMode && checkoutMode !== advanceMode && depositAmt > 0) {
+                                const duesAmt = item.paid_amount - depositAmt
+                                return (
+                                  <div className="flex flex-col items-center gap-0.5">
+                                    <div className="flex items-center gap-1">
+                                      <span className={`text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-lg border ${modeColor(advanceMode)}`}>
+                                        {modeLabel(advanceMode)}
+                                      </span>
+                                      <span className="text-slate-600 text-[9px]">→</span>
+                                      <span className={`text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-lg border ${modeColor(checkoutMode)}`}>
+                                        {modeLabel(checkoutMode)}
+                                      </span>
+                                    </div>
+                                    <span className="text-[9px] text-slate-500 font-medium">
+                                      ₹{depositAmt.toLocaleString('en-IN')} + ₹{Math.max(0, duesAmt).toLocaleString('en-IN')}
+                                    </span>
+                                  </div>
+                                )
+                              }
+
+                              // ── Same mode at checkout ──────────────────────────────────────
+                              if (checkoutMode) {
+                                return (
+                                  <span className={`text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-lg border ${modeColor(checkoutMode)}`}>
+                                    {modeLabel(checkoutMode)}
+                                  </span>
+                                )
+                              }
+
+                              // ── Legacy fallback: parse notes text ─────────────────────────
                               const splitNote = item.notes
-                                ? item.notes.split(' | ').find(n => n.startsWith('Paid via '))
+                                ? item.notes.split(' | ').find((n: string) => n.startsWith('Paid via '))
                                 : null
                               if (splitNote) {
                                 return (
@@ -899,17 +946,10 @@ export default function ReportsPage() {
                                   </span>
                                 )
                               }
+
                               return (
-                                <span className={`text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-lg border ${
-                                  item.payment_mode === 'Cash'
-                                    ? 'bg-amber-500/5 text-amber-400 border-amber-500/20'
-                                    : item.payment_mode === 'UPI'
-                                    ? 'bg-emerald-500/5 text-emerald-400 border-emerald-500/20'
-                                    : item.payment_mode === 'IDFC'
-                                    ? 'bg-blue-500/5 text-blue-400 border-blue-500/20'
-                                    : 'bg-slate-900 text-slate-500 border-slate-850'
-                                }`}>
-                                  {item.payment_mode === 'Cash' ? t('cash') : item.payment_mode === 'UPI' ? t('upi') : item.payment_mode === 'IDFC' ? t('idfc') : '-'}
+                                <span className={`text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-lg border ${modeColor(advanceMode)}`}>
+                                  {modeLabel(advanceMode)}
                                 </span>
                               )
                             })()}
