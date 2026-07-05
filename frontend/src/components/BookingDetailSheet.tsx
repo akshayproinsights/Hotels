@@ -136,8 +136,6 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
   const [checkoutPaidAmount, setCheckoutPaidAmount] = useState<number>(0)
   const [checkoutPaymentMode, setCheckoutPaymentMode] = useState<'Cash' | 'UPI' | 'IDFC'>('IDFC')
   const [checkoutIsPaidAmountModified, setCheckoutIsPaidAmountModified] = useState<boolean>(false)
-  // Payment mode for the quick "Mark Fully Paid" button in the booking detail view
-  const [duesPaymentMode, setDuesPaymentMode] = useState<'Cash' | 'UPI' | 'IDFC'>('IDFC')
   const [showRefDetails, setShowRefDetails] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   const [isCameraOpen, setIsCameraOpen] = useState(false)
@@ -187,11 +185,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
     // Initialise checkout amounts from current booking data
     setCheckoutTotalAmount(Number(booking.total_amount) || 0)
     setCheckoutPaidAmount(Number(booking.paid_amount) || 0)
-    setCheckoutPaymentMode(
-      (['Cash', 'UPI', 'IDFC'] as const).includes(booking.payment_mode as any)
-        ? (booking.payment_mode as 'Cash' | 'UPI' | 'IDFC')
-        : 'IDFC'
-    )
+    setCheckoutPaymentMode('IDFC')
     setCheckoutIsPaidAmountModified(false)
     setShowCheckoutConfirm(true)
   // Only run once when booking first loads
@@ -326,8 +320,8 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
       onSuccess('update')
       
       toast((t) => (
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-semibold">
+        <div className="flex items-center gap-3 text-white">
+          <span className="text-sm font-semibold text-white">
             {language === 'mr' ? 'बुकिंग रद्द केले' : 'Booking cancelled'}
           </span>
           <button
@@ -415,43 +409,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
     updateMutation.mutate(updates)
   }
 
-  // handleMarkFullyPaid: used by the quick "Collect" button in booking detail view.
-  // Correctly records split payments: if ₹500 was paid via IDFC and user marks full via UPI,
-  // it logs a split-payment audit note AND preserves the original advance payment_mode so
-  // reports always show the correct IDFC/UPI breakdown.
-  const handleMarkFullyPaid = (selectedMode: 'Cash' | 'UPI' | 'IDFC') => {
-    const total = editingTotal === '' ? 0 : Number(editingTotal)
-    const prevPaid = booking.paid_amount || 0
-    const additionalPaid = total - prevPaid
-    const prevMode = booking.payment_mode
 
-    const isSplit = (
-      prevPaid > 0 &&
-      additionalPaid > 0 &&
-      prevMode &&
-      prevMode !== 'Pending' &&
-      prevMode !== selectedMode
-    )
-
-    const updates: Parameters<typeof updateBooking>[1] = {
-      payment_status: 'paid',
-      paid_amount: total,
-      // Preserve the original advance mode — don't overwrite with checkout mode.
-      // If Pending (no prior payment), set it to the selected mode.
-      payment_mode: (!prevMode || prevMode === 'Pending') ? selectedMode : prevMode,
-      checkout_payment_mode: selectedMode,  // always record what mode was used to collect
-    }
-
-    // If split: append audit note so reports correctly attribute amounts per mode
-    if (isSplit) {
-      const splitNote = `Paid via ${prevMode}: ₹${prevPaid.toLocaleString('en-IN')} + ${selectedMode}: ₹${additionalPaid.toLocaleString('en-IN')}`
-      updates.notes = booking.notes
-        ? `${booking.notes} | ${splitNote}`
-        : splitNote
-    }
-
-    updateMutation.mutate(updates)
-  }
 
   const handleCheckOut = () => {
     const totalAmt = checkoutTotalAmount
@@ -564,17 +522,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
     ? ((booking.payment_status === 'unpaid' && booking.paid_amount > 0) ? 'partial' : booking.payment_status)
     : 'unpaid'
 
-  // Detect inconsistency: notes say "Paid via X" but payment_status is still unpaid/reserved
-  const hasPaymentNoteInconsistency = (() => {
-    if (!booking) return false
-    const notesStr = booking.notes || ''
-    const statusIsUnresolved = ['unpaid', 'reserved'].includes(booking.payment_status)
-    // Check for [Paid via X Bank] pattern (manually typed)
-    const hasBracketPaid = /\[Paid via [A-Za-z]+[^\]]*\]/i.test(notesStr)
-    // Check for structured split note pattern (system-generated)
-    const hasStructuredPaid = notesStr.split(' | ').some(p => p.trim().startsWith('Paid via ') && p.includes(': ₹'))
-    return statusIsUnresolved && (hasBracketPaid || hasStructuredPaid)
-  })()
+
 
   const getStatusBadgeStyles = (status: string) => {
     switch (status) {
@@ -1666,59 +1614,24 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
               </div>
             </div>
 
-            {/* ── Collect section — only when balance > 0 and booking is active ── */}
+            {/* ── Checkout CTA — only when balance > 0 and booking is active ── */}
             {livePendingAmount > 0 && booking.status === 'active' && (
-              <div className="mx-4 mb-4 mt-3 flex flex-col gap-2.5">
-                {/* Show prior payment info if split */}
-                {booking.paid_amount > 0 && (
-                  <div className="text-[10px] text-slate-500 font-semibold bg-slate-900/60 rounded-xl px-3 py-2 border border-slate-800/60">
-                    {language === 'mr'
-                      ? `आधी ${booking.payment_mode}: ₹${(booking.paid_amount || 0).toLocaleString('en-IN')} जमा`
-                      : `Advance paid via ${booking.payment_mode}: ₹${(booking.paid_amount || 0).toLocaleString('en-IN')}`}
-                  </div>
-                )}
-
-                {/* Payment mode for collection */}
-                <div className="grid grid-cols-3 gap-1.5">
-                  {(['Cash', 'UPI', 'IDFC'] as const).map((mode) => {
-                    const modeStyles: Record<string, { icon: string; label: string; active: string }> = {
-                      Cash: { icon: '💵', label: language === 'mr' ? 'कॅश' : 'Cash', active: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/50 shadow-sm shadow-emerald-500/20' },
-                      UPI:  { icon: '📱', label: 'UPI',  active: 'bg-blue-500/20 text-blue-400 border-blue-500/50 shadow-sm shadow-blue-500/20' },
-                      IDFC: { icon: '🏦', label: 'IDFC', active: 'bg-purple-500/20 text-purple-400 border-purple-500/50 shadow-sm shadow-purple-500/20' },
-                    }
-                    const { icon, label, active } = modeStyles[mode]
-                    const isSelected = duesPaymentMode === mode
-                    return (
-                      <button
-                        key={mode}
-                        type="button"
-                        onClick={() => setDuesPaymentMode(mode)}
-                        className={`py-2 rounded-xl border text-[10px] font-black transition-all duration-200 flex flex-col items-center gap-0.5 justify-center ${
-                          isSelected ? active : 'bg-slate-900/60 border-slate-800 text-slate-500 hover:text-slate-350'
-                        }`}
-                      >
-                        <span className="text-sm">{icon}</span>
-                        <span>{label}</span>
-                      </button>
-                    )
-                  })}
-                </div>
-
-                {/* Big Collect button */}
+              <div className="mx-4 mb-4 mt-3">
                 <button
                   type="button"
-                  disabled={updateMutation.isPending}
-                  onClick={() => handleMarkFullyPaid(duesPaymentMode)}
-                  className="w-full py-3.5 px-4 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.99] text-slate-950 text-sm font-black rounded-2xl transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 disabled:opacity-60"
+                  onClick={() => {
+                    setCheckoutTotalAmount(Number(booking.total_amount) || 0)
+                    setCheckoutPaidAmount(Number(booking.paid_amount) || 0)
+                    setCheckoutPaymentMode('IDFC')
+                    setCheckoutIsPaidAmountModified(false)
+                    setShowCheckoutConfirm(true)
+                  }}
+                  className="w-full py-4 px-4 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.99] text-slate-950 text-sm font-black rounded-2xl transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20"
                 >
-                  {updateMutation.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <CheckCircle className="h-4 w-4" />
-                  )}
+                  <LogOut className="h-4 w-4" />
                   {language === 'mr'
-                    ? `⚡ ₹${livePendingAmount.toLocaleString('en-IN')} जमा करा — ${duesPaymentMode}`
-                    : `⚡ Collect ₹${livePendingAmount.toLocaleString('en-IN')} via ${duesPaymentMode}`}
+                    ? `₹${livePendingAmount.toLocaleString('en-IN')} जमा करा व चेकआऊट करा →`
+                    : `Collect ₹${livePendingAmount.toLocaleString('en-IN')} & Checkout →`}
                 </button>
               </div>
             )}
@@ -1991,24 +1904,9 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
           </div>
 
           {/* 6. Notes */}
-          {hasPaymentNoteInconsistency && (
-            <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl text-xs leading-relaxed flex-shrink-0 flex items-start gap-2">
-              <span className="text-amber-400 text-base leading-none mt-0.5">⚠️</span>
-              <div>
-                <span className="font-bold text-amber-400 block mb-0.5">
-                  {language === 'mr' ? 'नोंद आणि पेमेंट स्टेटस जुळत नाहीत' : 'Payment Mismatch'}
-                </span>
-                <span className="text-amber-300/80">
-                  {language === 'mr'
-                    ? 'नोंदीत पेमेंट झाल्याचे लिहिले आहे, पण स्टेटस "न भरलेले" आहे. कृपया Paid Amount आणि Payment Status अपडेट करा.'
-                    : 'Notes say payment was received, but payment status is still unpaid/reserved. Please update the Paid Amount and Payment Status to match.'}
-                </span>
-              </div>
-            </div>
-          )}
           {booking.notes && (
-            <div className="p-3 bg-slate-955/40 border border-slate-805 rounded-2xl text-xs text-slate-400 leading-relaxed flex-shrink-0">
-              <span className="font-bold text-slate-500 block mb-1 uppercase tracking-wider">{language === 'mr' ? 'नोंद' : 'Notes'}</span>
+            <div className="p-3 bg-slate-955/40 border border-slate-805 rounded-2xl text-xs text-slate-700 dark:text-slate-400 leading-relaxed flex-shrink-0">
+              <span className="font-bold text-slate-500 dark:text-slate-500 block mb-1 uppercase tracking-wider">{language === 'mr' ? 'नोंद' : 'Notes'}</span>
               {booking.notes}
             </div>
           )}
@@ -2077,11 +1975,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
                     onClick={() => {
                       setCheckoutTotalAmount(Number(editingTotal) || 0)
                       setCheckoutPaidAmount(Number(editingPaid) || 0)
-                      setCheckoutPaymentMode(
-                        (['Cash', 'UPI', 'IDFC'] as const).includes(booking.payment_mode as any)
-                          ? (booking.payment_mode as 'Cash' | 'UPI' | 'IDFC')
-                          : 'IDFC'
-                      )
+                      setCheckoutPaymentMode('IDFC')
                       setCheckoutIsPaidAmountModified(false)
                       setShowCheckoutConfirm(true)
                     }}
@@ -2096,7 +1990,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
                     onClick={() => {
                       setCheckoutTotalAmount(Number(editingTotal) || 0)
                       setCheckoutPaidAmount(Number(editingPaid) || 0)
-                      setCheckoutPaymentMode(booking.payment_mode === 'Pending' ? 'IDFC' : booking.payment_mode)
+                      setCheckoutPaymentMode('IDFC')
                       setCheckoutIsPaidAmountModified(false)
                       setShowCheckoutConfirm(true)
                     }}

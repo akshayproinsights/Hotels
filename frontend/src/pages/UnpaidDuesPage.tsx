@@ -48,8 +48,8 @@ export default function UnpaidDuesPage() {
       queryClient.invalidateQueries({ queryKey: ['inventory'] })
       
       toast((t) => (
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-semibold">
+        <div className="flex items-center gap-3 text-white">
+          <span className="text-sm font-semibold text-white">
             {language === 'mr' ? 'बुकिंग रद्द केले' : 'Booking cancelled'}
           </span>
           <button
