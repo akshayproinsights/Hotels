@@ -141,9 +141,26 @@ export default function RoomCard({ room, onClick, onLongPress, dailyBookings, se
           ).sort((a: any, b: any) => a.check_in.localeCompare(b.check_in))
 
           if (roomBookings.length > 1) {
-            // Handoff day! One checking out, one checking in.
+            // Handoff day! One checking out/already checked out, one checking in.
             const b1 = roomBookings[0]
             const b2 = roomBookings[1]
+
+            // If the outgoing guest is already checked out, only show the arrival
+            if (b1.status === 'checked_out') {
+              const name2 = shortenLongName(formatNameByLanguage(getCustomerNameDisplay(b2.customers?.name).name, language))
+              const t2 = formatIST_AMPM(b2.check_in)
+              return (
+                <div className="flex justify-between items-center w-full gap-1.5">
+                  <span className="text-[11px] sm:text-xs font-semibold text-slate-300 break-words whitespace-normal leading-tight flex-1 min-w-0">
+                    🚌 {name2}
+                  </span>
+                  <span className="text-[8px] font-black whitespace-nowrap bg-sky-600 text-white px-1.5 py-0.5 rounded-md uppercase tracking-wide shrink-0">
+                    {language === 'mr' ? 'आत' : 'In'} {t2}
+                  </span>
+                </div>
+              )
+            }
+
             const name1 = shortenLongName(formatNameByLanguage(getCustomerNameDisplay(b1.customers?.name).name, language))
             const name2 = shortenLongName(formatNameByLanguage(getCustomerNameDisplay(b2.customers?.name).name, language))
             const t1 = formatIST_AMPM(b1.check_out)
@@ -176,6 +193,16 @@ export default function RoomCard({ room, onClick, onLongPress, dailyBookings, se
           // Single booking
           if (roomBookings.length === 1) {
             const b = roomBookings[0]
+
+            // Already checked out — room is now clean, show as available
+            if (b.status === 'checked_out') {
+              return (
+                <span className="text-[11px] sm:text-xs font-semibold text-slate-500 block">
+                  {language === 'mr' ? 'उपलब्ध' : 'Available'}
+                </span>
+              )
+            }
+
             const name = shortenLongName(formatNameByLanguage(getCustomerNameDisplay(b.customers?.name).name, language))
 
             const isCheckingOutToday = formatIST_Date(b.check_out) === selectedDate

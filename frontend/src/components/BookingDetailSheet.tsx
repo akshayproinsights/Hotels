@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
   X, Phone, CheckCircle, LogOut, FileText, Camera, Upload, Loader2, Copy, 
   ChevronLeft, ChevronRight, Plus, Minus, Save,
-  Edit2, Check, ZoomIn, ZoomOut, RotateCcw, Trash2
+  Edit2, Check, ZoomIn, ZoomOut, RotateCcw, Trash2, AlertCircle
 } from 'lucide-react'
 import { 
   format, 
@@ -136,6 +136,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
   const [checkoutPaidAmount, setCheckoutPaidAmount] = useState<number>(0)
   const [checkoutPaymentMode, setCheckoutPaymentMode] = useState<'Cash' | 'UPI' | 'IDFC'>('IDFC')
   const [checkoutIsPaidAmountModified, setCheckoutIsPaidAmountModified] = useState<boolean>(false)
+  const [checkoutIsPaymentPending, setCheckoutIsPaymentPending] = useState<boolean>(false)
   const [showRefDetails, setShowRefDetails] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   const [isCameraOpen, setIsCameraOpen] = useState(false)
@@ -421,7 +422,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
       total_amount: totalAmt,
       paid_amount: finalPaid,
       payment_mode: booking.payment_mode !== 'Pending' && prevPaid > 0 ? booking.payment_mode : checkoutPaymentMode,
-      checkout_payment_mode: checkoutPaymentMode,  // NEW — always track checkout mode separately
+      checkout_payment_mode: checkoutIsPaymentPending ? undefined : checkoutPaymentMode,  // NEW — always track checkout mode separately
     }
     if (finalPaid >= totalAmt) {
       updates.payment_status = 'paid'
@@ -557,7 +558,13 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
     const val = valueToSave !== undefined ? valueToSave : editingTotal
     const newTotal = val === '' ? 0 : Number(val)
     if (newTotal === booking.total_amount) return
-    updateMutation.mutate({ total_amount: newTotal })
+    // Back-calculate room_price so future date extensions recalculate correctly:
+    // room_price = (newTotal − extraBedTotal − extraBillAmount) / nights
+    const extraBill = booking.extra_bill_amount || 0
+    const derivedRoomPrice = nights > 0
+      ? Math.round(Math.max(0, newTotal - extraBedTotal - extraBill) / nights)
+      : booking.room_price
+    updateMutation.mutate({ total_amount: newTotal, room_price: derivedRoomPrice })
   }
 
   const handleSavePaidAmount = (valueToSave?: string | number) => {
@@ -1614,27 +1621,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
               </div>
             </div>
 
-            {/* ── Checkout CTA — only when balance > 0 and booking is active ── */}
-            {livePendingAmount > 0 && booking.status === 'active' && (
-              <div className="mx-4 mb-4 mt-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCheckoutTotalAmount(Number(booking.total_amount) || 0)
-                    setCheckoutPaidAmount(Number(booking.paid_amount) || 0)
-                    setCheckoutPaymentMode('IDFC')
-                    setCheckoutIsPaidAmountModified(false)
-                    setShowCheckoutConfirm(true)
-                  }}
-                  className="w-full py-4 px-4 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.99] text-slate-950 text-sm font-black rounded-2xl transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20"
-                >
-                  <LogOut className="h-4 w-4" />
-                  {language === 'mr'
-                    ? `₹${livePendingAmount.toLocaleString('en-IN')} जमा करा व चेकआऊट करा →`
-                    : `Collect ₹${livePendingAmount.toLocaleString('en-IN')} & Checkout →`}
-                </button>
-              </div>
-            )}
+
 
             {/* Settled badge when fully paid */}
             {livePendingAmount === 0 && booking.status === 'active' && (
@@ -1970,20 +1957,40 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
             ) : (
               <div className="flex flex-col gap-3">
                 {livePendingAmount > 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCheckoutTotalAmount(Number(editingTotal) || 0)
-                      setCheckoutPaidAmount(Number(editingPaid) || 0)
-                      setCheckoutPaymentMode('IDFC')
-                      setCheckoutIsPaidAmountModified(false)
-                      setShowCheckoutConfirm(true)
-                    }}
-                    className="w-full py-3.5 px-3 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-955 text-xs font-black rounded-2xl transition flex items-center justify-center gap-1.5 shadow-lg"
-                  >
-                    <LogOut className="h-4 w-4" />
-                    {language === 'mr' ? 'पेमेंट + चेकआऊट करा' : 'Collect & Checkout'}
-                  </button>
+                  <div className="grid grid-cols-2 gap-2 w-full">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCheckoutTotalAmount(Number(editingTotal) || 0)
+                        setCheckoutPaidAmount(Number(editingPaid) || 0)
+                        if (booking.payment_mode && booking.payment_mode !== 'Pending') {
+                          setCheckoutPaymentMode(booking.payment_mode as 'Cash' | 'UPI' | 'IDFC')
+                        }
+                        setCheckoutIsPaidAmountModified(true)
+                        setCheckoutIsPaymentPending(true)
+                        setShowCheckoutConfirm(true)
+                      }}
+                      className="py-3.5 px-2 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-400 active:scale-[0.98] text-xs font-black rounded-2xl transition flex items-center justify-center gap-1 shadow-lg"
+                    >
+                      <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                      <span className="truncate">{language === 'mr' ? 'चेकआऊट (पेमेंट प्रलंबित)' : 'Checkout (Payment Pending)'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCheckoutTotalAmount(Number(editingTotal) || 0)
+                        setCheckoutPaidAmount(Number(editingPaid) || 0)
+                        setCheckoutPaymentMode('IDFC')
+                        setCheckoutIsPaidAmountModified(false)
+                        setCheckoutIsPaymentPending(false)
+                        setShowCheckoutConfirm(true)
+                      }}
+                      className="py-3.5 px-2 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-955 text-xs font-black rounded-2xl transition flex items-center justify-center gap-1 shadow-lg"
+                    >
+                      <LogOut className="h-4 w-4 flex-shrink-0" />
+                      <span className="truncate">{language === 'mr' ? 'पेमेंट + चेकआऊट' : 'Collect & Checkout'}</span>
+                    </button>
+                  </div>
                 ) : (
                   <button
                     type="button"
@@ -2098,21 +2105,43 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
 
                   {/* To Collect / Fully Settled */}
                   <div className={`flex justify-between items-center px-4 py-3 ${
-                    checkoutDues > 0 ? 'bg-amber-500/8' : 'bg-emerald-500/8'
+                    checkoutIsPaymentPending
+                      ? 'bg-amber-500/8'
+                      : checkoutDues > 0
+                      ? 'bg-amber-500/8'
+                      : 'bg-emerald-500/8'
                   }`}>
-                    <span className={`text-sm font-black uppercase tracking-wide ${checkoutDues > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                      {checkoutDues > 0
+                    <span className={`text-sm font-black uppercase tracking-wide ${
+                      checkoutIsPaymentPending
+                        ? 'text-amber-400'
+                        : checkoutDues > 0
+                        ? 'text-amber-400'
+                        : 'text-emerald-400'
+                    }`}>
+                      {checkoutIsPaymentPending
+                        ? (language === 'mr' ? '💰 प्रलंबित पेमेंट' : '💰 Pending Dues')
+                        : checkoutDues > 0
                         ? (language === 'mr' ? '💰 वसूल करा' : '💰 Collect Now')
                         : (language === 'mr' ? '✅ पूर्ण भरले' : '✅ Fully Settled')}
                     </span>
-                    <span className={`text-2xl font-black tabular-nums ${checkoutDues > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                      ₹{checkoutDues > 0 ? checkoutDues.toLocaleString('en-IN') : checkoutTotalAmount.toLocaleString('en-IN')}
+                    <span className={`text-2xl font-black tabular-nums ${
+                      checkoutIsPaymentPending
+                        ? 'text-amber-400'
+                        : checkoutDues > 0
+                        ? 'text-amber-400'
+                        : 'text-emerald-400'
+                    }`}>
+                      ₹{checkoutIsPaymentPending
+                        ? (checkoutTotalAmount - checkoutPaidAmount).toLocaleString('en-IN')
+                        : checkoutDues > 0
+                        ? checkoutDues.toLocaleString('en-IN')
+                        : checkoutTotalAmount.toLocaleString('en-IN')}
                     </span>
                   </div>
                 </div>
 
-                {/* Payment mode — only when there are dues */}
-                {checkoutDues > 0 && (
+                {/* Payment mode — only when there are dues and payment is NOT pending */}
+                {checkoutDues > 0 && !checkoutIsPaymentPending && (
                   <div className="flex flex-col gap-2">
                     <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 text-center">
                       {language === 'mr' ? 'कसे भरत आहेत?' : 'How are they paying?'}
@@ -2162,19 +2191,25 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
                   type="button"
                   disabled={updateMutation.isPending}
                   onClick={() => { setShowCheckoutConfirm(false); handleCheckOut() }}
-                  className={`w-full py-4 px-4 text-slate-950 font-black rounded-2xl transition flex items-center justify-center gap-2 shadow-xl disabled:opacity-60 ${
-                    checkoutDues > 0
-                      ? 'bg-emerald-500 hover:bg-emerald-400 shadow-emerald-500/20'
+                  className={`w-full py-4 px-4 text-slate-955 font-black rounded-2xl transition flex items-center justify-center gap-2 shadow-xl disabled:opacity-60 ${
+                    checkoutIsPaymentPending
+                      ? 'bg-amber-500 hover:bg-amber-400 shadow-amber-500/20'
                       : 'bg-emerald-500 hover:bg-emerald-400 shadow-emerald-500/20'
                   }`}
                 >
                   {updateMutation.isPending ? (
                     <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : checkoutIsPaymentPending ? (
+                    <AlertCircle className="h-5 w-5" />
                   ) : (
                     <LogOut className="h-5 w-5" />
                   )}
                   <span className="text-sm">
-                    {checkoutDues > 0
+                    {checkoutIsPaymentPending
+                      ? (language === 'mr'
+                          ? 'चेकआऊट करा (पेमेंट प्रलंबित)'
+                          : 'Confirm Checkout (Payment Pending)')
+                      : checkoutDues > 0
                       ? (language === 'mr'
                           ? `₹${checkoutDues.toLocaleString('en-IN')} जमा करा व चेकआऊट`
                           : `Collect ₹${checkoutDues.toLocaleString('en-IN')} via ${checkoutPaymentMode} & Checkout`)

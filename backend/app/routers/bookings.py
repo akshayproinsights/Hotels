@@ -385,7 +385,21 @@ def create_bookings_batch(body: BookingBatchCreate, user=Depends(get_current_use
             extra_bed_total = r.extra_beds * eb_price * nights
             room_total = (r.room_price * nights) + extra_bed_total
             room_totals.append(room_total)
-            
+
+        # If the frontend sent an explicit total_amount (user edited the rate),
+        # distribute it proportionally across rooms instead of recalculating.
+        # Single-room bookings: the edited total is used directly.
+        # Multi-room bookings: prorate by each room's share of the base total.
+        extra_bill_amt = body.extra_bill_amount or 0.0
+        base_total_sum = sum(room_totals)  # sum of room_price * nights for all rooms
+        if body.total_amount is not None and body.total_amount > 0 and base_total_sum > 0:
+            # Strip out the extra_bill_amount before distributing (it is added back per room below)
+            user_total_no_extra = body.total_amount - extra_bill_amt
+            room_totals = [
+                round((rt / base_total_sum) * user_total_no_extra, 2)
+                for rt in room_totals
+            ]
+
         remaining_deposit = body.deposit_amount
         bookings_to_create = []
         
@@ -428,7 +442,7 @@ def create_bookings_batch(body: BookingBatchCreate, user=Depends(get_current_use
                 "extra_beds":      r.extra_beds,
                 "room_price":      r.room_price,
                 "extra_bed_total": extra_bed_total,
-                "total_amount":    room_total + (body.extra_bill_amount or 0.0),
+                "total_amount":    room_total + extra_bill_amt,
                 "paid_amount":     room_paid,
                 "payment_mode":    body.payment_mode,
                 "payment_status":  room_status,
@@ -438,7 +452,7 @@ def create_bookings_batch(body: BookingBatchCreate, user=Depends(get_current_use
                 "created_by":      user.get("sub"),
                 "is_checked_in":   room_is_checked_in,
                 "actual_checkin_time": (body.actual_checkin_time.isoformat() if body.actual_checkin_time else (room_check_in_dt.isoformat() if room_is_checked_in else None)),
-                "extra_bill_amount": body.extra_bill_amount or 0.0,
+                "extra_bill_amount": extra_bill_amt,
                 "extra_bill_note":   body.extra_bill_note,
             })
             

@@ -1681,33 +1681,68 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
 
                 {/* Receipt Card Body */}
                 <div className="p-4 flex flex-col gap-4">
-                  {/* Row 1: Total Bill */}
-                  <div className="flex justify-between items-center bg-slate-900/20 p-3 rounded-2xl border border-slate-800/40">
-                    <div className="flex flex-col">
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                        {language === 'mr' ? 'एकूण बिल' : 'Total Bill'}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setActiveKeypad('total')}
-                        className="flex items-baseline gap-1 mt-0.5 group text-left"
-                      >
-                        <span className="text-sm font-black text-slate-400">₹</span>
-                        <span className="text-2xl font-black text-slate-100 min-w-[3rem] border-b-2 border-dashed border-slate-700 group-hover:border-amber-500/50 transition-colors pb-0.5">
-                          {totalAmount || '0'}
+                  {/* Row 1: Total Bill (read-only) + Rate/Night (editable) */}
+                  <div className="flex flex-col gap-2">
+                    {/* Total Bill — read-only, auto-calculated */}
+                    <div className="flex justify-between items-center bg-slate-900/20 px-3 py-2.5 rounded-2xl border border-slate-800/40">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                          {language === 'mr' ? 'एकूण बिल' : 'Total Bill'}
                         </span>
-                      </button>
+                        <div className="flex items-baseline gap-1 mt-0.5">
+                          <span className="text-sm font-black text-slate-400">₹</span>
+                          <span className="text-2xl font-black text-slate-100">
+                            {totalAmount || '0'}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">
+                          {language === 'mr' ? 'कालावधी' : 'Duration'}
+                        </span>
+                        <span className="text-xs font-black text-slate-300 mt-1 block">
+                          {language === 'mr'
+                            ? `${selectedRooms.length} खोल्या × ${nights} रात्र`
+                            : `${selectedRooms.length} room(s) × ${nights} night(s)`}
+                        </span>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">
-                        {language === 'mr' ? 'कालावधी' : 'Duration'}
-                      </span>
-                      <span className="text-xs font-black text-slate-300 mt-1 block">
-                        {language === 'mr' 
-                          ? `${selectedRooms.length} खोल्या × ${nights} रात्र` 
-                          : `${selectedRooms.length} room(s) × ${nights} night(s)`}
-                      </span>
-                    </div>
+
+                    {/* Rate/Night — editable (one row per room) */}
+                    {selectedRooms.map((config) => {
+                      const matchedRoom = 
+                        availableRooms.find(r => r.id === config.room_id) ||
+                        partialRooms.find(r => r.id === config.room_id) ||
+                        freeingSoonRooms.find(r => r.id === config.room_id) ||
+                        (room?.id === config.room_id ? room : null);
+                      const roomNum = matchedRoom?.number || '';
+
+                      return (
+                        <button
+                          key={config.id}
+                          type="button"
+                          onClick={() => setActiveKeypad(`room_price_${config.id}`)}
+                          className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl border transition active:scale-[0.98] ${
+                            activeKeypad === `room_price_${config.id}`
+                              ? 'bg-amber-500/10 border-amber-400/60 ring-2 ring-amber-500/20'
+                              : 'bg-slate-900/40 border-slate-700 hover:border-amber-500/40'
+                          }`}
+                        >
+                          <span className="text-base">✏️</span>
+                          <span className="flex flex-col items-start flex-1 min-w-0">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-amber-400/80">
+                              {language === 'mr' ? 'प्रति रात्र दर' : 'Rate per Night'}
+                            </span>
+                            <span className="text-xs font-black text-slate-200">
+                              ₹{config.room_price || 0} {language === 'mr' ? '/ रात्र' : '/ night'}
+                            </span>
+                          </span>
+                          <span className="text-xs font-black text-amber-400 bg-amber-500/15 px-2.5 py-1 rounded-full border border-amber-500/30 flex-shrink-0">
+                            {language === 'mr' ? `खोली ${roomNum}` : `Room ${roomNum}`}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
 
                   {/* Row 2: Payment Method — 3 real modes, no Pending */}
@@ -1948,9 +1983,7 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
       {activeKeypad !== null && (
         <NumericKeypad
           value={
-            activeKeypad === 'total'
-              ? totalAmount
-              : activeKeypad === 'deposit'
+            activeKeypad === 'deposit'
               ? depositAmount
               : activeKeypad === 'phone'
               ? guestPhone
@@ -1961,9 +1994,7 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
               : ''
           }
           onDone={(val) => {
-            if (activeKeypad === 'total') {
-              setTotalAmount(val === '' ? '' : val.replace(/^0+/, '') || '0')
-            } else if (activeKeypad === 'deposit') {
+            if (activeKeypad === 'deposit') {
               setDepositAmount(val === '' ? 0 : (val.replace(/^0+/, '') || 0))
             } else if (activeKeypad === 'phone') {
               setGuestPhone(val)
@@ -1983,16 +2014,14 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
             setActiveKeypad(null)
           } : undefined}
           label={
-            activeKeypad === 'total'
-              ? (language === 'mr' ? 'एकूण बिल' : 'Total Bill')
-              : activeKeypad === 'deposit'
+            activeKeypad === 'deposit'
               ? (language === 'mr' ? 'आता मिळाले' : 'Collected Now')
               : activeKeypad === 'phone'
               ? (language === 'mr' ? 'मोबाईल नंबर' : 'Mobile Number')
               : activeKeypad === 'age'
               ? (language === 'mr' ? 'वय' : 'Age')
               : activeKeypad.startsWith('room_price_')
-              ? (language === 'mr' ? 'खोली भाडे (₹/रात्र)' : 'Room Price (per Night)')
+              ? (language === 'mr' ? 'खोली भाडे (₹/रात्र)' : 'Room Rate (₹ per Night)')
               : (language === 'mr' ? 'संख्या टाका' : 'Enter Number')
           }
           keypadType={

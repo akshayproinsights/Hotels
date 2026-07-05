@@ -1,0 +1,36 @@
+[2026-07-05 05:30:04 UTC] ============================================================
+[2026-07-05 05:30:04 UTC] Hotel Santosh — Database Backup Starting (host: vmi3271961)
+[2026-07-05 05:30:04 UTC] ============================================================
+[2026-07-05 05:30:04 UTC] Connecting to Supabase...
+[2026-07-05 05:30:04 UTC] Connecting to Cloudflare R2...
+[2026-07-05 05:30:04 UTC] Phase 1: Fetching all tables from Supabase...
+[2026-07-05 05:30:04 UTC]   Fetching rooms...
+[2026-07-05 05:30:05 UTC]   ✓ rooms: 16 rows fetched
+[2026-07-05 05:30:05 UTC]   Fetching customers...
+[2026-07-05 05:30:05 UTC]   ✓ customers: 18 rows fetched
+[2026-07-05 05:30:05 UTC]   Fetching bookings...
+[2026-07-05 05:30:05 UTC]   ✓ bookings: 46 rows fetched
+[2026-07-05 05:30:05 UTC]   Fetching documents...
+[2026-07-05 05:30:05 UTC]   ✓ documents: 27 rows fetched
+[2026-07-05 05:30:05 UTC] Verifying row counts against live Supabase...
+[2026-07-05 05:30:05 UTC]   ✓ rooms: 16 rows — matches Supabase
+[2026-07-05 05:30:05 UTC]   ✓ customers: 18 rows — matches Supabase
+[2026-07-05 05:30:05 UTC]   ✓ bookings: 46 rows — matches Supabase
+[2026-07-05 05:30:05 UTC]   ✓ documents: 27 rows — matches Supabase
+[2026-07-05 05:30:05 UTC] Phase 3: Uploading to Cloudflare R2...
+[2026-07-05 05:30:06 UTC]   Uploaded backups/db/2026-07-05/rooms_2026-07-05_053004.json (5171 bytes)
+[2026-07-05 05:30:06 UTC]   Uploaded backups/db/2026-07-05/customers_2026-07-05_053004.json (7889 bytes)
+[2026-07-05 05:30:07 UTC]   Uploaded backups/db/2026-07-05/bookings_2026-07-05_053004.json (48233 bytes)
+[2026-07-05 05:30:07 UTC]   Uploaded backups/db/2026-07-05/documents_2026-07-05_053004.json (12224 bytes)
+[2026-07-05 05:30:07 UTC]   Uploaded schema → backups/db/2026-07-05/schema_2026-07-05_053004.sql
+[2026-07-05 05:30:08 UTC]   Uploaded manifest → backups/db/2026-07-05/manifest_2026-07-05_053004.json
+[2026-07-05 05:30:08 UTC]   Updated backups/db/latest.json pointer
+[2026-07-05 05:30:08 UTC] Checking for old backups to clean up...
+[2026-07-05 05:30:08 UTC] No old backups to clean up.
+[2026-07-05 05:30:08 UTC] ============================================================
+[2026-07-05 05:30:08 UTC] ✅ BACKUP SUCCESSFUL
+[2026-07-05 05:30:08 UTC]    Timestamp : 2026-07-05_053004
+[2026-07-05 05:30:08 UTC]    Tables    : rooms(16), customers(18), bookings(46), documents(27)
+[2026-07-05 05:30:08 UTC]    Total rows: 107
+[2026-07-05 05:30:08 UTC]    R2 prefix : backups/db/2026-07-05/
+[2026-07-05 05:30:08 UTC] ============================================================
