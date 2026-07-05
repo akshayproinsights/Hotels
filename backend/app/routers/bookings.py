@@ -851,9 +851,11 @@ def auto_process_bookings(user=Depends(get_current_user)):
         # ── AUTO CHECK-OUT ─────────────────────────────────────────────────────
         # Find all active bookings whose check_out time has already passed.
         # Mark them as checked_out to free the room.
-        # Payment status is NOT changed — dues can still be collected.
+        # If the booking still has unpaid dues, also set payment_mode='Pending'
+        # so the UI treats it as "Checkout (Payment Pending)" — identical to
+        # what happens when staff manually clicks that button.
         pending_checkouts = supabase.table("bookings") \
-            .select("id, check_out, is_checked_in") \
+            .select("id, check_out, is_checked_in, payment_status, paid_amount, total_amount, payment_mode") \
             .eq("status", "active") \
             .lte("check_out", now_iso) \
             .execute()
@@ -868,6 +870,16 @@ def auto_process_bookings(user=Depends(get_current_user)):
                 if not booking.get("is_checked_in"):
                     update_payload["is_checked_in"] = True
                     update_payload["actual_checkin_time"] = now_iso
+
+                # If the guest has outstanding dues, flag payment_mode as 'Pending'
+                # so the Dues tab and BookingDetailSheet display it as
+                # "Checkout (Payment Pending)" rather than a plain unpaid booking.
+                paid = booking.get("paid_amount") or 0
+                total = booking.get("total_amount") or 0
+                pstatus = booking.get("payment_status", "")
+                has_dues = pstatus in ("unpaid", "partial") or paid < total
+                if has_dues and booking.get("payment_mode") != "Pending":
+                    update_payload["payment_mode"] = "Pending"
 
                 supabase.table("bookings").update(update_payload).eq("id", booking["id"]).execute()
                 checked_out_count += 1

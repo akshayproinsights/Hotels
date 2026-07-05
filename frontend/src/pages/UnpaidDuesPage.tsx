@@ -134,12 +134,21 @@ export default function UnpaidDuesPage() {
   }
 
   // Helper: plain English payment status
-  function getStatusLabel(status: string) {
-    switch (status) {
+  // When a guest was auto-checked-out (or manually "Checkout (Payment Pending)"),
+  // payment_mode='Pending' + status='checked_out' — show a distinct label.
+  function getStatusLabel(paymentStatus: string, paymentMode?: string | null, bookingStatus?: string) {
+    const isCheckoutPending = bookingStatus === 'checked_out' && paymentMode === 'Pending'
+    if (isCheckoutPending) {
+      return {
+        label: language === 'mr' ? 'चेकआऊट · पेमेंट प्रलंबित' : 'Checked Out · Pay Later',
+        color: 'bg-orange-500/15 text-orange-400 border-orange-500/25'
+      }
+    }
+    switch (paymentStatus) {
       case 'unpaid': return { label: language === 'mr' ? 'पेमेंट केले नाही' : 'Not Paid', color: 'bg-rose-500/15 text-rose-400 border-rose-500/25' }
       case 'partial': return { label: language === 'mr' ? 'अंशतः पेमेंट' : 'Partly Paid', color: 'bg-amber-500/15 text-amber-400 border-amber-500/25' }
       case 'reserved': return { label: language === 'mr' ? 'आरक्षित' : 'Reserved', color: 'bg-slate-500/15 text-slate-400 border-slate-500/25' }
-      default:       return { label: status, color: 'bg-slate-500/15 text-slate-400 border-slate-500/25' }
+      default:       return { label: paymentStatus, color: 'bg-slate-500/15 text-slate-400 border-slate-500/25' }
     }
   }
 
@@ -164,7 +173,7 @@ export default function UnpaidDuesPage() {
         onClick={handleCardClick}
         onLongPress={handleDueLongPress}
         language={language}
-        getStatusLabel={getStatusLabel}
+        getStatusLabel={(status: string) => getStatusLabel(status, due.payment_mode, due.status)}
         getCheckoutUrgency={getCheckoutUrgency}
       />
     )

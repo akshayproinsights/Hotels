@@ -16,10 +16,16 @@ interface RoomCardProps {
 export default function RoomCard({ room, onClick, onLongPress, dailyBookings, selectedDate }: RoomCardProps) {
   const { language } = useLanguage()
 
-  // Find the active booking for this room today
-  const activeBooking = (dailyBookings || []).find(
+  // Find the active booking for this room today.
+  // Prioritise the guest who is ACTUALLY checked in — this prevents a stale/prior
+  // "active" booking (whose guest has already left but the booking wasn't checked out)
+  // from being picked over the current occupant.
+  const activeBookingsForRoom = (dailyBookings || []).filter(
     (b: any) => b.room_id === room.id && b.status === 'active'
   )
+  const activeBooking =
+    activeBookingsForRoom.find((b: any) => b.is_checked_in) ??
+    activeBookingsForRoom[0]
 
   // Derive the true operational state from booking data
   const isDueOut = !!(activeBooking && formatIST_Date(activeBooking.check_out) === selectedDate)
@@ -135,75 +141,23 @@ export default function RoomCard({ room, onClick, onLongPress, dailyBookings, se
 
       <div className="w-full mt-1.5 sm:mt-2">
         {(() => {
-          // Find all bookings for this room today
+          // Find all bookings for this room today (active + checked_out)
           const roomBookings = (dailyBookings || []).filter(
             (b: any) => b.room_id === room.id && (b.status === 'active' || b.status === 'checked_out')
           ).sort((a: any, b: any) => a.check_in.localeCompare(b.check_in))
 
-          if (roomBookings.length > 1) {
-            // Handoff day! One checking out/already checked out, one checking in.
-            const b1 = roomBookings[0]
-            const b2 = roomBookings[1]
+          // Separate into active (currently occupying) vs already-departed
+          const activeBookings = roomBookings.filter((b: any) => b.status === 'active')
+          const checkedOutBookings = roomBookings.filter((b: any) => b.status === 'checked_out')
 
-            // If the outgoing guest is already checked out, only show the arrival
-            if (b1.status === 'checked_out') {
-              const name2 = shortenLongName(formatNameByLanguage(getCustomerNameDisplay(b2.customers?.name).name, language))
-              const t2 = formatIST_AMPM(b2.check_in)
-              return (
-                <div className="flex justify-between items-center w-full gap-1.5">
-                  <span className="text-[11px] sm:text-xs font-semibold text-slate-300 break-words whitespace-normal leading-tight flex-1 min-w-0">
-                    🚌 {name2}
-                  </span>
-                  <span className="text-[8px] font-black whitespace-nowrap bg-sky-600 text-white px-1.5 py-0.5 rounded-md uppercase tracking-wide shrink-0">
-                    {language === 'mr' ? 'आत' : 'In'} {t2}
-                  </span>
-                </div>
-              )
-            }
+          // ── Case 1: There is a currently-active booking ──────────────────────
+          // Always show the active guest as primary. Ignore checked-out guests on
+          // the card — they appear in the detail drawer but clutter the room grid.
+          if (activeBookings.length > 0) {
+            // Prefer the checked-in booking; fall back to the first active one
+            const b = activeBookings.find((x: any) => x.is_checked_in) ?? activeBookings[0]
 
-            const name1 = shortenLongName(formatNameByLanguage(getCustomerNameDisplay(b1.customers?.name).name, language))
-            const name2 = shortenLongName(formatNameByLanguage(getCustomerNameDisplay(b2.customers?.name).name, language))
-            const t1 = formatIST_AMPM(b1.check_out)
-            const t2 = formatIST_AMPM(b2.check_in)
-
-            return (
-              <div className="flex flex-col gap-1.5 w-full">
-                <div className="flex justify-between items-center w-full gap-1.5">
-                  <span className="text-[10px] sm:text-[11px] font-bold text-slate-300 break-words whitespace-normal leading-tight flex-1 min-w-0">
-                    🚪 {name1}
-                  </span>
-                  {/* Solid orange pill — no contrast issues */}
-                  <span className="text-[8px] font-black whitespace-nowrap bg-orange-500 text-white px-1.5 py-0.5 rounded-md uppercase tracking-wide shrink-0">
-                    {t1}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center w-full gap-1.5">
-                  <span className="text-[9px] sm:text-[10px] font-medium text-slate-400 break-words whitespace-normal leading-tight flex-1 min-w-0">
-                    🚌 {name2}
-                  </span>
-                  {/* Solid sky pill */}
-                  <span className="text-[8px] font-black whitespace-nowrap bg-sky-600 text-white px-1.5 py-0.5 rounded-md uppercase tracking-wide shrink-0">
-                    {t2}
-                  </span>
-                </div>
-              </div>
-            )
-          }
-
-          // Single booking
-          if (roomBookings.length === 1) {
-            const b = roomBookings[0]
-
-            // Already checked out — room is now clean, show as available
-            if (b.status === 'checked_out') {
-              return (
-                <span className="text-[11px] sm:text-xs font-semibold text-slate-500 block">
-                  {language === 'mr' ? 'उपलब्ध' : 'Available'}
-                </span>
-              )
-            }
-
-            // Room is VACANT — don't show guest name, just show available
+            // Room is VACANT per backend but has a booking — safety guard
             if (room.room_status === 'vacant') {
               return (
                 <span className="text-[11px] sm:text-xs font-semibold text-slate-500 block">
@@ -237,7 +191,6 @@ export default function RoomCard({ room, onClick, onLongPress, dailyBookings, se
                   {icon} {name}
                 </span>
                 {timeLabel ? (
-                  // Solid pill — orange for checkout, sky for arrival
                   <span className={`text-[8px] font-black whitespace-nowrap px-1.5 py-0.5 rounded-md uppercase tracking-wide text-white shrink-0 ${
                     isCheckingOutToday ? 'bg-orange-500' : 'bg-sky-600'
                   }`}>
@@ -245,6 +198,15 @@ export default function RoomCard({ room, onClick, onLongPress, dailyBookings, se
                   </span>
                 ) : null}
               </div>
+            )
+          }
+
+          // ── Case 2: All bookings are checked_out — room is now free ──────────
+          if (checkedOutBookings.length > 0) {
+            return (
+              <span className="text-[11px] sm:text-xs font-semibold text-slate-500 block">
+                {language === 'mr' ? 'उपलब्ध' : 'Available'}
+              </span>
             )
           }
 

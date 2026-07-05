@@ -15,15 +15,28 @@ def get_inventory(query_date: date = Query(alias="date", default=date.today()),
 
     # Fetch all bookings active or checked_out on this date
     date_str = query_date.isoformat()
+
     bookings_res = supabase.table("bookings") \
-        .select("id,room_id,room_type,customer_id,check_in,check_out,payment_status,payment_mode,status,total_amount,paid_amount,is_checked_in,customers(name,phone),rooms(number),documents(id)") \
+        .select("id,room_id,room_type,customer_id,check_in,check_out,payment_status,payment_mode,status,total_amount,paid_amount,is_checked_in,customers(name,phone,documents(id,doc_type)),rooms(number),documents(id,doc_type)") \
         .in_("status", ["active", "checked_out"]) \
         .lte("check_in", f"{date_str}T23:59:59+05:30") \
         .gte("check_out",  f"{date_str}T00:00:00+05:30") \
         .execute()
 
-    # Build a room_id → booking lookup (only active bookings occupy a room in grid status)
-    booking_map = {b["room_id"]: b for b in bookings_res.data if b["status"] == "active"}
+    # Build a room_id → booking lookup (only active bookings occupy a room in grid status).
+    # When a room has multiple active bookings (edge case: prior booking not properly
+    # checked out + new booking), prefer the one where is_checked_in=True so the card
+    # shows the current occupant, not a stale booking.
+    booking_map: dict = {}
+    for b in bookings_res.data:
+        if b["status"] != "active":
+            continue
+        rid = b["room_id"]
+        if rid not in booking_map:
+            booking_map[rid] = b
+        elif b.get("is_checked_in") and not booking_map[rid].get("is_checked_in"):
+            # Replace with the checked-in booking — it's the actual current occupant
+            booking_map[rid] = b
 
     result = []
     summary = {"vacant": 0, "occupied": 0, "reserved": 0, "unpaid": 0}

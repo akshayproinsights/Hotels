@@ -18,7 +18,7 @@ def require_admin(user=Depends(get_current_user)):
 @router.get("/unpaid")
 def unpaid_dues(user=Depends(get_current_user)):
     res = supabase.table("bookings") \
-        .select("id,booking_number,check_in,check_out,total_amount,paid_amount,deposit_amount,payment_status,rooms(number),customers(name,phone)") \
+        .select("id,booking_number,check_in,check_out,total_amount,paid_amount,deposit_amount,payment_status,payment_mode,status,rooms(number),customers(name,phone)") \
         .neq("status", "cancelled") \
         .in_("payment_status", ["unpaid", "partial", "reserved"]) \
         .order("check_in").execute()

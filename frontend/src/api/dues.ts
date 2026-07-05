@@ -9,6 +9,8 @@ export interface UnpaidDuesResponse {
   paid_amount: number
   deposit_amount: number
   payment_status: 'unpaid' | 'partial' | 'reserved'
+  payment_mode: string | null
+  status: string
   rooms: {
     number: string
   }

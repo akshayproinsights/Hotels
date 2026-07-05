@@ -1805,18 +1805,20 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
                   <CheckCircle className="h-5 w-5" />
                   {language === 'mr' ? 'चेक-इन निश्चित करा' : 'Confirm Check-In'}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setShowCancelConfirm(true)}
-                  className="py-2.5 px-3 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-450 hover:text-rose-350 text-xs font-bold rounded-2xl transition flex items-center justify-center gap-1.5 w-full"
-                >
-                  ❌ {language === 'mr' ? 'बुकिंग रद्द करा' : 'Cancel Booking'}
-                </button>
+                <div className="flex justify-center pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowCancelConfirm(true)}
+                    className="text-[11px] font-semibold text-slate-500 hover:text-rose-400 transition-colors underline underline-offset-2 decoration-dotted px-3 py-1.5"
+                  >
+                    {language === 'mr' ? 'बुकिंग रद्द करा' : 'Cancel Booking'}
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="flex flex-col gap-3">
                 {livePendingAmount > 0 ? (
-                  <div className="grid grid-cols-2 gap-2 w-full">
+                  <div className="flex flex-col gap-2 w-full">
                     <button
                       type="button"
                       onClick={() => {
@@ -1829,10 +1831,10 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
                         setCheckoutIsPaymentPending(true)
                         setShowCheckoutConfirm(true)
                       }}
-                      className="py-3.5 px-2 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-400 active:scale-[0.98] text-xs font-black rounded-2xl transition flex items-center justify-center gap-1 shadow-lg"
+                      className="w-full py-4 px-4 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-400 active:scale-[0.98] text-sm font-black rounded-2xl transition flex items-center justify-center gap-2 shadow-lg"
                     >
-                      <AlertCircle className="h-4 w-4 flex-shrink-0" />
-                      <span className="truncate">{language === 'mr' ? 'चेकआऊट (पेमेंट प्रलंबित)' : 'Checkout (Payment Pending)'}</span>
+                      <AlertCircle className="h-5 w-5 flex-shrink-0" />
+                      <span>{language === 'mr' ? 'चेकआऊट (पेमेंट प्रलंबित)' : 'Checkout (Payment Pending)'}</span>
                     </button>
                     <button
                       type="button"
@@ -1844,10 +1846,10 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
                         setCheckoutIsPaymentPending(false)
                         setShowCheckoutConfirm(true)
                       }}
-                      className="py-3.5 px-2 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-955 text-xs font-black rounded-2xl transition flex items-center justify-center gap-1 shadow-lg"
+                      className="w-full py-4 px-4 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-955 text-sm font-black rounded-2xl transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20"
                     >
-                      <LogOut className="h-4 w-4 flex-shrink-0" />
-                      <span className="truncate">{language === 'mr' ? 'पेमेंट + चेकआऊट' : 'Collect & Checkout'}</span>
+                      <LogOut className="h-5 w-5 flex-shrink-0" />
+                      <span>{language === 'mr' ? 'पेमेंट + चेकआऊट' : 'Collect & Checkout'}</span>
                     </button>
                   </div>
                 ) : (
@@ -1860,19 +1862,21 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
                       setCheckoutIsPaidAmountModified(false)
                       setShowCheckoutConfirm(true)
                     }}
-                    className="w-full py-3.5 px-3 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-955 text-xs font-black rounded-2xl transition flex items-center justify-center gap-1.5 shadow-lg"
+                    className="w-full py-4 px-4 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-955 text-sm font-black rounded-2xl transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20"
                   >
-                    <LogOut className="h-4 w-4" />
+                    <LogOut className="h-5 w-5" />
                     {language === 'mr' ? 'चेकआऊट करा' : 'Checkout Customer'}
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={() => setShowCancelConfirm(true)}
-                  className="py-2.5 px-3 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-450 hover:text-rose-350 text-xs font-bold rounded-2xl transition flex items-center justify-center gap-1.5 w-full mt-1"
-                >
-                  ❌ {language === 'mr' ? 'बुकिंग रद्द करा' : 'Cancel Booking'}
-                </button>
+                <div className="flex justify-center pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowCancelConfirm(true)}
+                    className="text-[11px] font-semibold text-slate-500 hover:text-rose-400 transition-colors underline underline-offset-2 decoration-dotted px-3 py-1.5"
+                  >
+                    {language === 'mr' ? 'बुकिंग रद्द करा' : 'Cancel Booking'}
+                  </button>
+                </div>
               </div>
             )}
           </div>

@@ -545,7 +545,7 @@ export default function InventoryPage() {
                 <div className="flex items-center gap-1">
                   <span>🚌</span>
                   <span className="text-[9px] uppercase tracking-wider font-extrabold">
-                    {language === 'mr' ? 'आगमन' : 'Arrivals'}
+                    {language === 'mr' ? 'आज येणार' : 'Arrivals'}
                   </span>
                 </div>
                 <span className={`text-[10px] mt-0.5 font-bold tabular-nums ${
@@ -587,7 +587,7 @@ export default function InventoryPage() {
                 <div className="flex items-center gap-1">
                   <span>🚪</span>
                   <span className="text-[9px] uppercase tracking-wider font-extrabold">
-                    {language === 'mr' ? 'प्रस्थान' : 'Checkouts'}
+                    {language === 'mr' ? 'आज जाणार' : 'Checkouts'}
                   </span>
                 </div>
                 <span className={`text-[10px] mt-0.5 font-bold tabular-nums ${
@@ -963,8 +963,11 @@ export default function InventoryPage() {
       {/* Quick Action Context Menu Modal */}
       {quickActionRoom && (() => {
         const dailyBookings = data.daily_bookings || []
+        // Only show ACTIVE bookings in the quick modal — checked-out guests are
+        // historical and only clutter the view. Full history is accessible via the
+        // BookingDetailSheet when the user taps a booking card.
         const roomBookings = dailyBookings.filter(
-          (b: any) => b.room_id === quickActionRoom.id && (b.status === 'active' || b.status === 'checked_out')
+          (b: any) => b.room_id === quickActionRoom.id && b.status === 'active'
         ).sort((a: any, b: any) => a.check_in.localeCompare(b.check_in))
 
 
@@ -1013,8 +1016,10 @@ export default function InventoryPage() {
                     const dues = Math.max(0, (b.total_amount || 0) - (b.paid_amount || 0));
                     const isPaid = dues <= 0;
 
-                    // ID indicator: based on actual uploaded documents from the backend
-                    const hasIdProof = Array.isArray(b.documents) && b.documents.length > 0
+                    // ID indicator: based on actual uploaded documents from the backend (linked to this booking or the customer profile, excluding photos)
+                    const hasIdProof = 
+                      (Array.isArray(b.documents) && b.documents.some((d: any) => d.doc_type !== 'customer_photo')) ||
+                      (b.customers && Array.isArray(b.customers.documents) && b.customers.documents.some((d: any) => d.doc_type !== 'customer_photo'));
 
                     // Format dates into separate date + time for the 2-col block
                     const formatQuickDate = (iso: string) => {
