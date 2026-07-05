@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useSearchParams } from 'react-router-dom'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query'
 import { Toaster } from 'react-hot-toast'
 import { LogOut, Plus, WifiOff, Sun, Moon } from 'lucide-react'
 import LoginPage from './pages/LoginPage'
@@ -15,6 +15,7 @@ import { useAuth } from './hooks/useAuth'
 import { useLanguage } from './context/LanguageContext'
 import { ThemeProvider, useTheme } from './context/ThemeContext'
 import BlockRoomSheet from './components/BlockRoomSheet'
+import { autoProcessBookings } from './api/bookings'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -59,6 +60,7 @@ function AppLayout() {
   const [isBookSheetOpen, setIsBookSheetOpen] = React.useState(false)
   const [isOnline, setIsOnline] = React.useState(navigator.onLine)
   const [searchParams] = useSearchParams()
+  const qc = useQueryClient()
 
   React.useEffect(() => {
     const handleOnline = () => setIsOnline(true)
@@ -72,6 +74,21 @@ function AppLayout() {
       window.removeEventListener('offline', handleOffline)
     }
   }, [])
+
+  // ── Auto-process bookings (check-in / check-out) based on time ──────────
+  // Runs once on load and every 5 minutes silently in the background.
+  // If any bookings were processed, invalidate queries so rooms refresh.
+  React.useEffect(() => {
+    const run = async () => {
+      const result = await autoProcessBookings()
+      if (result && (result.checked_in > 0 || result.checked_out > 0)) {
+        qc.invalidateQueries()
+      }
+    }
+    run()
+    const interval = setInterval(run, 5 * 60 * 1000) // every 5 minutes
+    return () => clearInterval(interval)
+  }, [qc])
 
   return (
     <div className="flex flex-col min-h-[100dvh]">

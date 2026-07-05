@@ -510,7 +510,7 @@ export default function ReportsPage() {
               </div>
               <div className="mt-3">
                 <span className="text-lg sm:text-xl font-black text-slate-100 tracking-tight">
-                  ₹{reportData?.summary.total_revenue.toLocaleString('en-IN')}
+                  ₹{Math.round(reportData?.summary.total_revenue || 0).toLocaleString('en-IN')}
                 </span>
                 <p className="text-[8px] font-semibold text-slate-500 mt-0.5">
                   {language === 'mr' ? 'दैनिक एकूण जमा रक्कम' : 'Net received collections'}
@@ -527,7 +527,7 @@ export default function ReportsPage() {
               </div>
               <div className="mt-3">
                 <span className="text-lg sm:text-xl font-black text-slate-100 tracking-tight">
-                  ₹{reportData?.summary.total_dues.toLocaleString('en-IN')}
+                  ₹{Math.round(reportData?.summary.total_dues || 0).toLocaleString('en-IN')}
                 </span>
                 <p className="text-[8px] font-semibold text-slate-500 mt-0.5">
                   {language === 'mr' ? 'जमा करायची बाकी रक्कम' : 'Remaining unpaid balance'}
@@ -642,7 +642,7 @@ export default function ReportsPage() {
                           {format(parseISO(chartSvg.points[hoveredTrendIdx].date), 'dd MMM yyyy')}
                         </div>
                         <div className="text-emerald-400 font-black mt-0.5">
-                          ₹{chartSvg.points[hoveredTrendIdx].revenue.toLocaleString('en-IN')}
+                          ₹{Math.round(chartSvg.points[hoveredTrendIdx].revenue).toLocaleString('en-IN')}
                         </div>
                         <div className="text-slate-500 font-bold">
                           {chartSvg.points[hoveredTrendIdx].bookings} {language === 'mr' ? 'बुकिंग' : 'Bookings'}
@@ -697,7 +697,7 @@ export default function ReportsPage() {
                               {item.mode === 'Cash' ? t('cash') : item.mode === 'UPI' ? t('upi') : item.mode === 'IDFC' ? t('idfc') : t('pending')}
                             </span>
                             <span className="text-slate-200">
-                              ₹{item.value.toLocaleString('en-IN')}{' '}
+                              ₹{Math.round(item.value).toLocaleString('en-IN')}{' '}
                               <span className="text-[10px] text-slate-500 font-semibold">({item.percentage}%)</span>
                             </span>
                           </div>
@@ -736,7 +736,7 @@ export default function ReportsPage() {
                           <div className="flex justify-between text-slate-350">
                             <span className="text-[10px] truncate max-w-[120px]">{item.type}</span>
                             <span className="text-slate-200">
-                              ₹{item.value.toLocaleString('en-IN')}{' '}
+                              ₹{Math.round(item.value).toLocaleString('en-IN')}{' '}
                               <span className="text-[10px] text-slate-500 font-semibold">({item.percentage}%)</span>
                             </span>
                           </div>
@@ -869,17 +869,17 @@ export default function ReportsPage() {
 
                           {/* Total Bill */}
                           <td className="py-3.5 px-4 text-right font-black text-slate-350">
-                            ₹{item.total_amount.toLocaleString('en-IN')}
+                            ₹{Math.round(item.total_amount).toLocaleString('en-IN')}
                           </td>
 
                           {/* Extra */}
                           <td className="py-3.5 px-4 text-right font-black text-amber-500">
-                            ₹{item.extra_bill_amount.toLocaleString('en-IN')}
+                            ₹{Math.round(item.extra_bill_amount).toLocaleString('en-IN')}
                           </td>
 
                           {/* Paid */}
                           <td className="py-3.5 px-4 text-right font-black text-emerald-400">
-                            ₹{item.paid_amount.toLocaleString('en-IN')}
+                            ₹{Math.round(item.paid_amount).toLocaleString('en-IN')}
                           </td>
 
                           {/* Payment Mode */}
@@ -917,7 +917,7 @@ export default function ReportsPage() {
                                       </span>
                                     </div>
                                     <span className="text-[9px] text-slate-500 font-medium">
-                                      ₹{depositAmt.toLocaleString('en-IN')} + ₹{Math.max(0, duesAmt).toLocaleString('en-IN')}
+                                      ₹{Math.round(depositAmt).toLocaleString('en-IN')} + ₹{Math.round(Math.max(0, duesAmt)).toLocaleString('en-IN')}
                                     </span>
                                   </div>
                                 )

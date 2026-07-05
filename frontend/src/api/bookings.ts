@@ -69,3 +69,18 @@ export async function getAllBookings(): Promise<Booking[]> {
   return res.data
 }
 
+/** 
+ * Silently auto-process bookings based on current time:
+ * - Auto check-in: bookings whose check_in time has passed and is_checked_in=false
+ * - Auto check-out: bookings whose check_out time has passed and status=active
+ * Fire-and-forget — errors are swallowed so they never block the UI.
+ */
+export async function autoProcessBookings(): Promise<{ checked_in: number; checked_out: number } | null> {
+  try {
+    const res = await api.post<{ checked_in: number; checked_out: number; errors: string[] }>('/bookings/auto-process')
+    return res.data
+  } catch {
+    // Silent failure — this is a background task, never surface errors to user
+    return null
+  }
+}

@@ -203,6 +203,15 @@ export default function RoomCard({ room, onClick, onLongPress, dailyBookings, se
               )
             }
 
+            // Room is VACANT — don't show guest name, just show available
+            if (room.room_status === 'vacant') {
+              return (
+                <span className="text-[11px] sm:text-xs font-semibold text-slate-500 block">
+                  {language === 'mr' ? 'उपलब्ध' : 'Available'}
+                </span>
+              )
+            }
+
             const name = shortenLongName(formatNameByLanguage(getCustomerNameDisplay(b.customers?.name).name, language))
 
             const isCheckingOutToday = formatIST_Date(b.check_out) === selectedDate

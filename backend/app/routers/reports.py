@@ -122,15 +122,15 @@ def get_financials(
                 "room_type": r_info.get("room_type", ""),
                 "check_in": b["check_in"],
                 "check_out": b["check_out"],
-                "total_amount": float(b["total_amount"] or 0.0),
-                "paid_amount": float(b["paid_amount"] or 0.0),
-                "deposit_amount": float(b.get("deposit_amount") or 0.0),
+                "total_amount": int(round(float(b["total_amount"] or 0.0))),
+                "paid_amount": int(round(float(b["paid_amount"] or 0.0))),
+                "deposit_amount": int(round(float(b.get("deposit_amount") or 0.0))),
                 "payment_mode": b.get("payment_mode") or "Pending",
                 "checkout_payment_mode": b.get("checkout_payment_mode"),
                 "payment_status": b.get("payment_status") or "unpaid",
                 "status": b["status"],
                 "created_at": b["created_at"],
-                "extra_bill_amount": float(b.get("extra_bill_amount") or 0.0),
+                "extra_bill_amount": int(round(float(b.get("extra_bill_amount") or 0.0))),
                 "notes": b.get("notes") or "",
             }
             ledger.append(ledger_item)
@@ -139,8 +139,8 @@ def get_financials(
                 continue
                 
             total_bookings += 1
-            paid = float(b["paid_amount"] or 0.0)
-            total = float(b["total_amount"] or 0.0)
+            paid = int(round(float(b["paid_amount"] or 0.0)))
+            total = int(round(float(b["total_amount"] or 0.0)))
             
             total_revenue += paid
             
@@ -170,7 +170,7 @@ def get_financials(
                     parts = rest.split(" + ")               # ["IDFC: ₹500", "UPI: ₹2,500"]
                     for part in parts:
                         seg_mode, seg_amt_str = part.split(": ₹")
-                        seg_amt = float(seg_amt_str.replace(",", ""))
+                        seg_amt = int(round(float(seg_amt_str.replace(",", ""))))
                         seg_mode = seg_mode.strip()
                         if seg_mode not in payment_modes:
                             payment_modes[seg_mode] = 0.0
@@ -195,12 +195,12 @@ def get_financials(
             else:
                 # No payment note — try structured columns
                 checkout_mode = b.get("checkout_payment_mode")
-                deposit_amt = float(b.get("deposit_amount") or 0.0)
+                deposit_amt = int(round(float(b.get("deposit_amount") or 0.0)))
                 advance_mode = b.get("payment_mode") or "Pending"
 
                 if checkout_mode and checkout_mode != advance_mode and deposit_amt > 0:
                     # Split: different modes, payment_mode not overwritten
-                    dues_amt = max(0.0, paid - deposit_amt)
+                    dues_amt = max(0, paid - deposit_amt)
                     if advance_mode not in payment_modes:
                         payment_modes[advance_mode] = 0.0
                     payment_modes[advance_mode] += deposit_amt

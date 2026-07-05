@@ -229,13 +229,11 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
 
   // Dates — use initialDate (calendar-selected day) if provided, otherwise default to today
   const now = new Date()
-  const todayStr = format(now, 'yyyy-MM-dd')
   const startDate = initialDate ? parse(initialDate, 'yyyy-MM-dd', new Date()) : now
   const initialCheckInDateStr = format(startDate, 'yyyy-MM-dd')
-  const isInitialToday = initialCheckInDateStr === todayStr
 
   const checkInDateVal = initialCheckInISO ? formatIST_Date(initialCheckInISO) : initialCheckInDateStr
-  const checkInTimeVal = initialCheckInISO ? formatIST_HHmm(initialCheckInISO) : (isInitialToday ? format(now, 'HH:mm') : '12:00')
+  const checkInTimeVal = initialCheckInISO ? formatIST_HHmm(initialCheckInISO) : '12:00'
 
   const [checkInDate, setCheckInDate] = useState(checkInDateVal)
   const [checkInTime, setCheckInTime] = useState(checkInTimeVal)
@@ -243,11 +241,12 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
   const parsedCheckInDate = parse(checkInDateVal, 'yyyy-MM-dd', new Date())
   const defaultCheckOut = addDays(parsedCheckInDate, 1)
   const [checkOutDate, setCheckOutDate] = useState(format(defaultCheckOut, 'yyyy-MM-dd'))
-  const [checkOutTime, setCheckOutTime] = useState(isInitialToday && !initialCheckInISO ? format(now, 'HH:mm') : '11:00')
+  const [checkOutTime, setCheckOutTime] = useState('12:00')
 
   // Additional Fields
   const [occupation, setOccupation] = useState('')
   const [notes, setNotes] = useState('')
+  const [additionalNotes, setAdditionalNotes] = useState('')
   const [paymentMode, setPaymentMode] = useState<'Cash' | 'UPI' | 'IDFC' | 'Pending'>('IDFC')
   const [depositAmount, setDepositAmount] = useState<string | number>(0)
   
@@ -315,19 +314,8 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
     return () => clearTimeout(delayDebounceFn)
   }, [guestName, guestPhone, activeSearchField])
 
-  // Update checkInTime and checkOutTime when checkInDate changes (today vs future date)
-  useEffect(() => {
-    if (!checkInDate) return
-    const currentTodayStr = format(new Date(), 'yyyy-MM-dd')
-    if (checkInDate === currentTodayStr) {
-      const curTime = format(new Date(), 'HH:mm')
-      setCheckInTime(curTime)
-      setCheckOutTime(curTime)
-    } else if (checkInDate > currentTodayStr) {
-      setCheckInTime('12:00')
-      setCheckOutTime('11:00')
-    }
-  }, [checkInDate])
+  // Default check-in and check-out time is always 12:00 PM (noon)
+  // Times are pre-set to 12:00 and users can change them manually
 
   // Fetch available rooms whenever date or time selection changes
   useEffect(() => {
@@ -909,7 +897,13 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
         payment_status: paymentStatus,
         deposit_amount: Number(depositAmount) || 0,
         occupation: occupation || undefined,
-        notes: notes || undefined,
+        notes: (() => {
+          const r = notes.trim()
+          const a = additionalNotes.trim()
+          if (r && a) return `${r} | Notes: ${a}`
+          if (a) return `Notes: ${a}`
+          return r || undefined
+        })(),
         total_amount: Number(totalAmount) || 0,
         is_checked_in: paymentStatus !== 'reserved',
       }
@@ -1633,6 +1627,25 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
                 maxLength={150}
                 onChange={(e) => setNotes(e.target.value)}
                 className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-sm h-[46px]"
+              />
+            </div>
+          </div>
+
+          {/* Notes (Full Width) */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
+              {language === 'mr' ? 'नोंद (Notes)' : 'Notes'}
+            </label>
+            <div className="relative">
+              <span className="absolute top-3.5 left-3.5 flex items-start pointer-events-none">
+                <FileText className="h-4 w-4 text-slate-500" />
+              </span>
+              <textarea
+                placeholder={language === 'mr' ? 'इतर महत्त्वाच्या नोंदी येथे लिहा...' : 'Write other important notes here...'}
+                value={additionalNotes}
+                onChange={(e) => setAdditionalNotes(e.target.value)}
+                rows={3}
+                className="w-full pl-10 pr-4 py-3.5 bg-slate-950 border border-slate-805 rounded-2xl text-slate-200 focus:outline-none focus:border-emerald-500 text-sm min-h-[90px] resize-y leading-relaxed"
               />
             </div>
           </div>

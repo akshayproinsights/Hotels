@@ -831,15 +831,15 @@ export default function SettingsPage() {
                         </div>
                         <div className="flex justify-between text-[11px] font-semibold text-slate-400">
                           <span>{language === 'mr' ? 'एकूण रक्कम:' : 'Total Amount:'}</span>
-                          <span className="text-slate-300 font-bold">₹{parseFloat(b.total_amount || 0).toLocaleString()}</span>
+                          <span className="text-slate-300 font-bold">₹{Math.round(parseFloat(b.total_amount || 0)).toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between text-[11px] font-semibold text-slate-400">
                           <span>{language === 'mr' ? 'जमा / बाकी:' : 'Paid / Balance:'}</span>
                           <div className="flex items-center gap-1.5">
-                            <span className="text-emerald-550 font-bold">₹{parseFloat(b.paid_amount || 0).toLocaleString()}</span>
+                            <span className="text-emerald-550 font-bold">₹{Math.round(parseFloat(b.paid_amount || 0)).toLocaleString()}</span>
                             <span className="text-slate-700">/</span>
                             {(() => {
-                              const balance = parseFloat(b.total_amount || 0) - parseFloat(b.paid_amount || 0)
+                              const balance = Math.round(parseFloat(b.total_amount || 0)) - Math.round(parseFloat(b.paid_amount || 0))
                               const balanceStyle = balance > 0 ? 'text-rose-455 font-bold' : 'text-slate-500 font-semibold'
                               return <span className={balanceStyle}>₹{balance.toLocaleString()}</span>
                             })()}
@@ -878,7 +878,7 @@ export default function SettingsPage() {
                                   </span>
                                 </div>
                                 <span className="text-[9px] text-slate-500 font-bold lowercase tracking-normal">
-                                  ₹{depAmt.toLocaleString('en-IN')} + ₹{duesAmt.toLocaleString('en-IN')}
+                                  ₹{Math.round(depAmt).toLocaleString('en-IN')} + ₹{Math.round(duesAmt).toLocaleString('en-IN')}
                                 </span>
                               </div>
                             )
@@ -1010,11 +1010,11 @@ export default function SettingsPage() {
                         </div>
                         <div className="flex justify-between text-[11px] font-semibold text-slate-400">
                           <span>{language === 'mr' ? 'एकूण रक्कम:' : 'Total Amount:'}</span>
-                          <span className="text-slate-300 font-bold">₹{b.total_amount.toLocaleString()}</span>
+                          <span className="text-slate-300 font-bold">₹{Math.round(b.total_amount).toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between text-[11px] font-semibold text-slate-400">
                           <span>{language === 'mr' ? 'जमा रक्कम:' : 'Paid Amount:'}</span>
-                          <span className="text-emerald-500 font-bold">₹{b.paid_amount.toLocaleString()}</span>
+                          <span className="text-emerald-500 font-bold">₹{Math.round(b.paid_amount).toLocaleString()}</span>
                         </div>
                       </div>
                     </div>

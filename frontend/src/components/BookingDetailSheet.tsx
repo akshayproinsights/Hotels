@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
   X, Phone, CheckCircle, LogOut, FileText, Camera, Upload, Loader2, Copy, 
-  ChevronLeft, ChevronRight, Plus, Minus, Save,
+  ChevronLeft, ChevronRight,
   Edit2, Check, ZoomIn, ZoomOut, RotateCcw, Trash2, AlertCircle
 } from 'lucide-react'
 import { 
@@ -26,13 +26,11 @@ import toast from 'react-hot-toast'
 import { getBooking, updateBooking, cancelBooking, restoreBooking } from '../api/bookings'
 import { getUploadUrl, uploadFileToR2, confirmUpload, listCustomerDocs, extractNameFromId, deleteDocument } from '../api/documents'
 import { updateCustomer } from '../api/customers'
-import { listAvailableRooms } from '../api/rooms'
-import { getCustomerNameDisplay } from '../utils/customer'
+import { getCustomerNameDisplay, cleanPhoneDisplay } from '../utils/customer'
 import { formatNameByLanguage } from '../utils/nameHelper'
 import { formatIST_AMPM, formatIST_Date, formatIST_HHmm, toUTCfromIST } from '../utils/istTime'
 import { useLanguage } from '../context/LanguageContext'
 import { useVisualViewport } from '../hooks/useVisualViewport'
-import type { Room } from '../types'
 import NumericKeypad from './NumericKeypad'
 import CameraCaptureModal from './CameraCaptureModal'
 
@@ -84,6 +82,31 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
     queryFn: () => getBooking(bookingId),
   })
 
+  const parsedNotes = (() => {
+    const notesStr = booking?.notes
+    if (!notesStr) return { reason: '', notes: '', payments: '' }
+    const parts = notesStr.split(' | ')
+    let reason = ''
+    let notes = ''
+    let payments = ''
+
+    for (const part of parts) {
+      const trimmed = part.trim()
+      if (trimmed.startsWith('Notes: ')) {
+        notes = trimmed.replace('Notes: ', '')
+      } else if (trimmed.startsWith('Paid via ')) {
+        payments = trimmed
+      } else {
+        if (reason) {
+          reason += ' | ' + trimmed
+        } else {
+          reason = trimmed
+        }
+      }
+    }
+    return { reason, notes, payments }
+  })()
+
   const hasSplitPayment = booking ? !!(booking.checkout_payment_mode && booking.paid_amount > booking.deposit_amount) : false
 
   // Fetch all documents for this guest
@@ -102,7 +125,6 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
   const docs = Array.from(allDocsMap.values())
 
   // UI edit modes
-  const [editRoomMode, setEditRoomMode] = useState(false)
   const [showDatePicker, setShowDatePicker] = useState(false)
   const [pickerMonth, setPickerMonth] = useState<Date>(new Date())
   const [activeKeypad, setActiveKeypad] = useState<'total' | 'extra' | 'paid' | 'roomPrice' | 'checkoutTotal' | 'checkoutPaid' | null>(null)
@@ -112,20 +134,12 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
   const [draftCheckOut, setDraftCheckOut] = useState('')
   const [draftCheckInTime, setDraftCheckInTime] = useState('12:00')
   const [draftCheckOutTime, setDraftCheckOutTime] = useState('11:00')
-  const [draftRoomType, setDraftRoomType] = useState<'AC Deluxe' | 'Non AC Deluxe' | 'VIP AC Suite' | 'VIP Non AC Suite'>('AC Deluxe')
-  const [draftRoomId, setDraftRoomId] = useState('')
-  const [draftAdults, setDraftAdults] = useState(1)
-  const [draftChildren, setDraftChildren] = useState(0)
   const [draftExtraBeds, setDraftExtraBeds] = useState(0)
   const [draftRoomPrice, setDraftRoomPrice] = useState(0)
   const [editingTotal, setEditingTotal] = useState<string | number>('')
   const [editingPaid, setEditingPaid] = useState<string | number>('')
   const [editingExtraAmount, setEditingExtraAmount] = useState<string | number>('')
   const [editingExtraNote, setEditingExtraNote] = useState<string>('')
-
-  // Available rooms list when room type / dates change
-  const [availableRooms, setAvailableRooms] = useState<Room[]>([])
-  const [isLoadingAvailableRooms, setIsLoadingAvailableRooms] = useState(false)
 
   // Modals/Confirmations
   const [showCheckoutConfirm, setShowCheckoutConfirm] = useState(false)
@@ -145,6 +159,10 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
   const [draftCustomerName, setDraftCustomerName] = useState('')
   const [isEditingName, setIsEditingName] = useState(false)
 
+  // Customer Phone Edit States
+  const [draftCustomerPhone, setDraftCustomerPhone] = useState('')
+  const [isEditingPhone, setIsEditingPhone] = useState(false)
+
   // Interactive ID Proof Viewer States
   const [selectedDocIndex, setSelectedDocIndex] = useState<number | null>(null)
   const [zoomScale, setZoomScale] = useState(1)
@@ -157,15 +175,11 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
 
   // Initialize drafts when booking is loaded
   useEffect(() => {
-    if (booking && !showDatePicker && !editRoomMode && !isEditingName && !activeKeypad) {
+    if (booking && !showDatePicker && !isEditingName && !isEditingPhone && !activeKeypad) {
       setDraftCheckIn(formatIST_Date(booking.check_in))
       setDraftCheckOut(formatIST_Date(booking.check_out))
       setDraftCheckInTime(formatIST_HHmm(booking.check_in))
       setDraftCheckOutTime(formatIST_HHmm(booking.check_out))
-      setDraftRoomType(booking.room_type || booking.rooms?.room_type || 'AC Deluxe')
-      setDraftRoomId(booking.room_id)
-      setDraftAdults(booking.adults)
-      setDraftChildren(booking.children)
       setDraftExtraBeds(booking.extra_beds)
       setDraftRoomPrice(booking.room_price)
       setEditingTotal(booking.total_amount)
@@ -174,10 +188,13 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
       setEditingExtraNote(booking.extra_bill_note || '')
       setPickerMonth(parse(formatIST_Date(booking.check_in), 'yyyy-MM-dd', new Date()))
       if (booking.customers?.name) {
-        setDraftCustomerName(booking.customers.name)
+        setDraftCustomerName(getCustomerNameDisplay(booking.customers.name).name || '')
+      }
+      if (booking.customers?.phone) {
+        setDraftCustomerPhone(cleanPhoneDisplay(booking.customers.phone) || '')
       }
     }
-  }, [booking, showDatePicker, editRoomMode, isEditingName, activeKeypad])
+  }, [booking, showDatePicker, isEditingName, isEditingPhone, activeKeypad])
 
   // Auto-open checkout receipt when autoCheckout=true and booking has loaded
   useEffect(() => {
@@ -193,40 +210,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [booking?.id, autoCheckout])
 
-  // Fetch available rooms when dates change in edit mode
-  useEffect(() => {
-    if (!editRoomMode || !draftCheckIn || !draftCheckOut) return
 
-    let active = true
-    const fetchRooms = async () => {
-      setIsLoadingAvailableRooms(true)
-      try {
-        const startISO = toUTCfromIST(draftCheckIn, '12:00')
-        const endISO = toUTCfromIST(draftCheckOut, '11:00')
-        const { available } = await listAvailableRooms(startISO, endISO)
-        if (active) {
-          // Make sure current booked room is always in the options list so it doesn't disappear
-          if (booking?.rooms) {
-            const hasCurrentRoom = available.some(r => r.id === booking.rooms?.id)
-            setAvailableRooms(hasCurrentRoom ? available : [booking.rooms, ...available])
-          } else {
-            setAvailableRooms(available)
-          }
-        }
-      } catch (err) {
-        console.error('Error fetching available rooms', err)
-      } finally {
-        if (active) {
-          setIsLoadingAvailableRooms(false)
-        }
-      }
-    }
-
-    fetchRooms()
-    return () => {
-      active = false
-    }
-  }, [draftCheckIn, draftCheckOut, editRoomMode, booking])
 
   // Keyboard Navigation for ID Proof Viewer
   useEffect(() => {
@@ -278,7 +262,6 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
       refetch()
       const isCheckout = variables?.status === 'checked_out'
       onSuccess(isCheckout ? 'checkout' : 'update')
-      setEditRoomMode(false)
     },
     onError: (err: any) => {
       const errorMsg = err.response?.data?.detail || (language === 'mr' ? 'बुकिंग अपडेट करण्यात अडचण आली' : 'Failed to update booking')
@@ -306,6 +289,28 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
   const handleSaveCustomerName = () => {
     if (!draftCustomerName.trim()) return
     updateCustomerMutation.mutate(draftCustomerName)
+  }
+
+  const updateCustomerPhoneMutation = useMutation({
+    mutationFn: (newPhone: string) => {
+      if (!booking?.customer_id) throw new Error('No customer ID')
+      return updateCustomer(booking.customer_id, { phone: newPhone })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['booking', bookingId] })
+      queryClient.invalidateQueries({ queryKey: ['inventory'] })
+      toast.success(language === 'mr' ? 'मोबाईल नंबर बदलला गेला!' : 'Customer phone number updated successfully')
+      setIsEditingPhone(false)
+      refetch()
+    },
+    onError: () => {
+      toast.error(language === 'mr' ? 'मोबाईल नंबर बदलण्यात अडचण आली' : 'Failed to update customer phone number')
+    }
+  })
+
+  const handleSaveCustomerPhone = () => {
+    if (!draftCustomerPhone.trim()) return
+    updateCustomerPhoneMutation.mutate(draftCustomerPhone)
   }
 
 
@@ -442,7 +447,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
       booking.payment_mode !== 'Pending' &&
       booking.payment_mode !== checkoutPaymentMode
     ) {
-      const splitNote = `Paid via ${booking.payment_mode}: ₹${prevPaid.toLocaleString('en-IN')} + ${checkoutPaymentMode}: ₹${additionalPaid.toLocaleString('en-IN')}`
+      const splitNote = `Paid via ${booking.payment_mode}: ₹${Math.round(prevPaid).toLocaleString('en-IN')} + ${checkoutPaymentMode}: ₹${Math.round(additionalPaid).toLocaleString('en-IN')}`
       updates.notes = booking.notes
         ? `${booking.notes} | ${splitNote}`
         : splitNote
@@ -613,20 +618,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
     })
   }
 
-  // Room details inline edit submission
-  const handleSaveRoomDetails = () => {
-    // Recalculate total if price/extra beds changed
-    const recalculatedTotal = (draftRoomPrice * nights) + extraBedTotal + (booking.extra_bill_amount || 0)
-    updateMutation.mutate({
-      room_id: draftRoomId,
-      room_type: draftRoomType,
-      adults: draftAdults,
-      children: draftChildren,
-      extra_beds: draftExtraBeds,
-      room_price: draftRoomPrice,
-      total_amount: recalculatedTotal
-    })
-  }
+
 
   // Date edit validation and submission
   const handleSaveDates = () => {
@@ -1462,40 +1454,96 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
               </div>
             </div>
 
-            <div className="flex items-center gap-2 bg-slate-900/60 border border-slate-800 rounded-xl px-3 py-2">
-              <a
-                href={`tel:${booking.customers?.phone}`}
-                className="group flex-1 flex items-center gap-2 text-sm font-bold text-slate-200 tracking-wide hover:text-emerald-400 transition min-w-0"
-              >
-                <Phone className="h-3 w-3 text-slate-500 group-hover:text-emerald-400 transition flex-shrink-0" />
-                <span className="truncate">{booking.customers?.phone}</span>
-              </a>
-              <a
-                href={`tel:${booking.customers?.phone}`}
-                className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-slate-955 text-xs font-black rounded-lg transition shadow-sm shadow-emerald-500/20"
-              >
-                <Phone className="h-3 w-3" />
-                {language === 'mr' ? 'कॉल' : 'Call'}
-              </a>
-              <button
-                type="button"
-                onClick={() => {
-                  navigator.clipboard.writeText(booking.customers?.phone ?? '').then(() => {
-                    toast.success(language === 'mr' ? 'नंबर कॉपी केला!' : 'Number copied!')
-                  }).catch(() => {
-                    toast.error(language === 'mr' ? 'नंबर कॉपी करू शकलो नाही' : 'Could not copy number')
-                  })
-                }}
-                className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-850 hover:bg-slate-700 active:bg-slate-900 text-slate-350 text-xs font-bold rounded-lg transition"
-              >
-                <Copy className="h-3 w-3" />
-                {language === 'mr' ? 'कॉपी' : 'Copy'}
-              </button>
-            </div>
+            {isEditingPhone ? (
+              <div className="flex items-center gap-1.5 w-full bg-slate-900/60 border border-slate-800 rounded-xl px-3 py-1.5">
+                <Phone className="h-3.5 w-3.5 text-slate-500 flex-shrink-0" />
+                <input
+                  type="text"
+                  value={draftCustomerPhone}
+                  onChange={(e) => setDraftCustomerPhone(e.target.value)}
+                  className="bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1 text-sm text-slate-100 font-bold focus:outline-none focus:border-emerald-500 w-full"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSaveCustomerPhone()
+                    if (e.key === 'Escape') {
+                      setDraftCustomerPhone(cleanPhoneDisplay(booking.customers?.phone) || '')
+                      setIsEditingPhone(false)
+                    }
+                  }}
+                />
+                <button
+                  onClick={handleSaveCustomerPhone}
+                  disabled={updateCustomerPhoneMutation.isPending}
+                  className="p-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-450 text-slate-955 transition flex-shrink-0"
+                >
+                  {updateCustomerPhoneMutation.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Check className="h-3.5 w-3.5" />
+                  )}
+                </button>
+                <button
+                  onClick={() => {
+                    setDraftCustomerPhone(cleanPhoneDisplay(booking.customers?.phone) || '')
+                    setIsEditingPhone(false)
+                  }}
+                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-205 transition flex-shrink-0"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 bg-slate-900/60 border border-slate-800 rounded-xl px-3 py-2">
+                <a
+                  href={`tel:${cleanPhoneDisplay(booking.customers?.phone)}`}
+                  className="group flex-1 flex items-center gap-2 text-sm font-bold text-slate-200 tracking-wide hover:text-emerald-400 transition min-w-0"
+                >
+                  <Phone className="h-3 w-3 text-slate-500 group-hover:text-emerald-400 transition flex-shrink-0" />
+                  <span className="truncate">{cleanPhoneDisplay(booking.customers?.phone)}</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDraftCustomerPhone(cleanPhoneDisplay(booking.customers?.phone) || '')
+                    setIsEditingPhone(true)
+                  }}
+                  className="text-slate-600 hover:text-slate-400 p-1 hover:bg-slate-800 rounded transition flex-shrink-0"
+                  title={language === 'mr' ? 'नंबर बदला' : 'Edit Phone'}
+                >
+                  <Edit2 className="h-3 w-3" />
+                </button>
+                <a
+                  href={`tel:${cleanPhoneDisplay(booking.customers?.phone)}`}
+                  className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-slate-955 text-xs font-black rounded-lg transition shadow-sm shadow-emerald-500/20"
+                >
+                  <Phone className="h-3 w-3" />
+                  {language === 'mr' ? 'कॉल' : 'Call'}
+                </a>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(cleanPhoneDisplay(booking.customers?.phone) ?? '').then(() => {
+                      toast.success(language === 'mr' ? 'नंबर कॉपी केला!' : 'Number copied!')
+                    }).catch(() => {
+                      toast.error(language === 'mr' ? 'नंबर कॉपी करू शकलो नाही' : 'Could not copy number')
+                    })
+                  }}
+                  className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-850 hover:bg-slate-700 active:bg-slate-900 text-slate-350 text-xs font-bold rounded-lg transition"
+                >
+                  <Copy className="h-3 w-3" />
+                  {language === 'mr' ? 'कॉपी' : 'Copy'}
+                </button>
+              </div>
+            )}
 
             {booking.occupation && (
               <div className="text-xs text-slate-500 px-0.5">
                 <span className="font-bold">{language === 'mr' ? 'व्यवसाय:' : 'Occupation:'}</span> {booking.occupation}
+              </div>
+            )}
+            {parsedNotes.reason && (
+              <div className="text-xs text-slate-500 px-0.5 mt-1">
+                <span className="font-bold">{language === 'mr' ? 'भेट देण्याचे कारण:' : 'Reason of Visit:'}</span> {parsedNotes.reason}
               </div>
             )}
           </div>
@@ -1525,7 +1573,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
                   className="flex items-center gap-1 bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 rounded-xl px-3 py-1.5 transition active:scale-[0.97]"
                 >
                   <span className="text-slate-400 text-sm font-black">₹</span>
-                  <span className="text-base font-black text-slate-100 tabular-nums">{Number(editingTotal).toLocaleString('en-IN')}</span>
+                  <span className="text-base font-black text-slate-100 tabular-nums">{Math.round(Number(editingTotal)).toLocaleString('en-IN')}</span>
                   <Edit2 className="h-3 w-3 text-slate-500 ml-1" />
                 </button>
               </div>
@@ -1553,7 +1601,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
                   className="flex items-center gap-1 bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 rounded-xl px-3 py-1.5 transition active:scale-[0.97] flex-shrink-0 mt-0.5"
                 >
                   <span className="text-slate-400 text-sm font-black">+₹</span>
-                  <span className="text-base font-black text-slate-300 tabular-nums">{Number(editingExtraAmount).toLocaleString('en-IN')}</span>
+                  <span className="text-base font-black text-slate-300 tabular-nums">{Math.round(Number(editingExtraAmount)).toLocaleString('en-IN')}</span>
                   <Edit2 className="h-3 w-3 text-slate-500 ml-1" />
                 </button>
               </div>
@@ -1580,7 +1628,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
                 >
                   <span className="text-emerald-500 text-sm font-black">₹</span>
                   <span className="text-base font-black text-emerald-400 tabular-nums">
-                    {(hasSplitPayment ? booking.deposit_amount : Number(editingPaid)).toLocaleString('en-IN')}
+                    {Math.round(hasSplitPayment ? booking.deposit_amount : Number(editingPaid)).toLocaleString('en-IN')}
                   </span>
                   {!hasSplitPayment && <Edit2 className="h-3 w-3 text-slate-500 ml-1" />}
                 </button>
@@ -1600,7 +1648,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
                   <div className="flex items-center gap-1 bg-slate-800/30 border border-slate-850 rounded-xl px-3 py-1.5 cursor-not-allowed opacity-80">
                     <span className="text-emerald-500 text-sm font-black">₹</span>
                     <span className="text-base font-black text-emerald-400/80 tabular-nums">
-                      {(booking.paid_amount - booking.deposit_amount).toLocaleString('en-IN')}
+                      {Math.round(booking.paid_amount - booking.deposit_amount).toLocaleString('en-IN')}
                     </span>
                   </div>
                 </div>
@@ -1616,7 +1664,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
                     : (language === 'mr' ? '✅ पूर्ण भरले' : '✅ Fully Settled')}
                 </span>
                 <span className={`text-3xl font-black tabular-nums ${livePendingAmount > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
-                  ₹{livePendingAmount.toLocaleString('en-IN')}
+                  ₹{Math.round(livePendingAmount).toLocaleString('en-IN')}
                 </span>
               </div>
             </div>
@@ -1636,205 +1684,6 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
           </div>
 
 
-
-          {/* 4. Room Card with Inline Editing */}
-          {/* 4. Room Card with Inline Editing */}
-          <div className="glass-panel p-4 rounded-2xl bg-slate-955/40 border border-slate-800/80 flex flex-col gap-4 flex-shrink-0">
-            <div className="flex justify-between items-center border-b border-slate-805/50 pb-2">
-              <span className="text-xs font-black uppercase tracking-wider text-slate-400">
-                🏨 {language === 'mr' ? 'खोली तपशील' : 'ROOM DETAILS'}
-              </span>
-              {booking.status === 'active' && (
-                <button
-                  type="button"
-                  onClick={() => setEditRoomMode(!editRoomMode)}
-                  className="text-xs font-black text-emerald-400 hover:text-emerald-350 transition"
-                >
-                  {editRoomMode ? (language === 'mr' ? '✕ रद्द' : '✕ Cancel') : (language === 'mr' ? '✏️ खोली बदला' : '✏️ Edit Room')}
-                </button>
-              )}
-            </div>
-
-            {!editRoomMode ? (
-              <div className="flex flex-col gap-2">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <div className="text-base font-black text-slate-100">
-                      {booking.room_type || booking.rooms?.room_type}
-                    </div>
-                    <div className="text-xs text-slate-500 font-semibold mt-0.5">
-                      {language === 'mr' ? `खोली क्रमांक: ${booking.rooms?.number}` : `Room Number: ${booking.rooms?.number}`}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-base font-black text-slate-100">
-                      ₹{booking.room_price}
-                    </div>
-                    <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">
-                      {language === 'mr' ? '/ प्रति रात्र' : '/ per night'}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2 mt-2 bg-slate-900/30 p-2.5 rounded-xl border border-slate-800/40 text-center">
-                  <div>
-                    <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold">{language === 'mr' ? 'प्रौढ' : 'Adults'}</span>
-                    <div className="text-xs font-black text-slate-200 mt-0.5">{booking.adults}</div>
-                  </div>
-                  <div>
-                    <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold">{language === 'mr' ? 'मुले' : 'Children'}</span>
-                    <div className="text-xs font-black text-slate-200 mt-0.5">{booking.children}</div>
-                  </div>
-                  <div>
-                    <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold">{language === 'mr' ? 'अतिरिक्त बेड' : 'Extra Beds'}</span>
-                    <div className="text-xs font-black text-slate-200 mt-0.5">{booking.extra_beds}</div>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="flex flex-col gap-1.5">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{language === 'mr' ? 'खोलीचा प्रकार' : 'ROOM TYPE'}</span>
-                    <select
-                      value={draftRoomType}
-                      onChange={(e) => setDraftRoomType(e.target.value as any)}
-                      className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-200 font-bold focus:outline-none focus:border-emerald-500 transition"
-                    >
-                      <option value="AC Deluxe">AC Deluxe</option>
-                      <option value="Non AC Deluxe">Non AC Deluxe</option>
-                      <option value="VIP AC Suite">VIP AC Suite</option>
-                      <option value="VIP Non AC Suite">VIP Non AC Suite</option>
-                    </select>
-                  </div>
-
-                  <div className="flex flex-col gap-1.5">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{language === 'mr' ? 'खोली क्रमांक' : 'ROOM NUMBER'}</span>
-                    {isLoadingAvailableRooms ? (
-                      <div className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-500 flex items-center justify-between font-bold">
-                        <span>Loading...</span>
-                        <Loader2 className="h-3 w-3 animate-spin text-emerald-400" />
-                      </div>
-                    ) : (
-                      <select
-                        value={draftRoomId}
-                        onChange={(e) => {
-                          const rId = e.target.value
-                          setDraftRoomId(rId)
-                          const selected = availableRooms.find(r => r.id === rId)
-                          if (selected) {
-                            setDraftRoomPrice(selected.base_price)
-                          }
-                        }}
-                        className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-200 font-bold focus:outline-none focus:border-emerald-500 transition"
-                      >
-                        {availableRooms
-                          .filter(r => r.room_type === draftRoomType)
-                          .map((r) => (
-                            <option key={r.id} value={r.id}>
-                              {r.number}
-                            </option>
-                          ))}
-                        {availableRooms.filter(r => r.room_type === draftRoomType).length === 0 && (
-                          <option value="">{language === 'mr' ? 'उपलब्ध नाही' : 'No vacant rooms'}</option>
-                        )}
-                      </select>
-                    )}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="flex flex-col items-center bg-slate-900/40 border border-slate-800/85 rounded-2xl p-2 text-center">
-                    <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold mb-1.5">{language === 'mr' ? 'प्रौढ' : 'Adults'}</span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setDraftAdults(prev => Math.max(1, prev - 1))}
-                        className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-350"
-                      >
-                        <Minus className="h-3.5 w-3.5" />
-                      </button>
-                      <span className="text-sm font-black text-slate-200 w-4">{draftAdults}</span>
-                      <button
-                        type="button"
-                        onClick={() => setDraftAdults(prev => prev + 1)}
-                        className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-350"
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col items-center bg-slate-900/40 border border-slate-800/85 rounded-2xl p-2 text-center">
-                    <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold mb-1.5">{language === 'mr' ? 'मुले' : 'Children'}</span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setDraftChildren(prev => Math.max(0, prev - 1))}
-                        className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-350"
-                      >
-                        <Minus className="h-3.5 w-3.5" />
-                      </button>
-                      <span className="text-sm font-black text-slate-200 w-4">{draftChildren}</span>
-                      <button
-                        type="button"
-                        onClick={() => setDraftChildren(prev => prev + 1)}
-                        className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-350"
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col items-center bg-slate-900/40 border border-slate-800/85 rounded-2xl p-2 text-center">
-                    <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold mb-1">{language === 'mr' ? 'अतिरिक्त बेड' : 'Extra Beds'}</span>
-                    <span className="text-[7px] text-slate-550 font-medium mb-1">+₹500/night</span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setDraftExtraBeds(prev => Math.max(0, prev - 1))}
-                        className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-350"
-                      >
-                        <Minus className="h-3.5 w-3.5" />
-                      </button>
-                      <span className="text-sm font-black text-slate-200 w-4">{draftExtraBeds}</span>
-                      <button
-                        type="button"
-                        onClick={() => setDraftExtraBeds(prev => prev + 1)}
-                        className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-350"
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{language === 'mr' ? 'किंमत (₹/रात्र)' : 'ROOM PRICE (₹/NIGHT)'}</span>
-                  <div className="flex items-center bg-slate-900 border border-slate-800 rounded-xl px-3 py-2">
-                    <span className="text-slate-500 text-sm font-bold mr-1.5">₹</span>
-                    <input
-                      type="text"
-                      readOnly
-                      value={draftRoomPrice}
-                      onClick={() => setActiveKeypad('roomPrice')}
-                      className="bg-transparent outline-none flex-1 text-slate-200 font-black text-sm cursor-pointer"
-                    />
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleSaveRoomDetails}
-                  disabled={updateMutation.isPending || !draftRoomId}
-                  className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black rounded-xl transition flex items-center justify-center gap-1.5 shadow-lg disabled:opacity-40"
-                >
-                  <Save className="h-4 w-4" />
-                  {language === 'mr' ? 'जतन करा' : 'Save Room Details'}
-                </button>
-              </div>
-            )}
-          </div>
 
           {/* 5. Guest ID Proofs */}
           <div className="glass-panel rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-955/30 flex-shrink-0">
@@ -1891,10 +1740,20 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
           </div>
 
           {/* 6. Notes */}
-          {booking.notes && (
-            <div className="p-3 bg-slate-955/40 border border-slate-805 rounded-2xl text-xs text-slate-700 dark:text-slate-400 leading-relaxed flex-shrink-0">
-              <span className="font-bold text-slate-500 dark:text-slate-500 block mb-1 uppercase tracking-wider">{language === 'mr' ? 'नोंद' : 'Notes'}</span>
-              {booking.notes}
+          {(parsedNotes.notes || parsedNotes.payments) && (
+            <div className="p-3 bg-slate-955/40 border border-slate-805 rounded-2xl text-xs text-slate-700 dark:text-slate-400 leading-relaxed flex-shrink-0 space-y-3">
+              {parsedNotes.notes && (
+                <div>
+                  <span className="font-bold text-slate-500 dark:text-slate-500 block mb-1 uppercase tracking-wider">{language === 'mr' ? 'नोंद' : 'Notes'}</span>
+                  <div className="whitespace-pre-wrap">{parsedNotes.notes}</div>
+                </div>
+              )}
+              {parsedNotes.payments && (
+                <div className={parsedNotes.notes ? "pt-2.5 border-t border-slate-800/40" : ""}>
+                  <span className="font-bold text-slate-500 dark:text-slate-500 block mb-1 uppercase tracking-wider">{language === 'mr' ? 'पेमेंट तपशील' : 'Payment Details'}</span>
+                  <div>{parsedNotes.payments}</div>
+                </div>
+              )}
             </div>
           )}
 
@@ -2077,7 +1936,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
                           })()} night${Math.max(1, Math.round((new Date(booking.check_out).getTime() - new Date(booking.check_in).getTime()) / 86400000)) !== 1 ? 's' : ''})`}
                     </span>
                     <span className="text-sm font-black text-slate-200 tabular-nums">
-                      ₹{(checkoutTotalAmount - extraAmt).toLocaleString('en-IN')}
+                      ₹{Math.round(checkoutTotalAmount - extraAmt).toLocaleString('en-IN')}
                     </span>
                   </div>
 
@@ -2087,7 +1946,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
                       <span className="text-xs text-slate-400 font-semibold">
                         {booking.extra_bill_note || (language === 'mr' ? 'अतिरिक्त शुल्क' : 'Extra Charges')}
                       </span>
-                      <span className="text-sm font-black text-slate-300 tabular-nums">+₹{extraAmt.toLocaleString('en-IN')}</span>
+                      <span className="text-sm font-black text-slate-300 tabular-nums">+₹{Math.round(extraAmt).toLocaleString('en-IN')}</span>
                     </div>
                   )}
 
@@ -2098,7 +1957,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
                         {language === 'mr' ? `आगाऊ भरले (${booking.payment_mode})` : `Advance paid (${booking.payment_mode})`}
                       </span>
                       <span className="text-sm font-black text-emerald-400 tabular-nums">
-                        −₹{(booking.paid_amount || 0).toLocaleString('en-IN')}
+                        −₹{Math.round(booking.paid_amount || 0).toLocaleString('en-IN')}
                       </span>
                     </div>
                   )}
@@ -2132,10 +1991,10 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
                         : 'text-emerald-400'
                     }`}>
                       ₹{checkoutIsPaymentPending
-                        ? (checkoutTotalAmount - checkoutPaidAmount).toLocaleString('en-IN')
+                        ? Math.round(checkoutTotalAmount - checkoutPaidAmount).toLocaleString('en-IN')
                         : checkoutDues > 0
-                        ? checkoutDues.toLocaleString('en-IN')
-                        : checkoutTotalAmount.toLocaleString('en-IN')}
+                        ? Math.round(checkoutDues).toLocaleString('en-IN')
+                        : Math.round(checkoutTotalAmount).toLocaleString('en-IN')}
                     </span>
                   </div>
                 </div>
@@ -2211,8 +2070,8 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
                           : 'Confirm Checkout (Payment Pending)')
                       : checkoutDues > 0
                       ? (language === 'mr'
-                          ? `₹${checkoutDues.toLocaleString('en-IN')} जमा करा व चेकआऊट`
-                          : `Collect ₹${checkoutDues.toLocaleString('en-IN')} via ${checkoutPaymentMode} & Checkout`)
+                          ? `₹${Math.round(checkoutDues).toLocaleString('en-IN')} जमा करा व चेकआऊट`
+                          : `Collect ₹${Math.round(checkoutDues).toLocaleString('en-IN')} via ${checkoutPaymentMode} & Checkout`)
                       : (language === 'mr' ? 'चेकआऊट निश्चित करा' : 'Confirm Checkout')}
                   </span>
                 </button>

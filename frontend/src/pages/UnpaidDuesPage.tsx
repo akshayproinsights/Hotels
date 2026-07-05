@@ -530,7 +530,7 @@ function DueCard({ due, onClick, onLongPress, language, getStatusLabel, getCheck
         {/* Due amount + Collect button */}
         <div className="flex items-center gap-2 shrink-0">
           <span className={`text-xs font-black ${isFullyUnpaid ? 'text-rose-400' : 'text-amber-300'}`}>
-            ₹{pending.toLocaleString()}
+            ₹{Math.round(pending).toLocaleString()}
           </span>
           <button
             onClick={(e) => { e.stopPropagation(); onClick(due.id) }}

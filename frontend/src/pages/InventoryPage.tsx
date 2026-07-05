@@ -127,7 +127,7 @@ export default function InventoryPage() {
         previousMode !== 'Pending' &&
         previousMode !== paymentMode
       ) {
-        const splitNote = `Paid via ${previousMode}: ₹${previousPaid.toLocaleString('en-IN')} + ${paymentMode}: ₹${additionalPaid.toLocaleString('en-IN')}`
+        const splitNote = `Paid via ${previousMode}: ₹${Math.round(previousPaid).toLocaleString('en-IN')} + ${paymentMode}: ₹${Math.round(additionalPaid).toLocaleString('en-IN')}`
         updates.notes = previousNotes ? `${previousNotes} | ${splitNote}` : splitNote
       }
       return updateBooking(bookingId, updates)
@@ -1095,7 +1095,7 @@ export default function InventoryPage() {
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 text-[10px] font-black px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/20 whitespace-nowrap">
-                              ⚠️ {language === 'mr' ? `₹${dues.toLocaleString()} बाकी` : `₹${dues.toLocaleString()} Due`}
+                              ⚠️ {language === 'mr' ? `₹${Math.round(dues).toLocaleString()} बाकी` : `₹${Math.round(dues).toLocaleString()} Due`}
                             </span>
                           )}
                           {hasIdProof ? (
@@ -1200,7 +1200,7 @@ export default function InventoryPage() {
                               className="flex items-center gap-1.5 bg-slate-850 hover:bg-slate-800 active:scale-[0.98] border border-slate-750 px-2.5 py-1 rounded-lg text-slate-200 transition"
                             >
                               <span className="text-xs text-slate-400 font-black">₹</span>
-                              <span className="text-sm font-black tabular-nums">{quickConfirm.totalAmount.toLocaleString('en-IN')}</span>
+                              <span className="text-sm font-black tabular-nums">{Math.round(quickConfirm.totalAmount).toLocaleString('en-IN')}</span>
                             </button>
                           </div>
                           <div className="flex justify-between items-center px-3 py-2 border-b border-slate-800/60">
@@ -1213,7 +1213,7 @@ export default function InventoryPage() {
                               className="flex items-center gap-1.5 bg-slate-850 hover:bg-slate-800 active:scale-[0.98] border border-slate-750 px-2.5 py-1 rounded-lg text-emerald-400 transition"
                             >
                               <span className="text-xs text-emerald-550 font-black">₹</span>
-                              <span className="text-sm font-black tabular-nums">{quickConfirm.paidAmount.toLocaleString('en-IN')}</span>
+                              <span className="text-sm font-black tabular-nums">{Math.round(quickConfirm.paidAmount).toLocaleString('en-IN')}</span>
                             </button>
                           </div>
                           <div className="flex justify-between items-center px-3 py-2.5">
@@ -1227,7 +1227,7 @@ export default function InventoryPage() {
                             <span className={`text-base font-black ${
                               quickConfirm.dues > 0 ? 'text-rose-400' : 'text-emerald-400'
                             }`}>
-                              ₹{quickConfirm.dues.toLocaleString()}
+                              ₹{Math.round(quickConfirm.dues).toLocaleString()}
                             </span>
                           </div>
                         </div>
@@ -1249,7 +1249,7 @@ export default function InventoryPage() {
                             }}
                             className="w-full py-2.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 active:scale-[0.98] border border-emerald-500/30 text-emerald-400 text-xs font-black rounded-xl transition flex items-center justify-center gap-2 shadow-sm"
                           >
-                            ⚡ {language === 'mr' ? `पूर्ण भरले (₹${quickConfirm.dues})` : `Mark Fully Paid (₹${quickConfirm.dues.toLocaleString()})`}
+                            ⚡ {language === 'mr' ? `पूर्ण भरले (₹${Math.round(quickConfirm.dues)})` : `Mark Fully Paid (₹${Math.round(quickConfirm.dues).toLocaleString()})`}
                           </button>
                         )}
 

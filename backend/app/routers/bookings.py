@@ -222,15 +222,15 @@ def create_booking(body: BookingCreate, user=Depends(get_current_user)):
         is_non_ac = "Non AC" in body.room_type
         eb_col = "non_ac_extra_bed_price" if is_non_ac else "extra_bed_price"
         room_res = supabase.table("rooms").select(eb_col).eq("id", body.room_id).execute()
-        extra_bed_price = room_res.data[0][eb_col] if room_res.data and eb_col in room_res.data[0] else 500.0
-        extra_bed_total = body.extra_beds * float(extra_bed_price) * nights
-        extra_bill_amount = body.extra_bill_amount or 0.0
+        extra_bed_price = int(round(float(room_res.data[0][eb_col]))) if room_res.data and eb_col in room_res.data[0] else 500
+        extra_bed_total = int(round(body.extra_beds * extra_bed_price * nights))
+        extra_bill_amount = int(round(body.extra_bill_amount or 0.0))
         if body.total_amount is not None:
-            total_amount = body.total_amount
+            total_amount = int(round(body.total_amount))
         else:
-            total_amount = (body.room_price * nights) + extra_bed_total + extra_bill_amount
+            total_amount = int(round(body.room_price * nights)) + extra_bed_total + extra_bill_amount
         # For 'paid': full amount; for 'partial'/'reserved'/'unpaid': only the deposit amount received
-        paid_amount = total_amount if body.payment_status == "paid" else body.deposit_amount
+        paid_amount = total_amount if body.payment_status == "paid" else int(round(body.deposit_amount))
 
         actual_payment_status = body.payment_status
         if body.payment_status != "reserved":
@@ -375,46 +375,58 @@ def create_bookings_batch(body: BookingBatchCreate, user=Depends(get_current_use
         
         room_ids = [r.room_id for r in body.rooms]
         rooms_res = supabase.table("rooms").select("id, extra_bed_price, non_ac_extra_bed_price").in_("id", room_ids).execute()
-        room_extra_prices = {r["id"]: float(r["extra_bed_price"] or 500.0) for r in (rooms_res.data or []) if "extra_bed_price" in r and r["extra_bed_price"] is not None}
-        room_non_ac_extra_prices = {r["id"]: float(r["non_ac_extra_bed_price"] or 500.0) for r in (rooms_res.data or []) if "non_ac_extra_bed_price" in r and r["non_ac_extra_bed_price"] is not None}
+        room_extra_prices = {r["id"]: int(round(float(r["extra_bed_price"] or 500.0))) for r in (rooms_res.data or []) if "extra_bed_price" in r and r["extra_bed_price"] is not None}
+        room_non_ac_extra_prices = {r["id"]: int(round(float(r["non_ac_extra_bed_price"] or 500.0))) for r in (rooms_res.data or []) if "non_ac_extra_bed_price" in r and r["non_ac_extra_bed_price"] is not None}
 
         room_totals = []
         for r in body.rooms:
             is_non_ac = "Non AC" in r.room_type
-            eb_price = room_non_ac_extra_prices.get(r.room_id, 500.0) if is_non_ac else room_extra_prices.get(r.room_id, 500.0)
-            extra_bed_total = r.extra_beds * eb_price * nights
-            room_total = (r.room_price * nights) + extra_bed_total
+            eb_price = room_non_ac_extra_prices.get(r.room_id, 500) if is_non_ac else room_extra_prices.get(r.room_id, 500)
+            extra_bed_total = int(round(r.extra_beds * eb_price * nights))
+            room_total = int(round(r.room_price * nights)) + extra_bed_total
             room_totals.append(room_total)
 
         # If the frontend sent an explicit total_amount (user edited the rate),
         # distribute it proportionally across rooms instead of recalculating.
         # Single-room bookings: the edited total is used directly.
         # Multi-room bookings: prorate by each room's share of the base total.
-        extra_bill_amt = body.extra_bill_amount or 0.0
+        extra_bill_amt = int(round(body.extra_bill_amount or 0.0))
         base_total_sum = sum(room_totals)  # sum of room_price * nights for all rooms
         if body.total_amount is not None and body.total_amount > 0 and base_total_sum > 0:
             # Strip out the extra_bill_amount before distributing (it is added back per room below)
-            user_total_no_extra = body.total_amount - extra_bill_amt
-            room_totals = [
-                round((rt / base_total_sum) * user_total_no_extra, 2)
+            user_total_no_extra = int(round(body.total_amount)) - extra_bill_amt
+            room_totals_floats = [
+                (rt / base_total_sum) * user_total_no_extra
                 for rt in room_totals
             ]
+            room_totals_int = [int(round(t)) for t in room_totals_floats]
+            current_sum = sum(room_totals_int)
+            diff = user_total_no_extra - current_sum
+            
+            if diff != 0:
+                step = 1 if diff > 0 else -1
+                for idx in range(abs(int(diff))):
+                    room_totals_int[idx % len(room_totals_int)] += step
+            room_totals = room_totals_int
 
-        remaining_deposit = body.deposit_amount
+        remaining_deposit = int(round(body.deposit_amount))
         bookings_to_create = []
         
         for i, r in enumerate(body.rooms):
             room_total = room_totals[i]
             is_non_ac = "Non AC" in r.room_type
-            eb_price = room_non_ac_extra_prices.get(r.room_id, 500.0) if is_non_ac else room_extra_prices.get(r.room_id, 500.0)
-            extra_bed_total = r.extra_beds * eb_price * nights
+            eb_price = room_non_ac_extra_prices.get(r.room_id, 500) if is_non_ac else room_extra_prices.get(r.room_id, 500)
+            extra_bed_total = int(round(r.extra_beds * eb_price * nights))
             
             if body.payment_status == "paid":
                 room_paid = room_total
                 room_status = "paid"
                 room_dep = 0
             elif body.payment_status == "reserved":
-                room_dep = body.deposit_amount / len(body.rooms)
+                num_rooms = len(body.rooms)
+                base_dep = remaining_deposit // num_rooms
+                remainder = remaining_deposit % num_rooms
+                room_dep = base_dep + (1 if i < remainder else 0)
                 room_paid = room_dep
                 room_status = "reserved"
             else:
@@ -576,6 +588,9 @@ def get_booking(booking_id: str, user=Depends(get_current_user)):
 def update_booking(booking_id: str, body: BookingUpdate, user=Depends(get_current_user)):
     try:
         updates = {k: v for k, v in body.dict().items() if v is not None}
+        for field in ["room_price", "paid_amount", "total_amount", "extra_bill_amount", "deposit_amount"]:
+            if field in updates and updates[field] is not None:
+                updates[field] = int(round(float(updates[field])))
         original_updates = body.dict(exclude_unset=True)
         has_explicit_dates = "check_in" in original_updates or "check_out" in original_updates
 
@@ -598,11 +613,11 @@ def update_booking(booking_id: str, body: BookingUpdate, user=Depends(get_curren
         if "extra_bill_amount" in updates:
             curr_res = supabase.table("bookings").select("extra_bill_amount, total_amount").eq("id", booking_id).single().execute()
             if curr_res.data:
-                old_extra = curr_res.data.get("extra_bill_amount") or 0.0
+                old_extra = int(round(float(curr_res.data.get("extra_bill_amount") or 0.0)))
                 new_extra = updates["extra_bill_amount"]
-                diff = float(new_extra) - float(old_extra)
+                diff = new_extra - old_extra
                 if diff != 0 and "total_amount" not in updates:
-                    updates["total_amount"] = float(curr_res.data.get("total_amount") or 0.0) + diff
+                    updates["total_amount"] = int(round(float(curr_res.data.get("total_amount") or 0.0))) + diff
 
         # Convert dates to ISO format
         if "check_in" in updates and updates["check_in"] is not None and isinstance(updates["check_in"], datetime):
@@ -615,11 +630,11 @@ def update_booking(booking_id: str, body: BookingUpdate, user=Depends(get_curren
             curr_res = supabase.table("bookings").select("room_price, extra_beds, check_in, check_out, extra_bill_amount, paid_amount, room_id, room_type").eq("id", booking_id).single().execute()
             if curr_res.data:
                 curr = curr_res.data
-                r_price = updates.get("room_price", curr["room_price"])
-                eb_count = updates.get("extra_beds", curr["extra_beds"])
+                r_price = int(round(float(updates.get("room_price", curr["room_price"]))))
+                eb_count = int(updates.get("extra_beds", curr["extra_beds"]))
                 c_in_str = updates.get("check_in", curr["check_in"])
                 c_out_str = updates.get("check_out", curr["check_out"])
-                eb_amount = updates.get("extra_bill_amount", curr["extra_bill_amount"] or 0.0)
+                eb_amount = int(round(float(updates.get("extra_bill_amount", curr["extra_bill_amount"] or 0.0))))
                 
                 c_in = datetime.fromisoformat(c_in_str.replace("Z", "+00:00")).date()
                 c_out = datetime.fromisoformat(c_out_str.replace("Z", "+00:00")).date()
@@ -630,9 +645,9 @@ def update_booking(booking_id: str, body: BookingUpdate, user=Depends(get_curren
                 is_non_ac = "Non AC" in r_type
                 eb_col = "non_ac_extra_bed_price" if is_non_ac else "extra_bed_price"
                 room_res = supabase.table("rooms").select(eb_col).eq("id", target_room_id).execute()
-                extra_bed_price = room_res.data[0][eb_col] if room_res.data and eb_col in room_res.data[0] else 500.0
+                extra_bed_price = int(round(float(room_res.data[0][eb_col]))) if room_res.data and eb_col in room_res.data[0] else 500
                 
-                extra_bed_total = eb_count * float(extra_bed_price) * nights
+                extra_bed_total = eb_count * extra_bed_price * nights
                 updates["extra_bed_total"] = extra_bed_total
                 
                 if "total_amount" not in updates:
@@ -643,8 +658,8 @@ def update_booking(booking_id: str, body: BookingUpdate, user=Depends(get_curren
             curr_res = supabase.table("bookings").select("paid_amount, total_amount, payment_status").eq("id", booking_id).single().execute()
             if curr_res.data:
                 curr = curr_res.data
-                p_amt = updates.get("paid_amount", curr["paid_amount"])
-                t_amt = updates.get("total_amount", curr["total_amount"])
+                p_amt = int(round(float(updates.get("paid_amount", curr["paid_amount"]))))
+                t_amt = int(round(float(updates.get("total_amount", curr["total_amount"]))))
                 p_status = updates.get("payment_status", curr["payment_status"])
                 if p_status != "reserved":
                     if p_amt >= t_amt:
@@ -786,3 +801,85 @@ def delete_booking(booking_id: str, user=Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Booking not found")
         
     return {"message": "Booking deleted successfully", "id": booking_id}
+
+
+@router.post("/auto-process")
+def auto_process_bookings(user=Depends(get_current_user)):
+    """
+    Automatically check-in and check-out bookings based on current time.
+    
+    - Auto Check-In: any active booking where is_checked_in=False AND check_in <= now
+    - Auto Check-Out: any active booking where check_out <= now
+    
+    This endpoint is called silently by the frontend on every page load and every 5 minutes
+    so room availability is always accurate even if staff forget to manually process guests.
+    """
+    now = datetime.now(IST)          # IST (UTC+5:30) — bookings are stored/compared in local time
+    now_iso = now.isoformat()
+
+    checked_in_count = 0
+    checked_out_count = 0
+    errors = []
+
+    try:
+        # ── AUTO CHECK-IN ──────────────────────────────────────────────────────
+        # Find all active bookings that have NOT been checked in yet
+        # but whose check_in time has already passed.
+        # Applies to ALL bookings regardless of payment_status (including reserved).
+        pending_checkins = supabase.table("bookings") \
+            .select("id, check_in, check_out") \
+            .eq("status", "active") \
+            .eq("is_checked_in", False) \
+            .lte("check_in", now_iso) \
+            .execute()
+
+        for booking in (pending_checkins.data or []):
+            try:
+                # Skip if check_out has also already passed — will be handled by auto-checkout below
+                check_out_dt = datetime.fromisoformat(booking["check_out"].replace("Z", "+00:00"))
+                if check_out_dt <= now:
+                    continue  # let auto-checkout handle it
+
+                supabase.table("bookings").update({
+                    "is_checked_in": True,
+                    "actual_checkin_time": now_iso,
+                }).eq("id", booking["id"]).execute()
+                checked_in_count += 1
+            except Exception as e:
+                errors.append(f"checkin {booking['id']}: {str(e)}")
+
+        # ── AUTO CHECK-OUT ─────────────────────────────────────────────────────
+        # Find all active bookings whose check_out time has already passed.
+        # Mark them as checked_out to free the room.
+        # Payment status is NOT changed — dues can still be collected.
+        pending_checkouts = supabase.table("bookings") \
+            .select("id, check_out, is_checked_in") \
+            .eq("status", "active") \
+            .lte("check_out", now_iso) \
+            .execute()
+
+        for booking in (pending_checkouts.data or []):
+            try:
+                update_payload: dict = {
+                    "status": "checked_out",
+                    "actual_checkout_time": now_iso,
+                }
+                # If somehow never checked in, mark it as well
+                if not booking.get("is_checked_in"):
+                    update_payload["is_checked_in"] = True
+                    update_payload["actual_checkin_time"] = now_iso
+
+                supabase.table("bookings").update(update_payload).eq("id", booking["id"]).execute()
+                checked_out_count += 1
+            except Exception as e:
+                errors.append(f"checkout {booking['id']}: {str(e)}")
+
+    except Exception as exc:
+        logging.error(f"auto_process_bookings error: {exc}")
+        raise HTTPException(status_code=500, detail=f"Auto-process failed: {str(exc)}")
+
+    return {
+        "checked_in": checked_in_count,
+        "checked_out": checked_out_count,
+        "errors": errors,
+    }
