@@ -1,6 +1,6 @@
 import { Link, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Calendar, Hotel, Clock, Settings, TrendingUp } from 'lucide-react'
+import { Calendar, Hotel, Clock, ScrollText, TrendingUp } from 'lucide-react'
 import { getUnpaidDues } from '../api/dues'
 import { useLanguage } from '../context/LanguageContext'
 import { useAuth } from '../hooks/useAuth'
@@ -91,8 +91,8 @@ export default function BottomNav() {
             : 'text-slate-500 hover:text-slate-300'
         }`}
       >
-        <Settings className="h-5 w-5" />
-        <span className="text-[10px] font-bold mt-1 tracking-wider uppercase leading-tight">{t('app_settings')}</span>
+      <ScrollText className="h-5 w-5" />
+        <span className="text-[10px] font-bold mt-1 tracking-wider uppercase leading-tight">History</span>
       </Link>
     </nav>
   )

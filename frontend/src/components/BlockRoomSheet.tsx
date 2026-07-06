@@ -232,11 +232,29 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
   const startDate = initialDate ? parse(initialDate, 'yyyy-MM-dd', new Date()) : now
   const initialCheckInDateStr = format(startDate, 'yyyy-MM-dd')
 
+  // Helper: get default check-in time for a given date string (yyyy-MM-dd)
+  // → today: current IST time rounded to nearest minute
+  // → future: 12:00 PM
+  const getDefaultCheckInTime = (dateStr: string): string => {
+    const todayStr = format(new Date(), 'yyyy-MM-dd')
+    if (dateStr === todayStr) {
+      // current IST time
+      const { IST_OFFSET_MS } = { IST_OFFSET_MS: (5 * 60 + 30) * 60 * 1000 }
+      const istNow = new Date(Date.now() + IST_OFFSET_MS)
+      const h = istNow.getUTCHours().toString().padStart(2, '0')
+      const m = istNow.getUTCMinutes().toString().padStart(2, '0')
+      return `${h}:${m}`
+    }
+    return '12:00'
+  }
+
   const checkInDateVal = initialCheckInISO ? formatIST_Date(initialCheckInISO) : initialCheckInDateStr
-  const checkInTimeVal = initialCheckInISO ? formatIST_HHmm(initialCheckInISO) : '12:00'
+  const checkInTimeVal = initialCheckInISO ? formatIST_HHmm(initialCheckInISO) : getDefaultCheckInTime(initialCheckInDateStr)
 
   const [checkInDate, setCheckInDate] = useState(checkInDateVal)
   const [checkInTime, setCheckInTime] = useState(checkInTimeVal)
+  // Track whether user has manually changed the check-in time
+  const [checkInTimeUserModified, setCheckInTimeUserModified] = useState(false)
   
   const parsedCheckInDate = parse(checkInDateVal, 'yyyy-MM-dd', new Date())
   const defaultCheckOut = addDays(parsedCheckInDate, 1)
@@ -592,6 +610,10 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
       if (!checkInDate || (checkInDate && checkOutDate)) {
         setCheckInDate(formatted)
         setCheckOutDate('')
+        // Auto-update check-in time only if user hasn't manually changed it
+        if (!checkInTimeUserModified) {
+          setCheckInTime(getDefaultCheckInTime(formatted))
+        }
       } else {
         const ci = parse(checkInDate, 'yyyy-MM-dd', new Date())
         if (isAfter(day, ci)) {
@@ -601,6 +623,10 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
         } else {
           setCheckInDate(formatted)
           setCheckOutDate('')
+          // Auto-update check-in time only if user hasn't manually changed it
+          if (!checkInTimeUserModified) {
+            setCheckInTime(getDefaultCheckInTime(formatted))
+          }
         }
       }
     }
@@ -632,6 +658,7 @@ export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, 
       if (ampm === 'AM' && h24 === 12) h24 = 0
       const newTime = `${h24.toString().padStart(2, '0')}:${min}`
       setCheckInTime(newTime)
+      setCheckInTimeUserModified(true)
     }
 
     const updateCheckOutTimeStr = (h12: string, min: string, ampm: string) => {

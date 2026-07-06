@@ -803,11 +803,14 @@ export default function InventoryPage() {
             stayoverCount > 0 ? 'text-sky-400' : 'text-slate-500'
           }`}>
             <span>🏨</span>
-            <span className="truncate">{language === 'mr' ? 'मुक्काम' : 'Stayovers'}</span>
+            <span className="truncate">{language === 'mr' ? 'पुढे राहणार' : 'Stayovers'}</span>
           </span>
           <span className={`text-xs sm:text-2xl font-black mt-0.5 sm:mt-2 tabular-nums ${
             stayoverCount > 0 ? 'text-sky-300' : 'text-slate-500'
           }`}>{stayoverCount}</span>
+          <span className={`text-[8px] font-semibold mt-0.5 leading-tight text-center sm:text-left ${
+            stayoverCount > 0 ? 'text-sky-500/70' : 'text-slate-600'
+          }`}>{language === 'mr' ? 'आज न निघणारे' : 'not leaving today'}</span>
         </button>
 
         {/* UNPAID */}
@@ -845,7 +848,7 @@ export default function InventoryPage() {
           }`}>
             {activeFilter === 'vacant' ? (language === 'mr' ? 'रिकाम्या खोल्या' : 'Vacant Rooms') :
              activeFilter === 'due-out' ? (language === 'mr' ? 'आज निघणारे' : 'Due Out Today') :
-             activeFilter === 'stayover' ? (language === 'mr' ? 'मुक्कामी ग्राहक' : 'Stayovers') :
+             activeFilter === 'stayover' ? (language === 'mr' ? 'पुढे राहणार (आज न निघणारे)' : 'Stayovers (not leaving today)') :
              activeFilter === 'unpaid' ? (language === 'mr' ? 'बाकी रक्कम' : 'Unpaid Dues') : ''}
           </span>
           <button

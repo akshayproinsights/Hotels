@@ -1546,6 +1546,32 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
                 <span className="font-bold">{language === 'mr' ? 'भेट देण्याचे कारण:' : 'Reason of Visit:'}</span> {parsedNotes.reason}
               </div>
             )}
+
+            {/* "Booked on" FYI chip — only for future / not-yet-checked-in reservations */}
+            {!booking.is_checked_in && booking.status === 'active' && booking.created_at && (() => {
+              const createdIST = (() => {
+                const IST_MS = (5 * 60 + 30) * 60 * 1000
+                const d = new Date(new Date(booking.created_at).getTime() + IST_MS)
+                const day = d.getUTCDate()
+                const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+                const monthNamesMr = ['जाने','फेब्रु','मार्च','एप्रि','मे','जून','जुलै','ऑग','सप्टे','ऑक्टो','नोव्हे','डिसे']
+                const mon = language === 'mr' ? monthNamesMr[d.getUTCMonth()] : monthNames[d.getUTCMonth()]
+                const yr = d.getUTCFullYear()
+                const h24 = d.getUTCHours()
+                const min = d.getUTCMinutes().toString().padStart(2, '0')
+                const ampm = h24 >= 12 ? 'PM' : 'AM'
+                const h12 = (h24 % 12 || 12).toString().padStart(2, '0')
+                return `${day} ${mon} ${yr}, ${h12}:${min} ${ampm}`
+              })()
+              return (
+                <div className="flex items-center gap-1.5 mt-2 px-0.5">
+                  <span className="text-[10px] text-slate-600 font-semibold">
+                    {language === 'mr' ? '🕐 बुकिंग केल्याची वेळ:' : '🕐 Booked on:'}
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-medium">{createdIST}</span>
+                </div>
+              )
+            })()}
           </div>
 
           {/* 3. Smart Bill Card — all payment info in one place */}

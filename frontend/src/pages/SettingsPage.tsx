@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Edit3, X, Save, AlertCircle, RefreshCw, Hotel, Users, Search, User, Phone, Calendar, Loader2, Check, Trash2, History } from 'lucide-react'
+import { Plus, Edit3, X, Save, AlertCircle, RefreshCw, Hotel, Users, Search, User, Phone, Calendar, Loader2, Check, Trash2, ScrollText } from 'lucide-react'
 import api from '../api/client'
 import { Room, Customer } from '../types'
 import toast from 'react-hot-toast'
@@ -453,7 +453,7 @@ export default function SettingsPage() {
               : 'text-slate-500 hover:text-slate-300 border border-transparent'
           }`}
         >
-          <History className="h-4 w-4 text-emerald-500" />
+          <ScrollText className="h-4 w-4 text-emerald-500" />
           {language === 'mr' ? 'इतिहास' : 'History'}
         </button>
         <button
