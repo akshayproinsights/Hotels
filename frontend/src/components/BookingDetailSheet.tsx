@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
@@ -31,6 +31,7 @@ import { formatNameByLanguage } from '../utils/nameHelper'
 import { formatIST_AMPM, formatIST_Date, formatIST_HHmm, toUTCfromIST } from '../utils/istTime'
 import { useLanguage } from '../context/LanguageContext'
 import { useVisualViewport } from '../hooks/useVisualViewport'
+import { compressImages } from '../utils/imageCompressor'
 import NumericKeypad from './NumericKeypad'
 import CameraCaptureModal from './CameraCaptureModal'
 
@@ -154,6 +155,8 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
   const [showRefDetails, setShowRefDetails] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   const [isCameraOpen, setIsCameraOpen] = useState(false)
+  // Prevents ghost-touch from camera close replaying on the sheet backdrop
+  const blockCloseRef = useRef(false)
 
   // Customer Name Edit States
   const [draftCustomerName, setDraftCustomerName] = useState('')
@@ -162,6 +165,13 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
   // Customer Phone Edit States
   const [draftCustomerPhone, setDraftCustomerPhone] = useState('')
   const [isEditingPhone, setIsEditingPhone] = useState(false)
+
+  // OCR / ID Extraction States
+  const [isExtractingId, setIsExtractingId] = useState(false)
+  const [showIdExtractBanner, setShowIdExtractBanner] = useState(false)
+  const [extractedIdName, setExtractedIdName] = useState('')
+  const [extractedIdAddress, setExtractedIdAddress] = useState('')
+  const [isSavingExtracted, setIsSavingExtracted] = useState(false)
 
   // Interactive ID Proof Viewer States
   const [selectedDocIndex, setSelectedDocIndex] = useState<number | null>(null)
@@ -459,32 +469,47 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
   const uploadAndExtractFiles = async (files: File[]) => {
     if (files.length === 0) return
     setIsUploading(true)
+    // Dismiss any previous extraction banner
+    setShowIdExtractBanner(false)
     const uploadToast = toast.loading(language === 'mr' ? `${files.length} ओळखपत्रे अपलोड होत आहेत...` : `Uploading ${files.length} document(s)...`)
     try {
-      for (const file of files) {
+      // Compress images before upload
+      const compressed = await compressImages(files)
+      for (const file of compressed) {
         const { upload_url, document_id } = await getUploadUrl(booking.id, booking.customer_id, file.name, file.type)
         await uploadFileToR2(upload_url, file)
         await confirmUpload(document_id)
       }
-      toast.success(language === 'mr' ? 'ओळखपत्रे यशस्वीरित्या जोडली गेली' : 'Documents added successfully', { id: uploadToast })
-      
-      // Auto-run OCR details extraction on the uploaded ID cards
+      toast.success(language === 'mr' ? 'ओळखपत्रे यशस्वीरित्या जोडली गेली' : 'Documents uploaded successfully', { id: uploadToast })
+      refetch()
+      refetchCustomerDocs()
+
+      // Run OCR on original (uncompressed) files for best accuracy
+      setIsExtractingId(true)
       try {
         const details = await extractNameFromId(files)
         if (details && details.name && details.name.trim()) {
-          const updates: Parameters<typeof updateCustomer>[1] = { name: details.name.trim() }
-          if (details.address) updates.address = details.address.trim()
-          if (details.age) updates.age = details.age
-          
-          await updateCustomer(booking.customer_id, updates)
-          toast.success(language === 'mr' ? `ओळखपत्रातून नाव अपडेट केले: ${details.name.trim()}` : `Extracted and updated guest name: ${details.name.trim()}`)
+          // Prefill editable extraction banner
+          setExtractedIdName(details.name.trim())
+          setExtractedIdAddress(details.address ? details.address.trim() : '')
+          setShowIdExtractBanner(true)
+          toast.success(
+            language === 'mr'
+              ? `ओळखपत्रातून माहिती मिळाली!`
+              : `ID scanned — review & save below`,
+            { duration: 3000 }
+          )
+        } else {
+          toast(language === 'mr' ? 'ओळखपत्रातून माहिती मिळाली नाही — कृपया स्वतः भरा' : 'Could not extract details — please fill manually', {
+            icon: '⚠️',
+            duration: 4000,
+          })
         }
       } catch (ocrErr) {
         console.error('OCR Extraction failed:', ocrErr)
+      } finally {
+        setIsExtractingId(false)
       }
-
-      refetch()
-      refetchCustomerDocs()
     } catch (err) {
       console.error(err)
       toast.error(language === 'mr' ? 'काही ओळखपत्रे अपलोड करण्यात अडचण आली' : 'Failed to upload one or more documents', { id: uploadToast })
@@ -493,9 +518,36 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
     }
   }
 
+  const handleSaveExtractedId = async () => {
+    if (!extractedIdName.trim() || !booking?.customer_id) return
+    setIsSavingExtracted(true)
+    try {
+      const updates: Parameters<typeof updateCustomer>[1] = { name: extractedIdName.trim() }
+      if (extractedIdAddress.trim()) updates.address = extractedIdAddress.trim()
+      await updateCustomer(booking.customer_id, updates)
+      // Refresh the booking to show updated name in the header
+      queryClient.invalidateQueries({ queryKey: ['booking', bookingId] })
+      queryClient.invalidateQueries({ queryKey: ['inventory'] })
+      refetch()
+      setShowIdExtractBanner(false)
+      toast.success(
+        language === 'mr'
+          ? `ग्राहकाची माहिती जतन केली: ${extractedIdName.trim()}`
+          : `Guest profile updated: ${extractedIdName.trim()}`
+      )
+    } catch (err) {
+      console.error('Failed to save extracted details:', err)
+      toast.error(language === 'mr' ? 'माहिती जतन करण्यात अडचण आली' : 'Failed to save guest details')
+    } finally {
+      setIsSavingExtracted(false)
+    }
+  }
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       await uploadAndExtractFiles(Array.from(e.target.files))
+      // Reset input so same file can be re-uploaded
+      e.target.value = ''
     }
   }
 
@@ -1048,7 +1100,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
     return (
       <div 
         className="fixed inset-0 z-55 flex flex-col bg-slate-955/95 backdrop-blur-md animate-fade-in"
-        onClick={() => setSelectedDocIndex(null)}
+        onClick={(e) => { e.stopPropagation(); setSelectedDocIndex(null) }}
       >
         {/* Header */}
         <div 
@@ -1269,7 +1321,6 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
   return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm"
-      onClick={onClose}
       style={viewport ? { height: `${viewport.height}px`, top: `${viewport.offsetTop}px`, bottom: 'auto' } : undefined}
     >
       <div
@@ -1713,53 +1764,155 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
 
           {/* 5. Guest ID Proofs */}
           <div className="glass-panel rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-955/30 flex-shrink-0">
+            {/* Section header */}
             <div className="flex items-center gap-2 px-4 py-3.5 border-b border-slate-200 dark:border-slate-800/60 bg-slate-50 dark:bg-transparent">
               <FileText className="h-3.5 w-3.5 text-indigo-500" />
               <span className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
                 {language === 'mr' ? 'ओळखपत्रे' : 'Guest ID Proofs'}
               </span>
+              {(isUploading || isExtractingId) && (
+                <span className="ml-auto flex items-center gap-1 text-[10px] font-bold text-amber-400">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  {isUploading
+                    ? (language === 'mr' ? 'अपलोड होत आहे...' : 'Uploading...')
+                    : (language === 'mr' ? 'स्कॅन होत आहे...' : 'Scanning ID...')}
+                </span>
+              )}
             </div>
 
             <div className="px-4 pb-4 flex flex-col gap-3">
-              <div className="flex flex-wrap gap-2 pt-3">
-                {(() => {
-                  if (docs.length > 0) {
-                    return docs.map((doc, idx) => (
-                      <button
-                        key={doc.id}
-                        type="button"
-                        onClick={() => setSelectedDocIndex(idx)}
-                        className="relative w-16 h-16 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-850 bg-slate-100 dark:bg-slate-955 flex items-center justify-center hover:border-emerald-500 transition cursor-pointer"
-                      >
-                        {doc.file_name.toLowerCase().endsWith('.pdf') ? (
-                          <FileText className="h-6 w-6 text-slate-400" />
-                        ) : (
-                          <img src={doc.public_url} alt={doc.file_name} className="w-full h-full object-cover" />
-                        )}
-                        <span className="absolute bottom-0 inset-x-0 bg-black/45 text-[8px] text-white font-bold px-1 py-0.5 truncate text-center">
-                          {doc.file_name}
-                        </span>
-                      </button>
-                    ))
-                  }
-                  return <div className="text-xs text-slate-500 dark:text-slate-550 italic py-1">{language === 'mr' ? 'ओळखपत्र जोडलेले नाही.' : 'No ID proofs uploaded yet.'}</div>
-                })()}
-              </div>
+              {/* Uploaded document thumbnails */}
+              {docs.length > 0 ? (
+                <div className="flex flex-wrap gap-2 pt-3">
+                  {docs.map((doc, idx) => (
+                    <button
+                      key={doc.id}
+                      type="button"
+                      onClick={() => setSelectedDocIndex(idx)}
+                      className="relative w-16 h-16 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-850 bg-slate-100 dark:bg-slate-955 flex items-center justify-center hover:border-emerald-500 transition cursor-pointer"
+                    >
+                      {doc.file_name.toLowerCase().endsWith('.pdf') ? (
+                        <FileText className="h-6 w-6 text-slate-400" />
+                      ) : (
+                        <img src={doc.public_url} alt={doc.file_name} className="w-full h-full object-cover" />
+                      )}
+                      <span className="absolute bottom-0 inset-x-0 bg-black/45 text-[8px] text-white font-bold px-1 py-0.5 truncate text-center">
+                        {doc.file_name}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                !isUploading && !isExtractingId && (
+                  <div className="mt-3 flex items-start gap-2.5 py-3 px-3 bg-slate-100 dark:bg-slate-900/60 border border-dashed border-slate-300 dark:border-slate-700/60 rounded-xl">
+                    <FileText className="h-4 w-4 text-slate-400 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                        {language === 'mr' ? 'ओळखपत्र जोडलेले नाही' : 'No ID uploaded yet'}
+                      </p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-550 mt-0.5 leading-relaxed">
+                        {language === 'mr'
+                          ? 'बुकिंगच्या वेळी, चेक-इनच्या वेळी किंवा नंतर कधीही अपलोड करा'
+                          : 'Can be uploaded at booking, check-in, or any time later'}
+                      </p>
+                    </div>
+                  </div>
+                )
+              )}
 
+              {/* OCR Extraction Banner — editable name & address */}
+              {showIdExtractBanner && (
+                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/6 overflow-hidden">
+                  <div className="flex items-center gap-1.5 px-3 pt-3 pb-2">
+                    <div className="h-5 w-5 rounded-full bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
+                      <Check className="h-3 w-3 text-emerald-400" />
+                    </div>
+                    <span className="text-xs font-black text-emerald-400 tracking-wide">
+                      {language === 'mr' ? 'ओळखपत्रातून माहिती मिळाली — तपासा व जतन करा' : 'ID scanned — review & save'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowIdExtractBanner(false)}
+                      className="ml-auto p-0.5 rounded-lg text-slate-500 hover:text-slate-300 transition"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+
+                  <div className="px-3 pb-3 flex flex-col gap-2">
+                    {/* Editable Name */}
+                    <div>
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-500 mb-1 block">
+                        {language === 'mr' ? 'नाव' : 'Name'}
+                      </label>
+                      <input
+                        type="text"
+                        value={extractedIdName}
+                        onChange={(e) => setExtractedIdName(e.target.value)}
+                        className="w-full text-xs font-semibold bg-slate-800/60 border border-slate-700/80 rounded-lg px-3 py-2 text-slate-100 placeholder:text-slate-600 focus:outline-none focus:ring-1 focus:ring-emerald-500/60"
+                        placeholder={language === 'mr' ? 'नाव टाका' : 'Enter name'}
+                      />
+                    </div>
+
+                    {/* Editable Address */}
+                    <div>
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-500 mb-1 block">
+                        {language === 'mr' ? 'पत्ता' : 'Address'}
+                      </label>
+                      <input
+                        type="text"
+                        value={extractedIdAddress}
+                        onChange={(e) => setExtractedIdAddress(e.target.value)}
+                        className="w-full text-xs font-semibold bg-slate-800/60 border border-slate-700/80 rounded-lg px-3 py-2 text-slate-100 placeholder:text-slate-600 focus:outline-none focus:ring-1 focus:ring-emerald-500/60"
+                        placeholder={language === 'mr' ? 'पत्ता टाका' : 'Enter address'}
+                      />
+                    </div>
+
+                    {/* Save button */}
+                    <button
+                      type="button"
+                      onClick={handleSaveExtractedId}
+                      disabled={isSavingExtracted || !extractedIdName.trim()}
+                      className="w-full py-2 px-3 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.99] text-slate-955 text-xs font-black rounded-lg transition flex items-center justify-center gap-1.5 mt-1 disabled:opacity-60"
+                    >
+                      {isSavingExtracted ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Check className="h-3.5 w-3.5" />
+                      )}
+                      {isSavingExtracted
+                        ? (language === 'mr' ? 'जतन होत आहे...' : 'Saving...')
+                        : (language === 'mr' ? 'ग्राहक प्रोफाईल अपडेट करा' : 'Save to Guest Profile')}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Upload buttons */}
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
                   onClick={() => setIsCameraOpen(true)}
-                  disabled={isUploading}
+                  disabled={isUploading || isExtractingId}
                   className="flex items-center justify-center gap-1.5 py-2.5 px-3 bg-slate-100 dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-700 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-850 transition text-xs font-semibold text-slate-600 dark:text-slate-400 disabled:opacity-50"
                 >
-                  <Camera className="h-3.5 w-3.5 text-slate-500" />
-                  {language === 'mr' ? 'फोटो काढा' : 'Capture'}
+                  {isUploading ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-400" />
+                  ) : (
+                    <Camera className="h-3.5 w-3.5 text-slate-500" />
+                  )}
+                  {language === 'mr' ? 'ओळखपत्र कॅप्चर करा' : 'Capture ID'}
                 </button>
-                <label className="flex items-center justify-center gap-1.5 py-2.5 px-3 bg-slate-100 dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-700 rounded-xl cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-850 transition text-xs font-semibold text-slate-600 dark:text-slate-400">
-                  <Upload className="h-3.5 w-3.5 text-slate-500" />
-                  {language === 'mr' ? 'फाईल निवडा' : 'Upload File'}
-                  <input type="file" accept="image/*,application/pdf" className="hidden" onChange={handleFileChange} disabled={isUploading} multiple />
+                <label className={`flex items-center justify-center gap-1.5 py-2.5 px-3 bg-slate-100 dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-700 rounded-xl transition text-xs font-semibold text-slate-600 dark:text-slate-400 ${
+                  isUploading || isExtractingId ? 'opacity-50 pointer-events-none' : 'cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-850'
+                }`}>
+                  {isUploading ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-400" />
+                  ) : (
+                    <Upload className="h-3.5 w-3.5 text-slate-500" />
+                  )}
+                  {language === 'mr' ? 'ओळखपत्र अपलोड करा' : 'Upload ID'}
+                  <input type="file" accept="image/*,application/pdf" className="hidden" onChange={handleFileChange} disabled={isUploading || isExtractingId} multiple />
                 </label>
               </div>
             </div>
@@ -2223,7 +2376,13 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
       {renderIDProofViewer()}
       <CameraCaptureModal
         isOpen={isCameraOpen}
-        onClose={() => setIsCameraOpen(false)}
+        onClose={() => {
+          setIsCameraOpen(false)
+          // Block backdrop close for 600ms so the touch that closes the camera
+          // doesn't ghost-replay on the sheet backdrop below it
+          blockCloseRef.current = true
+          setTimeout(() => { blockCloseRef.current = false }, 600)
+        }}
         onCaptureComplete={handleCameraCaptureComplete}
         language={language}
       />

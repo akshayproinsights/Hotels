@@ -32,6 +32,8 @@ export interface FinancialsResponse {
     date: string
     revenue: number
     bookings: number
+    blocked_rooms?: number
+    room_numbers?: string[]
   }>
   ledger: Array<{
     id: string

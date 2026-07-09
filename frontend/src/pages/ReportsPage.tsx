@@ -39,6 +39,7 @@ export default function ReportsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null)
   const [hoveredTrendIdx, setHoveredTrendIdx] = useState<number | null>(null)
+  const [chartTab, setChartTab] = useState<'revenue' | 'occupancy'>('revenue')
 
   // Mini Calendar State
   const [currentCalMonth, setCurrentCalMonth] = useState<Date>(new Date())
@@ -201,20 +202,28 @@ export default function ReportsPage() {
     const chartWidth = width - paddingLeft - paddingRight
     const chartHeight = height - paddingTop - paddingBottom
     
+    const isRevenue = chartTab === 'revenue'
+    const totalRooms = reportData.summary.total_rooms || 10
+    
     const maxRevenue = Math.max(...reportData.trend.map(t => t.revenue), 1000)
+    const maxBlocked = Math.max(...reportData.trend.map(t => t.blocked_rooms || 0), totalRooms, 1)
 
     const points = reportData.trend.map((item, idx) => {
       const divisor = reportData.trend.length - 1
       const x = divisor > 0 
         ? paddingLeft + (idx / divisor) * chartWidth
         : paddingLeft + chartWidth / 2
-      const y = paddingTop + chartHeight - (item.revenue / maxRevenue) * chartHeight
+      
+      const val = isRevenue ? item.revenue : (item.blocked_rooms || 0)
+      const maxVal = isRevenue ? maxRevenue : maxBlocked
+      const y = paddingTop + chartHeight - (val / maxVal) * chartHeight
       return { x, y, ...item }
     })
 
     const gridLines = [0, 0.5, 1].map(pct => {
       const y = paddingTop + chartHeight * pct
-      const val = Math.round(maxRevenue * (1 - pct))
+      const maxVal = isRevenue ? maxRevenue : maxBlocked
+      const val = Math.round(maxVal * (1 - pct))
       return { y, val }
     })
 
@@ -242,9 +251,10 @@ export default function ReportsPage() {
       points,
       gridLines,
       linePath,
-      areaPath
+      areaPath,
+      isRevenue
     }
-  }, [reportData?.trend])
+  }, [reportData?.trend, reportData?.summary.total_rooms, chartTab])
 
   // Payment modes calculation list
   const paymentModesList = useMemo(() => {
@@ -542,11 +552,39 @@ export default function ReportsPage() {
             
             {/* Chart Column */}
             <div className="glass-panel p-4 border border-slate-800/40 rounded-3xl relative flex flex-col justify-between h-[270px]">
-              <div>
+              <div className="flex items-center justify-between">
                 <h3 className="text-xs font-black uppercase text-slate-400 tracking-wider flex items-center gap-1.5">
-                  <TrendingUp className="h-3.5 w-3.5 text-emerald-400" />
-                  {t('revenue_trend')}
+                  {chartTab === 'revenue' ? (
+                    <TrendingUp className="h-3.5 w-3.5 text-emerald-400" />
+                  ) : (
+                    <Hotel className="h-3.5 w-3.5 text-violet-400" />
+                  )}
+                  {chartTab === 'revenue' ? t('revenue_trend') : t('occupancy_trend')}
                 </h3>
+                
+                {/* Tab toggle buttons */}
+                <div className="flex bg-slate-950/60 p-0.5 rounded-xl border border-slate-800/60">
+                  <button
+                    onClick={() => setChartTab('revenue')}
+                    className={`px-2.5 py-1 text-[9px] font-extrabold rounded-lg transition-all ${
+                      chartTab === 'revenue'
+                        ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/10'
+                        : 'text-slate-450 hover:text-slate-350'
+                    }`}
+                  >
+                    {language === 'mr' ? 'कमाई' : 'Revenue'}
+                  </button>
+                  <button
+                    onClick={() => setChartTab('occupancy')}
+                    className={`px-2.5 py-1 text-[9px] font-extrabold rounded-lg transition-all ${
+                      chartTab === 'occupancy'
+                        ? 'bg-violet-500 text-slate-950 shadow-md shadow-violet-500/10'
+                        : 'text-slate-450 hover:text-slate-350'
+                    }`}
+                  >
+                    {language === 'mr' ? 'वापर' : 'Occupancy'}
+                  </button>
+                </div>
               </div>
 
               {/* SVG Chart area */}
@@ -559,9 +597,13 @@ export default function ReportsPage() {
                       preserveAspectRatio="none"
                     >
                       <defs>
-                        <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
+                        <linearGradient id="chartGradRevenue" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="0%" stopColor="#10b981" stopOpacity="0.3" />
                           <stop offset="100%" stopColor="#10b981" stopOpacity="0.0" />
+                        </linearGradient>
+                        <linearGradient id="chartGradOccupancy" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#8b5cf6" stopOpacity="0.3" />
+                          <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0.0" />
                         </linearGradient>
                       </defs>
 
@@ -585,17 +627,23 @@ export default function ReportsPage() {
                             fontWeight="black"
                             textAnchor="end"
                           >
-                            ₹{line.val >= 1000 ? `${(line.val / 1000).toFixed(0)}k` : line.val}
+                            {chartSvg.isRevenue 
+                              ? `₹${line.val >= 1000 ? `${(line.val / 1000).toFixed(0)}k` : line.val}`
+                              : `${line.val}`
+                            }
                           </text>
                         </g>
                       ))}
 
                       {/* Fill area & Draw line */}
-                      <path d={chartSvg.areaPath} fill="url(#chartGrad)" />
+                      <path
+                        d={chartSvg.areaPath}
+                        fill={chartSvg.isRevenue ? "url(#chartGradRevenue)" : "url(#chartGradOccupancy)"}
+                      />
                       <path
                         d={chartSvg.linePath}
                         fill="none"
-                        stroke="#10b981"
+                        stroke={chartSvg.isRevenue ? "#10b981" : "#8b5cf6"}
                         strokeWidth="2.5"
                         strokeLinecap="round"
                         strokeLinejoin="round"
@@ -609,7 +657,11 @@ export default function ReportsPage() {
                             cx={p.x}
                             cy={p.y}
                             r={hoveredTrendIdx === idx ? 5.5 : 2}
-                            fill={hoveredTrendIdx === idx ? '#34d399' : '#10b981'}
+                            fill={
+                              hoveredTrendIdx === idx
+                                ? (chartSvg.isRevenue ? '#34d399' : '#a78bfa')
+                                : (chartSvg.isRevenue ? '#10b981' : '#8b5cf6')
+                            }
                             stroke="#0b0f19"
                             strokeWidth={hoveredTrendIdx === idx ? 2.5 : 1}
                           />
@@ -641,12 +693,41 @@ export default function ReportsPage() {
                         <div className="font-extrabold text-slate-400">
                           {format(parseISO(chartSvg.points[hoveredTrendIdx].date), 'dd MMM yyyy')}
                         </div>
-                        <div className="text-emerald-400 font-black mt-0.5">
-                          ₹{Math.round(chartSvg.points[hoveredTrendIdx].revenue).toLocaleString('en-IN')}
-                        </div>
-                        <div className="text-slate-500 font-bold">
-                          {chartSvg.points[hoveredTrendIdx].bookings} {language === 'mr' ? 'बुकिंग' : 'Bookings'}
-                        </div>
+                        {chartSvg.isRevenue ? (
+                          <>
+                            <div className="text-emerald-400 font-black mt-0.5">
+                              ₹{Math.round(chartSvg.points[hoveredTrendIdx].revenue).toLocaleString('en-IN')}
+                            </div>
+                            <div className="text-slate-500 font-bold">
+                              {chartSvg.points[hoveredTrendIdx].bookings} {language === 'mr' ? 'बुकिंग' : 'Bookings'}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="text-violet-400 font-black mt-0.5">
+                              {chartSvg.points[hoveredTrendIdx].blocked_rooms || 0} / {reportData?.summary.total_rooms || 0} {language === 'mr' ? 'खोल्या ब्लॉक' : 'Rooms Blocked'}
+                            </div>
+                            <div className="text-slate-500 font-bold">
+                              {reportData?.summary.total_rooms
+                                ? `${Math.round(((chartSvg.points[hoveredTrendIdx].blocked_rooms || 0) / reportData.summary.total_rooms) * 100)}% ${language === 'mr' ? 'ऑक्युपन्सी' : 'Occupancy'}`
+                                : ''}
+                            </div>
+                            {(chartSvg.points[hoveredTrendIdx].room_numbers ?? []).length > 0 && (
+                              <div className="mt-1 pt-1 border-t border-slate-700">
+                                <div className="text-slate-500 text-[9px] font-bold uppercase tracking-wider mb-0.5">
+                                  {language === 'mr' ? 'खोल्या' : 'Rooms'}
+                                </div>
+                                <div className="flex flex-wrap gap-0.5">
+                                  {(chartSvg.points[hoveredTrendIdx].room_numbers ?? []).map((rn: string) => (
+                                    <span key={rn} className="bg-violet-900/60 text-violet-300 text-[9px] font-bold px-1.5 py-0.5 rounded">
+                                      #{rn}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        )}
                       </div>
                     )}
                   </div>

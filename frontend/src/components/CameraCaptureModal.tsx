@@ -23,6 +23,35 @@ export default function CameraCaptureModal({
   const [flash, setFlash] = useState(false)
   const [permissionError, setPermissionError] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
+  // Tracks whether we pushed a history entry so we can pop it on normal close
+  const pushedHistoryRef = useRef(false)
+
+  // Push a dummy history entry when the camera opens so the Android hardware
+  // back button / swipe-back gesture closes the modal instead of navigating away
+  useEffect(() => {
+    if (!isOpen) return
+
+    // Push our sentinel state
+    window.history.pushState({ cameraModalOpen: true }, '')
+    pushedHistoryRef.current = true
+
+    const handlePopState = () => {
+      // Back was pressed — just close the modal; history already went back
+      pushedHistoryRef.current = false
+      onClose()
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => {
+      window.removeEventListener('popstate', handlePopState)
+      // If the modal closed normally (Done / X), pop the sentinel we pushed
+      if (pushedHistoryRef.current) {
+        pushedHistoryRef.current = false
+        window.history.back()
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen])
 
   // Enumerate video devices
   useEffect(() => {
