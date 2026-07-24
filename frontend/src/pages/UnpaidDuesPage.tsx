@@ -12,7 +12,7 @@ import {
   Wallet,
   X,
 } from 'lucide-react'
-import { getUnpaidDues } from '../api/dues'
+import { getUnpaidDues, UnpaidDuesResponse } from '../api/dues'
 import BookingDetailSheet from '../components/BookingDetailSheet'
 import { useLanguage } from '../context/LanguageContext'
 import { getCustomerNameDisplay, cleanPhoneDisplay } from '../utils/customer'
@@ -20,6 +20,64 @@ import { shortenLongName, formatNameByLanguage } from '../utils/nameHelper'
 import useLongPress from '../hooks/useLongPress'
 import { cancelBooking, restoreBooking } from '../api/bookings'
 import toast from 'react-hot-toast'
+
+export interface CustomerDueGroup {
+  groupKey: string
+  customerName: string
+  customerPhone: string
+  isDeleted: boolean
+  bookings: UnpaidDuesResponse[]
+  totalDue: number
+  mostUrgentCheckout: string
+  hasAnyOverdue: boolean
+  hasAnyToday: boolean
+}
+
+function groupDuesByCustomer(dues: UnpaidDuesResponse[]): CustomerDueGroup[] {
+  const map = new Map<string, UnpaidDuesResponse[]>()
+
+  for (const due of dues) {
+    const rawPhone = due.customers?.phone ?? ''
+    const cleanPhone = cleanPhoneDisplay(rawPhone)
+    const rawName = due.customers?.name ?? ''
+    const groupKey = cleanPhone || rawName || due.id
+
+    if (!map.has(groupKey)) map.set(groupKey, [])
+    map.get(groupKey)!.push(due)
+  }
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  const groups: CustomerDueGroup[] = []
+
+  for (const [groupKey, bookings] of map.entries()) {
+    const sorted = [...bookings].sort((a, b) => a.check_out.localeCompare(b.check_out))
+
+    const totalDue = sorted.reduce((sum, b) => sum + (b.total_amount - b.paid_amount), 0)
+    const mostUrgentCheckout = sorted[0].check_out
+    
+    const rawName = sorted[0].customers?.name ?? ''
+    const { isDeleted } = getCustomerNameDisplay(rawName)
+
+    const hasAnyOverdue = sorted.some(b => isBefore(parseISO(b.check_out), today))
+    const hasAnyToday   = sorted.some(b => isToday(parseISO(b.check_out)))
+
+    groups.push({
+      groupKey,
+      customerName: rawName,
+      customerPhone: sorted[0].customers?.phone ?? '',
+      isDeleted,
+      bookings: sorted,
+      totalDue,
+      mostUrgentCheckout,
+      hasAnyOverdue,
+      hasAnyToday,
+    })
+  }
+
+  return groups
+}
 
 export default function UnpaidDuesPage() {
   const queryClient = useQueryClient()
@@ -93,24 +151,22 @@ export default function UnpaidDuesPage() {
     setQuickActionDue(due)
   }
 
-  // Sort by checkout date (earliest/overdue first), then by highest due amount
-  const sortedData = unpaidData
-    ? [...unpaidData].sort((a, b) => {
-        const dateCompare = a.check_out.localeCompare(b.check_out)
-        if (dateCompare !== 0) {
-          return dateCompare
-        }
-        const aDue = a.total_amount - a.paid_amount
-        const bDue = b.total_amount - b.paid_amount
-        return bDue - aDue
-      })
-    : []
+  // Group the unpaid dues by customer
+  const allGroups = unpaidData ? groupDuesByCustomer(unpaidData) : []
+
+  // Sort groups: most urgent checkout first, then by total due amount descending
+  const groupedData = [...allGroups].sort((a, b) => {
+    const dateCompare = a.mostUrgentCheckout.localeCompare(b.mostUrgentCheckout)
+    if (dateCompare !== 0) {
+      return dateCompare
+    }
+    return b.totalDue - a.totalDue
+  })
 
   const handleCardClick = (bookingId: string) => {
     setSelectedBookingId(bookingId)
   }
 
-  // Helper: get urgency info from checkout date
   function getCheckoutUrgency(checkOut: string) {
     const coDate = parseISO(checkOut)
     const today = new Date()
@@ -133,9 +189,6 @@ export default function UnpaidDuesPage() {
     return { label, color: 'text-slate-400', bg: 'bg-slate-800/40 border-slate-700/30', icon: 'normal' }
   }
 
-  // Helper: plain English payment status
-  // When a guest was auto-checked-out (or manually "Checkout (Payment Pending)"),
-  // payment_mode='Pending' + status='checked_out' — show a distinct label.
   function getStatusLabel(paymentStatus: string, paymentMode?: string | null, bookingStatus?: string) {
     const isCheckoutPending = bookingStatus === 'checked_out' && paymentMode === 'Pending'
     if (isCheckoutPending) {
@@ -155,25 +208,24 @@ export default function UnpaidDuesPage() {
   const todayDateObj = new Date()
   todayDateObj.setHours(0, 0, 0, 0)
 
-  const urgentDues = sortedData.filter(due => {
-    const coDate = parseISO(due.check_out)
-    return isBefore(coDate, todayDateObj) || isToday(coDate)
-  })
+  // Filtering groups based on active filter
+  const urgentGroups = groupedData.filter(g => g.hasAnyOverdue || g.hasAnyToday)
+  const futureGroups = groupedData.filter(g => !g.hasAnyOverdue && !g.hasAnyToday)
 
-  const futureDues = sortedData.filter(due => {
-    const coDate = parseISO(due.check_out)
-    return !isBefore(coDate, todayDateObj) && !isToday(coDate)
-  })
+  // Counts of bookings/rooms for filter tabs and counts badge
+  const totalBookingsCount = groupedData.reduce((acc, g) => acc + g.bookings.length, 0)
+  const urgentBookingsCount = urgentGroups.reduce((acc, g) => acc + g.bookings.length, 0)
+  const futureBookingsCount = futureGroups.reduce((acc, g) => acc + g.bookings.length, 0)
 
-  const renderDueCard = (due: typeof sortedData[0]) => {
+  const renderGroup = (group: CustomerDueGroup) => {
     return (
-      <DueCard
-        key={due.id}
-        due={due}
-        onClick={handleCardClick}
+      <CustomerDueGroupCard
+        key={group.groupKey}
+        group={group}
+        onCollect={handleCardClick}
         onLongPress={handleDueLongPress}
         language={language}
-        getStatusLabel={(status: string) => getStatusLabel(status, due.payment_mode, due.status)}
+        getStatusLabel={(status: string, mode?: string | null, bStatus?: string) => getStatusLabel(status, mode, bStatus)}
         getCheckoutUrgency={getCheckoutUrgency}
       />
     )
@@ -187,9 +239,9 @@ export default function UnpaidDuesPage() {
         <div>
           <h1 className="text-2xl font-extrabold tracking-tight text-slate-100 flex items-center gap-2 flex-wrap">
             <span>💰 {language === 'mr' ? 'बाकी रक्कम गोळा करा' : 'Dues to Collect'}</span>
-            {sortedData.length > 0 && (
+            {totalBookingsCount > 0 && (
               <span className="inline-flex items-center gap-1 bg-amber-500/15 border border-amber-500/25 text-amber-400 text-sm font-black px-2.5 py-0.5 rounded-xl animate-fade-in">
-                {sortedData.length} {language === 'mr' ? 'खाते' : sortedData.length === 1 ? 'Customer' : 'Customers'}
+                {totalBookingsCount} {language === 'mr' ? 'खोल्या' : totalBookingsCount === 1 ? 'Room' : 'Rooms'}
               </span>
             )}
           </h1>
@@ -199,7 +251,7 @@ export default function UnpaidDuesPage() {
         <button
           onClick={() => unpaidRefetch()}
           disabled={unpaidRefetching}
-          className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
+          className="p-2.5 rounded-xl bg-slate-955 border border-slate-800 hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition"
           title="Refresh"
         >
           <RefreshCw className={`h-4 w-4 ${unpaidRefetching ? 'animate-spin' : ''}`} />
@@ -226,7 +278,7 @@ export default function UnpaidDuesPage() {
         <div className="space-y-5">
 
           {/* Filter Tabs */}
-          {sortedData.length > 0 && (
+          {totalBookingsCount > 0 && (
             <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
               <button
                 onClick={() => setSearchParams({})}
@@ -237,8 +289,8 @@ export default function UnpaidDuesPage() {
                 }`}
               >
                 <span>{language === 'mr' ? 'सर्व बाकी' : 'All Dues'}</span>
-                <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-black ${activeFilter === 'all' ? 'bg-slate-950/20 text-slate-950' : 'bg-slate-800 text-slate-400'}`}>
-                  {sortedData.length}
+                <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-black ${activeFilter === 'all' ? 'bg-slate-955/20 text-slate-955' : 'bg-slate-800 text-slate-400'}`}>
+                  {totalBookingsCount}
                 </span>
               </button>
 
@@ -252,8 +304,8 @@ export default function UnpaidDuesPage() {
               >
                 <span className={`h-2 w-2 rounded-full ${activeFilter === 'today' ? 'bg-slate-950 animate-pulse' : 'bg-amber-400'}`} />
                 <span>{language === 'mr' ? 'आज देणे / थकीत' : 'Due Today'}</span>
-                <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-black ${activeFilter === 'today' ? 'bg-slate-950/20 text-slate-950' : 'bg-amber-500/20 text-amber-400'}`}>
-                  {urgentDues.length}
+                <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-black ${activeFilter === 'today' ? 'bg-slate-955/20 text-slate-955' : 'bg-amber-500/20 text-amber-400'}`}>
+                  {urgentBookingsCount}
                 </span>
               </button>
 
@@ -266,27 +318,27 @@ export default function UnpaidDuesPage() {
                 }`}
               >
                 <span>{language === 'mr' ? 'भविष्यातील बाकी' : 'Future Dues'}</span>
-                <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-black ${activeFilter === 'future' ? 'bg-slate-950/20 text-slate-950' : 'bg-slate-800 text-slate-400'}`}>
-                  {futureDues.length}
+                <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-black ${activeFilter === 'future' ? 'bg-slate-955/20 text-slate-955' : 'bg-slate-800 text-slate-400'}`}>
+                  {futureBookingsCount}
                 </span>
               </button>
             </div>
           )}
 
           {/* Guest Cards */}
-          {sortedData.length === 0 ? (
+          {totalBookingsCount === 0 ? (
             <div className="glass-panel rounded-2xl p-12 text-center flex flex-col items-center gap-3 border-slate-800/40 bg-slate-900/20">
               <CheckCircle2 className="h-10 w-10 text-emerald-400" />
               <p className="text-slate-300 font-bold text-base">{language === 'mr' ? 'सर्व पेमेंट पूर्ण!' : 'All Clear!'}</p>
               <p className="text-slate-500 text-xs">{t('no_pending_payments')}</p>
             </div>
-          ) : activeFilter === 'today' && urgentDues.length === 0 ? (
+          ) : activeFilter === 'today' && urgentBookingsCount === 0 ? (
             <div className="glass-panel rounded-2xl p-12 text-center flex flex-col items-center gap-3 border-slate-800/40 bg-slate-900/20">
               <CheckCircle2 className="h-10 w-10 text-emerald-400" />
               <p className="text-slate-300 font-bold text-base">{language === 'mr' ? 'आज कोणतीही थकीत रक्कम नाही!' : 'No dues today!'}</p>
               <p className="text-slate-500 text-xs">{language === 'mr' ? 'आज किंवा मागील थकबाकी असलेले कोणतेही खाते नाही' : 'There are no accounts due today or overdue'}</p>
             </div>
-          ) : activeFilter === 'future' && futureDues.length === 0 ? (
+          ) : activeFilter === 'future' && futureBookingsCount === 0 ? (
             <div className="glass-panel rounded-2xl p-12 text-center flex flex-col items-center gap-3 border-slate-800/40 bg-slate-900/20">
               <CheckCircle2 className="h-10 w-10 text-emerald-400" />
               <p className="text-slate-300 font-bold text-base">{language === 'mr' ? 'भविष्यातील कोणतीही बाकी नाही' : 'No future dues!'}</p>
@@ -296,35 +348,35 @@ export default function UnpaidDuesPage() {
             <div className="flex flex-col gap-6">
               
               {/* Group 1: Urgent Dues (Checkout Today & Overdue) */}
-              {(activeFilter === 'all' || activeFilter === 'today') && urgentDues.length > 0 && (
+              {(activeFilter === 'all' || activeFilter === 'today') && urgentGroups.length > 0 && (
                 <div className="flex flex-col gap-3.5">
                   {activeFilter === 'all' && (
                     <div className="flex items-center gap-2 border-b border-slate-800/60 pb-2">
                       <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
                       <h2 className="text-xs font-black uppercase tracking-wider text-amber-400">
-                        {language === 'mr' ? 'आज आणि मागील थकीत रक्कम' : 'Collect Today & Overdue'} ({urgentDues.length})
+                        {language === 'mr' ? 'आज आणि मागील थकीत रक्कम' : 'Collect Today & Overdue'} ({urgentBookingsCount})
                       </h2>
                     </div>
                   )}
                   <div className="flex flex-col gap-3">
-                    {urgentDues.map((due) => renderDueCard(due))}
+                    {urgentGroups.map((group) => renderGroup(group))}
                   </div>
                 </div>
               )}
 
               {/* Group 2: Future Dues */}
-              {(activeFilter === 'all' || activeFilter === 'future') && futureDues.length > 0 && (
+              {(activeFilter === 'all' || activeFilter === 'future') && futureGroups.length > 0 && (
                 <div className="flex flex-col gap-3.5">
                   {activeFilter === 'all' && (
                     <div className="flex items-center gap-2 border-b border-slate-800/60 pb-2">
                       <span className="h-2 w-2 rounded-full bg-slate-600" />
                       <h2 className="text-xs font-black uppercase tracking-wider text-slate-400">
-                        {language === 'mr' ? 'भविष्यातील थकबाकी' : 'Future Dues'} ({futureDues.length})
+                        {language === 'mr' ? 'भविष्यातील थकबाकी' : 'Future Dues'} ({futureBookingsCount})
                       </h2>
                     </div>
                   )}
                   <div className="flex flex-col gap-3">
-                    {futureDues.map((due) => renderDueCard(due))}
+                    {futureGroups.map((group) => renderGroup(group))}
                   </div>
                 </div>
               )}
@@ -332,7 +384,7 @@ export default function UnpaidDuesPage() {
             </div>
           )}
 
-          {sortedData.length > 0 && (
+          {totalBookingsCount > 0 && (
             <p className="text-center text-[10px] text-slate-600 pt-1">
               <IndianRupee className="inline h-3 w-3 mr-0.5" />
               {language === 'mr' 
@@ -390,7 +442,7 @@ export default function UnpaidDuesPage() {
                   setSelectedBookingId(quickActionDue.id)
                   setQuickActionDue(null)
                 }}
-                className="w-full py-3.5 px-4 bg-slate-950 hover:bg-slate-850 text-slate-200 text-xs font-black rounded-2xl transition flex items-center justify-start gap-3 border border-slate-855"
+                className="w-full py-3.5 px-4 bg-slate-950 hover:bg-slate-855 text-slate-200 text-xs font-black rounded-2xl transition flex items-center justify-start gap-3 border border-slate-855"
               >
                 📋 {language === 'mr' ? 'तपशील पहा (View Details)' : 'View Booking Details'}
               </button>
@@ -459,53 +511,189 @@ export default function UnpaidDuesPage() {
   )
 }
 
-interface DueCardProps {
-  due: any
-  onClick: (bookingId: string) => void
+interface CustomerDueGroupCardProps {
+  group: CustomerDueGroup
+  onCollect: (bookingId: string) => void
   onLongPress: (due: any) => void
   language: string
-  getStatusLabel: (status: string) => any
+  getStatusLabel: (status: string, paymentMode?: string | null, bookingStatus?: string) => any
   getCheckoutUrgency: (checkOut: string) => any
 }
 
-function DueCard({ due, onClick, onLongPress, language, getStatusLabel, getCheckoutUrgency }: DueCardProps) {
+function CustomerDueGroupCard({
+  group,
+  onCollect,
+  onLongPress,
+  language,
+  getStatusLabel,
+  getCheckoutUrgency,
+}: CustomerDueGroupCardProps) {
+  const urgency = getCheckoutUrgency(group.mostUrgentCheckout)
+  const displayName = shortenLongName(formatNameByLanguage(group.customerName, language))
+
+  // ── SINGLE ROOM: compact 2-row card (same feel as before) ──────────────
+  if (group.bookings.length === 1) {
+    const booking = group.bookings[0]
+    const pending = booking.total_amount - booking.paid_amount
+    const isFullyUnpaid = booking.paid_amount === 0
+    const effectiveStatus = (booking.payment_status === 'unpaid' && booking.paid_amount > 0) ? 'partial' : booking.payment_status
+    const statusInfo = getStatusLabel(effectiveStatus, booking.payment_mode, booking.status)
+
+    return (
+      <SingleRoomCard
+        booking={booking}
+        displayName={displayName}
+        isDeleted={group.isDeleted}
+        phone={group.customerPhone}
+        pending={pending}
+        isFullyUnpaid={isFullyUnpaid}
+        statusInfo={statusInfo}
+        urgency={urgency}
+        onCollect={onCollect}
+        onLongPress={onLongPress}
+        language={language}
+      />
+    )
+  }
+
+  // ── MULTI-ROOM: full grouped breakdown ──────────────────────────────────
+  return (
+    <div className="px-4 py-3.5 bg-slate-950/70 border border-slate-800/80 rounded-2xl flex flex-col gap-3 transition duration-200">
+      
+      {/* Group Header Row 1: Customer Name & Room Badges & Total Due */}
+      <div className="flex justify-between items-start gap-4">
+        <div className="flex flex-col min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-slate-100 font-extrabold text-sm tracking-tight flex items-center gap-1.5">
+              👤 {displayName}
+              {group.isDeleted && (
+                <span className="bg-rose-500/10 text-rose-400 px-1.5 py-0.5 rounded text-[9px] font-black border border-rose-500/20 whitespace-nowrap shrink-0">
+                  {language === 'mr' ? 'डिलीट' : 'Del'}
+                </span>
+              )}
+            </span>
+            {/* Room number badges — all rooms for this person */}
+            <div className="flex gap-1 flex-wrap items-center">
+              {group.bookings.map(b => (
+                <span key={b.id} className="bg-slate-800/60 border border-slate-700/50 px-1.5 py-0.5 rounded-[6px] text-[9px] text-slate-400 font-extrabold">
+                  {b.rooms.number}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* Row 2: Phone tap-to-call + urgency */}
+          <div className="flex items-center gap-2.5 mt-1.5 flex-wrap">
+            {group.customerPhone && (
+              <a
+                href={`tel:${cleanPhoneDisplay(group.customerPhone)}`}
+                onClick={(e) => e.stopPropagation()}
+                className="flex items-center gap-1 text-[11px] text-slate-500 hover:text-emerald-400 font-medium transition shrink-0"
+              >
+                <Phone className="h-3 w-3 shrink-0" />
+                {cleanPhoneDisplay(group.customerPhone)}
+              </a>
+            )}
+            <span className={`flex items-center gap-1 text-[10px] font-extrabold shrink-0 ${urgency.color}`}>
+              <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+                urgency.icon === 'overdue' ? 'bg-rose-400 animate-pulse' :
+                urgency.icon === 'today' ? 'bg-amber-400 animate-pulse' :
+                urgency.icon === 'soon' ? 'bg-yellow-400' : 'bg-slate-500'
+              }`} />
+              {urgency.label}
+            </span>
+          </div>
+        </div>
+
+        {/* Total due (sum across all rooms) */}
+        <div className="text-right shrink-0 flex flex-col items-end">
+          <span className="text-[10px] text-slate-500 uppercase font-black tracking-wider">
+            {language === 'mr' ? 'एकूण बाकी' : 'Total Due'}
+          </span>
+          <span className={`text-base font-black tracking-tight ${group.hasAnyOverdue ? 'text-rose-400' : 'text-amber-300'}`}>
+            ₹{Math.round(group.totalDue).toLocaleString()}
+          </span>
+        </div>
+      </div>
+
+      {/* Divider */}
+      <hr className="border-slate-800/60" />
+
+      {/* One row per room */}
+      <div className="flex flex-col gap-2">
+        {group.bookings.map((booking) => (
+          <RoomRow
+            key={booking.id}
+            booking={booking}
+            onCollect={onCollect}
+            onLongPress={onLongPress}
+            language={language}
+            getStatusLabel={getStatusLabel}
+            getCheckoutUrgency={getCheckoutUrgency}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// Compact card for single-room guests — same 2-row layout as before
+interface SingleRoomCardProps {
+  booking: any
+  displayName: string
+  isDeleted: boolean
+  phone: string
+  pending: number
+  isFullyUnpaid: boolean
+  statusInfo: any
+  urgency: any
+  onCollect: (bookingId: string) => void
+  onLongPress: (due: any) => void
+  language: string
+}
+
+function SingleRoomCard({
+  booking,
+  displayName,
+  isDeleted,
+  phone,
+  pending,
+  isFullyUnpaid,
+  statusInfo,
+  urgency,
+  onCollect,
+  onLongPress,
+  language,
+}: SingleRoomCardProps) {
   const longPressHandlers = useLongPress(
-    () => onLongPress(due),
-    () => onClick(due.id)
+    () => onLongPress(booking),
+    () => onCollect(booking.id)
   )
 
-  const pending = due.total_amount - due.paid_amount
-  const isFullyUnpaid = due.paid_amount === 0
-  const effectiveStatus = (due.payment_status === 'unpaid' && due.paid_amount > 0) ? 'partial' : due.payment_status
-  const statusInfo = getStatusLabel(effectiveStatus)
-  const urgency = getCheckoutUrgency(due.check_out)
+  const dateStr = `${format(parseISO(booking.check_in), 'dd MMM')} → ${format(parseISO(booking.check_out), 'dd MMM')}`
 
   return (
     <div
       {...longPressHandlers}
       className="px-3.5 py-3 bg-slate-950/70 border border-slate-800/80 rounded-2xl flex flex-col gap-2 cursor-pointer hover:border-emerald-500/40 hover:bg-slate-900/50 transition duration-200 group active:scale-[0.99]"
     >
-      {/* Row 1: Guest name + Room badge + Status badge */}
+      {/* Row 1: Name + Room badge + Date + Status */}
       <div className="flex justify-between items-center gap-2 min-w-0">
         <div className="flex items-center gap-1.5 min-w-0 flex-1">
           <span className="text-slate-100 font-extrabold text-sm group-hover:text-emerald-400 transition truncate flex items-center gap-1.5">
-            {(() => {
-              const { name: dName, isDeleted } = getCustomerNameDisplay(due.customers?.name || due.customers?.phone);
-              const displayName = shortenLongName(formatNameByLanguage(dName, language));
-              return (
-                <>
-                  <span className="truncate">{displayName}</span>
-                  {isDeleted && (
-                    <span className="bg-rose-500/10 text-rose-400 px-1.5 py-0.5 rounded text-[9px] font-black border border-rose-500/20 whitespace-nowrap shrink-0">
-                      {language === 'mr' ? 'डिलीट' : 'Del'}
-                    </span>
-                  )}
-                </>
-              );
-            })()}
+            <span className="truncate">{displayName}</span>
+            {isDeleted && (
+              <span className="bg-rose-500/10 text-rose-400 px-1.5 py-0.5 rounded text-[9px] font-black border border-rose-500/20 whitespace-nowrap shrink-0">
+                {language === 'mr' ? 'डिलीट' : 'Del'}
+              </span>
+            )}
           </span>
           <span className="bg-slate-800 border border-slate-700 px-1.5 py-0.5 rounded text-[10px] text-slate-400 font-bold shrink-0 whitespace-nowrap">
-            {due.rooms.number}
+            {booking.rooms.number}
+          </span>
+          {/* Date sits right after room number — clean, no clutter */}
+          <span className="text-[10px] text-slate-500 font-medium shrink-0 whitespace-nowrap">
+            {dateStr}
           </span>
         </div>
         <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold border shrink-0 ${statusInfo.color}`}>
@@ -513,19 +701,19 @@ function DueCard({ due, onClick, onLongPress, language, getStatusLabel, getCheck
         </span>
       </div>
 
-      {/* Row 2: Phone | Urgency dot | Due amount + Collect button */}
+      {/* Row 2: Phone | Urgency | Amount + Collect */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
-          {/* Tap-to-call phone */}
-          <a
-            href={`tel:${cleanPhoneDisplay(due.customers?.phone)}`}
-            onClick={(e) => e.stopPropagation()}
-            className="flex items-center gap-1 text-[11px] text-slate-500 hover:text-emerald-400 font-medium transition shrink-0"
-          >
-            <Phone className="h-3 w-3 shrink-0" />
-            {cleanPhoneDisplay(due.customers?.phone)}
-          </a>
-          {/* Urgency dot with label */}
+          {phone && (
+            <a
+              href={`tel:${cleanPhoneDisplay(phone)}`}
+              onClick={(e) => e.stopPropagation()}
+              className="flex items-center gap-1 text-[11px] text-slate-500 hover:text-emerald-400 font-medium transition shrink-0"
+            >
+              <Phone className="h-3 w-3 shrink-0" />
+              {cleanPhoneDisplay(phone)}
+            </a>
+          )}
           <span className={`flex items-center gap-1 text-[10px] font-bold shrink-0 ${urgency.color}`}>
             <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
               urgency.icon === 'overdue' ? 'bg-rose-400 animate-pulse' :
@@ -535,14 +723,12 @@ function DueCard({ due, onClick, onLongPress, language, getStatusLabel, getCheck
             {urgency.label}
           </span>
         </div>
-
-        {/* Due amount + Collect button */}
         <div className="flex items-center gap-2 shrink-0">
           <span className={`text-xs font-black ${isFullyUnpaid ? 'text-rose-400' : 'text-amber-300'}`}>
             ₹{Math.round(pending).toLocaleString()}
           </span>
           <button
-            onClick={(e) => { e.stopPropagation(); onClick(due.id) }}
+            onClick={(e) => { e.stopPropagation(); onCollect(booking.id) }}
             className="flex items-center gap-1 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 text-[11px] font-extrabold px-2.5 py-1.5 rounded-xl transition active:scale-95"
           >
             <Wallet className="h-3 w-3" />
@@ -550,6 +736,87 @@ function DueCard({ due, onClick, onLongPress, language, getStatusLabel, getCheck
           </button>
         </div>
       </div>
+
     </div>
   )
 }
+
+interface RoomRowProps {
+  booking: any
+  onCollect: (bookingId: string) => void
+  onLongPress: (due: any) => void
+  language: string
+  getStatusLabel: (status: string, paymentMode?: string | null, bookingStatus?: string) => any
+  getCheckoutUrgency: (checkOut: string) => any
+}
+
+function RoomRow({
+  booking,
+  onCollect,
+  onLongPress,
+  language,
+  getStatusLabel,
+  getCheckoutUrgency,
+}: RoomRowProps) {
+  const longPressHandlers = useLongPress(
+    () => onLongPress(booking),
+    () => onCollect(booking.id)
+  )
+
+  const pending = booking.total_amount - booking.paid_amount
+  const isFullyUnpaid = booking.paid_amount === 0
+  const effectiveStatus = (booking.payment_status === 'unpaid' && booking.paid_amount > 0) ? 'partial' : booking.payment_status
+  const statusInfo = getStatusLabel(effectiveStatus, booking.payment_mode, booking.status)
+  
+  const checkInDate = parseISO(booking.check_in)
+  const checkOutDate = parseISO(booking.check_out)
+  const dateStr = `${format(checkInDate, 'dd MMM')} → ${format(checkOutDate, 'dd MMM')}`
+
+  const roomUrgency = getCheckoutUrgency(booking.check_out)
+
+  return (
+    <div
+      {...longPressHandlers}
+      className="flex items-center justify-between gap-3 px-3 py-2 bg-slate-900/40 hover:bg-slate-900/80 border border-slate-800/60 rounded-xl cursor-pointer transition hover:border-emerald-500/20 active:scale-[0.99] group/row"
+    >
+      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+        <span className="bg-slate-800/80 border border-slate-700 px-2 py-0.5 rounded-lg text-xs font-black text-slate-350 shrink-0">
+          {booking.rooms.number}
+        </span>
+        
+        <div className="flex flex-col min-w-0">
+          <span className="text-[11px] font-bold text-slate-300 tracking-tight whitespace-nowrap">
+            {dateStr}
+          </span>
+          <span className={`flex items-center gap-1 text-[9px] font-bold mt-0.5 ${roomUrgency.color}`}>
+            <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+              roomUrgency.icon === 'overdue' ? 'bg-rose-400 animate-pulse' :
+              roomUrgency.icon === 'today' ? 'bg-amber-400 animate-pulse' :
+              roomUrgency.icon === 'soon' ? 'bg-yellow-400' : 'bg-slate-500'
+            }`} />
+            {roomUrgency.label}
+          </span>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2.5 shrink-0">
+        <span className={`px-2 py-0.5 rounded-[6px] text-[9px] font-extrabold border shrink-0 ${statusInfo.color}`}>
+          {statusInfo.label}
+        </span>
+
+        <span className={`text-xs font-black ${isFullyUnpaid ? 'text-rose-400' : 'text-amber-300'}`}>
+          ₹{Math.round(pending).toLocaleString()}
+        </span>
+
+        <button
+          onClick={(e) => { e.stopPropagation(); onCollect(booking.id) }}
+          className="flex items-center gap-1 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/20 text-emerald-400 text-[10px] font-black px-2 py-1 rounded-lg transition active:scale-95 group-hover/row:border-emerald-500/40"
+        >
+          <Wallet className="h-2.5 w-2.5" />
+          {language === 'mr' ? 'गोळा करा' : 'Collect'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
