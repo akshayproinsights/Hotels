@@ -67,7 +67,7 @@ def get_financials(
         
         # 3. Query bookings overlapping the date range
         bookings_res = supabase.table("bookings") \
-            .select("id, booking_number, check_in, check_out, total_amount, paid_amount, deposit_amount, payment_mode, checkout_payment_mode, payment_status, status, created_at, extra_bill_amount, notes, rooms(id, room_type, number), customers(name, phone)") \
+            .select("id, booking_number, check_in, check_out, total_amount, paid_amount, deposit_amount, payment_mode, checkout_payment_mode, payment_status, status, created_at, extra_bill_amount, notes, room_type, rooms(id, room_type, number), customers(name, phone)") \
             .lte("check_in", end_iso) \
             .gte("check_out", start_iso) \
             .order("check_in") \
@@ -227,7 +227,9 @@ def get_financials(
                         payment_modes[mode] += paid
                 
                 # Room type aggregation
-                rtype = r_info.get("room_type")
+                # Prefer booking's own room_type (reflects AC/Non-AC toggle chosen at booking time)
+                # Fall back to joined rooms table room_type only if not set on booking
+                rtype = b.get("room_type") or r_info.get("room_type")
                 if rtype:
                     if rtype not in room_types:
                         room_types[rtype] = 0.0
