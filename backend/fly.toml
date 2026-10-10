@@ -1,0 +1,45 @@
+# fly.toml — Fly.io configuration for Hotel Santosh Backend
+# Generated for: FastAPI + Python 3.11
+
+app = "hotel-santosh-api"
+primary_region = "bom"   # Mumbai — closest to India ✅
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+
+# HTTP service configuration
+[[services]]
+  protocol = "tcp"
+  internal_port = 8080
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+    force_https = true
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  # Health check — Fly.io will restart if this fails
+  [[services.http_checks]]
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/docs"
+    protocol = "http"
+
+  # Auto-start/stop (set to false = always-on, no cold starts)
+  [services.concurrency]
+    type = "requests"
+    hard_limit = 50
+    soft_limit = 25
+
+# VM sizing — free tier: shared-cpu-1x with 256MB RAM
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

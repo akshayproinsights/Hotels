@@ -1,0 +1,47 @@
+# .dockerignore — Exclude unnecessary files from Docker build context
+# Keeps image small and build fast
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.pyc
+
+# Virtual environments
+venv/
+env/
+.env/
+ENV/
+
+# Environment files (secrets — set via fly secrets instead!)
+.env
+.env.*
+!.env.example
+
+# Logs
+logs/
+*.log
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Tests
+tests/
+test_*
+*_test.py
+
+# Node (if any)
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
