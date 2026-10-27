@@ -76,7 +76,8 @@ function groupDuesByCustomer(dues: UnpaidDuesResponse[]): CustomerDueGroup[] {
     })
   }
 
-  return groups
+  // Hide guests whose net due is ₹0 — no point showing them in "Dues to Collect"
+  return groups.filter(g => g.totalDue > 0)
 }
 
 export default function UnpaidDuesPage() {
@@ -193,7 +194,7 @@ export default function UnpaidDuesPage() {
     const isCheckoutPending = bookingStatus === 'checked_out' && paymentMode === 'Pending'
     if (isCheckoutPending) {
       return {
-        label: language === 'mr' ? 'चेकआऊट · पेमेंट प्रलंबित' : 'Checked Out · Pay Later',
+        label: language === 'mr' ? 'चेकआऊट · पेमेंट Pending' : 'Checked Out · Pay Later',
         color: 'bg-orange-500/15 text-orange-400 border-orange-500/25'
       }
     }
@@ -677,31 +678,32 @@ function SingleRoomCard({
       {...longPressHandlers}
       className="px-3.5 py-3 bg-slate-950/70 border border-slate-800/80 rounded-2xl flex flex-col gap-2 cursor-pointer hover:border-emerald-500/40 hover:bg-slate-900/50 transition duration-200 group active:scale-[0.99]"
     >
-      {/* Row 1: Name + Room badge + Date + Status */}
-      <div className="flex justify-between items-center gap-2 min-w-0">
-        <div className="flex items-center gap-1.5 min-w-0 flex-1">
-          <span className="text-slate-100 font-extrabold text-sm group-hover:text-emerald-400 transition truncate flex items-center gap-1.5">
-            <span className="truncate">{displayName}</span>
-            {isDeleted && (
-              <span className="bg-rose-500/10 text-rose-400 px-1.5 py-0.5 rounded text-[9px] font-black border border-rose-500/20 whitespace-nowrap shrink-0">
-                {language === 'mr' ? 'डिलीट' : 'Del'}
-              </span>
-            )}
-          </span>
-          <span className="bg-slate-800 border border-slate-700 px-1.5 py-0.5 rounded text-[10px] text-slate-400 font-bold shrink-0 whitespace-nowrap">
-            {booking.rooms.number}
-          </span>
-          {/* Date sits right after room number — clean, no clutter */}
-          <span className="text-[10px] text-slate-500 font-medium shrink-0 whitespace-nowrap">
-            {dateStr}
-          </span>
-        </div>
-        <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold border shrink-0 ${statusInfo.color}`}>
+      {/* Row 1: Name + Room badge + Date */}
+      <div className="flex items-center gap-1.5 min-w-0">
+        <span className="text-slate-100 font-extrabold text-sm group-hover:text-emerald-400 transition truncate flex items-center gap-1.5">
+          <span className="truncate">{displayName}</span>
+          {isDeleted && (
+            <span className="bg-rose-500/10 text-rose-400 px-1.5 py-0.5 rounded text-[9px] font-black border border-rose-500/20 whitespace-nowrap shrink-0">
+              {language === 'mr' ? 'डिलीट' : 'Del'}
+            </span>
+          )}
+        </span>
+        <span className="bg-slate-800 border border-slate-700 px-1.5 py-0.5 rounded text-[10px] text-slate-400 font-bold shrink-0 whitespace-nowrap">
+          {booking.rooms.number}
+        </span>
+        <span className="text-[10px] text-slate-500 font-medium shrink-0 whitespace-nowrap">
+          {dateStr}
+        </span>
+      </div>
+
+      {/* Row 2: Status badge */}
+      <div>
+        <span className={`inline-flex px-2 py-0.5 rounded-md text-[10px] font-extrabold border ${statusInfo.color}`}>
           {statusInfo.label}
         </span>
       </div>
 
-      {/* Row 2: Phone | Urgency | Amount + Collect */}
+      {/* Row 3: Phone | Urgency | Amount + Collect */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           {phone && (
@@ -777,37 +779,36 @@ function RoomRow({
   return (
     <div
       {...longPressHandlers}
-      className="flex items-center justify-between gap-3 px-3 py-2 bg-slate-900/40 hover:bg-slate-900/80 border border-slate-800/60 rounded-xl cursor-pointer transition hover:border-emerald-500/20 active:scale-[0.99] group/row"
+      className="flex gap-3 px-3 py-2.5 bg-slate-900/40 hover:bg-slate-900/80 border border-slate-800/60 rounded-xl cursor-pointer transition hover:border-emerald-500/20 active:scale-[0.99] group/row"
     >
-      <div className="flex items-center gap-2.5 min-w-0 flex-1">
-        <span className="bg-slate-800/80 border border-slate-700 px-2 py-0.5 rounded-lg text-xs font-black text-slate-350 shrink-0">
-          {booking.rooms.number}
-        </span>
-        
-        <div className="flex flex-col min-w-0">
-          <span className="text-[11px] font-bold text-slate-300 tracking-tight whitespace-nowrap">
-            {dateStr}
-          </span>
-          <span className={`flex items-center gap-1 text-[9px] font-bold mt-0.5 ${roomUrgency.color}`}>
-            <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
-              roomUrgency.icon === 'overdue' ? 'bg-rose-400 animate-pulse' :
-              roomUrgency.icon === 'today' ? 'bg-amber-400 animate-pulse' :
-              roomUrgency.icon === 'soon' ? 'bg-yellow-400' : 'bg-slate-500'
-            }`} />
-            {roomUrgency.label}
-          </span>
-        </div>
-      </div>
+      {/* Room number */}
+      <span className="bg-slate-800/80 border border-slate-700 px-2 py-0.5 rounded-lg text-xs font-black text-slate-350 shrink-0 self-start mt-0.5">
+        {booking.rooms.number}
+      </span>
 
-      <div className="flex items-center gap-2.5 shrink-0">
-        <span className={`px-2 py-0.5 rounded-[6px] text-[9px] font-extrabold border shrink-0 ${statusInfo.color}`}>
+      {/* Left: date + urgency + status badge */}
+      <div className="flex flex-col gap-1 min-w-0 flex-1">
+        <span className="text-[11px] font-bold text-slate-300 tracking-tight whitespace-nowrap">
+          {dateStr}
+        </span>
+        <span className={`flex items-center gap-1 text-[9px] font-bold ${roomUrgency.color}`}>
+          <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+            roomUrgency.icon === 'overdue' ? 'bg-rose-400 animate-pulse' :
+            roomUrgency.icon === 'today' ? 'bg-amber-400 animate-pulse' :
+            roomUrgency.icon === 'soon' ? 'bg-yellow-400' : 'bg-slate-500'
+          }`} />
+          {roomUrgency.label}
+        </span>
+        <span className={`inline-flex self-start px-2 py-0.5 rounded-[6px] text-[9px] font-extrabold border ${statusInfo.color}`}>
           {statusInfo.label}
         </span>
+      </div>
 
+      {/* Right: amount + collect */}
+      <div className="flex flex-col items-end justify-center gap-1.5 shrink-0">
         <span className={`text-xs font-black ${isFullyUnpaid ? 'text-rose-400' : 'text-amber-300'}`}>
           ₹{Math.round(pending).toLocaleString()}
         </span>
-
         <button
           onClick={(e) => { e.stopPropagation(); onCollect(booking.id) }}
           className="flex items-center gap-1 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/20 text-emerald-400 text-[10px] font-black px-2 py-1 rounded-lg transition active:scale-95 group-hover/row:border-emerald-500/40"
