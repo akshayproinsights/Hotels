@@ -51,7 +51,13 @@ async def bookings_validation_exception_handler(request: Request, exc: RequestVa
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://santosh.snapkhata.com",
+        "https://hotelsantosh-9e117.web.app",
+        "https://hotelsantosh-9e117.firebaseapp.com",
+        "http://localhost:5173",
+        "http://localhost:8080",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
