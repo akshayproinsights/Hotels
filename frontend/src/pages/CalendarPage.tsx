@@ -13,10 +13,7 @@ const SHORT_MONTH_NAMES_EN = [
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
 ]
 
-const SHORT_MONTH_NAMES_MR = [
-  "जाने", "फेब्रु", "मार्च", "एप्रि", "मे", "जून",
-  "जुलै", "ऑग", "सप्टें", "ऑक्टो", "नोव्हें", "डिसें"
-]
+// Month names are always displayed in English regardless of language setting
 
 interface MonthCalendarSectionProps {
   month: number
@@ -28,7 +25,7 @@ function MonthCalendarSection({ month, year, onDayClick }: MonthCalendarSectionP
   const { data, isLoading, isError, refetch, isRefetching } = useCalendar(month, year)
   const { language } = useLanguage()
 
-  const monthNames = language === 'mr' ? SHORT_MONTH_NAMES_MR : SHORT_MONTH_NAMES_EN
+  const monthNames = SHORT_MONTH_NAMES_EN
 
   if (isLoading) {
     return (
