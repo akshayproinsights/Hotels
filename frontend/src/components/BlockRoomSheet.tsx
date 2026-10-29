@@ -54,7 +54,7 @@ interface LocalFile {
 export default function BlockRoomSheet({ room, onClose, onSuccess, initialDate, initialCheckInISO }: BlockRoomSheetProps) {
   const { language, t } = useLanguage()
   const viewport = useVisualViewport()
-  const monthsMr = ['जानेवारी', 'फेब्रुवारी', 'मार्च', 'एप्रिल', 'मे', 'जून', 'जुलै', 'ऑगस्ट', 'सप्टेंबर', 'ऑक्टोबर', 'नोव्हेंबर', 'डिसेंबर']
+  const monthsMr = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
   const formatCardDate = (dStr: string) => {
     if (!dStr) return language === 'mr' ? 'तारीख निवडा' : 'Select date';

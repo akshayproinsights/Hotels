@@ -3,6 +3,7 @@ from datetime import datetime, date, timedelta, timezone
 from typing import Optional
 from app.database import supabase
 from app.auth import get_current_user
+from app.utils.retry import supabase_execute
 
 router = APIRouter()
 
@@ -19,11 +20,13 @@ def require_admin(user=Depends(get_current_user)):
 
 @router.get("/unpaid")
 def unpaid_dues(user=Depends(get_current_user)):
-    res = supabase.table("bookings") \
-        .select("id,booking_number,check_in,check_out,total_amount,paid_amount,deposit_amount,payment_status,payment_mode,status,rooms(number),customers(name,phone)") \
-        .neq("status", "cancelled") \
-        .in_("payment_status", ["unpaid", "partial", "reserved"]) \
-        .order("check_in").execute()
+    res = supabase_execute(
+        supabase.table("bookings")
+        .select("id,booking_number,check_in,check_out,total_amount,paid_amount,deposit_amount,payment_status,payment_mode,status,rooms(number),customers(name,phone)")
+        .neq("status", "cancelled")
+        .in_("payment_status", ["unpaid", "partial", "reserved"])
+        .order("check_in")
+    )
     return res.data
 
 @router.get("/financials")
@@ -59,33 +62,39 @@ def get_financials(
         end_iso = end_date_dt.isoformat()
         
         # 2. Get total active rooms count
-        rooms_res = supabase.table("rooms").select("id", count="exact").eq("is_active", True).execute()
+        rooms_res = supabase_execute(
+            supabase.table("rooms").select("id", count="exact").eq("is_active", True)
+        )
         total_rooms = rooms_res.count or 0
         if total_rooms == 0:
-            rooms_list = supabase.table("rooms").select("id").eq("is_active", True).execute()
+            rooms_list = supabase_execute(
+                supabase.table("rooms").select("id").eq("is_active", True)
+            )
             total_rooms = len(rooms_list.data) if rooms_list.data else 1
-        
+
         # 3. Query bookings overlapping the date range
-        bookings_res = supabase.table("bookings") \
-            .select("id, booking_number, check_in, check_out, total_amount, paid_amount, deposit_amount, payment_mode, checkout_payment_mode, payment_status, status, created_at, extra_bill_amount, notes, room_type, rooms(id, room_type, number), customers(name, phone)") \
-            .lte("check_in", end_iso) \
-            .gte("check_out", start_iso) \
-            .order("check_in") \
-            .execute()
-            
+        bookings_res = supabase_execute(
+            supabase.table("bookings")
+            .select("id, booking_number, check_in, check_out, total_amount, paid_amount, deposit_amount, payment_mode, checkout_payment_mode, payment_status, status, created_at, extra_bill_amount, notes, room_type, rooms(id, room_type, number), customers(name, phone)")
+            .lte("check_in", end_iso)
+            .gte("check_out", start_iso)
+            .order("check_in")
+        )
+
         bookings = bookings_res.data or []
-        
+
         # 4. Compute metrics
         total_revenue = 0.0
         total_bookings = 0
         occupied_nights = 0
-        
+
         # Calculate total outstanding dues globally (across all non-cancelled bookings with unpaid/partial/reserved payment status)
-        dues_res = supabase.table("bookings") \
-            .select("total_amount, paid_amount") \
-            .neq("status", "cancelled") \
-            .in_("payment_status", ["unpaid", "partial", "reserved"]) \
-            .execute()
+        dues_res = supabase_execute(
+            supabase.table("bookings")
+            .select("total_amount, paid_amount")
+            .neq("status", "cancelled")
+            .in_("payment_status", ["unpaid", "partial", "reserved"])
+        )
         total_dues = sum(max(0.0, float(b["total_amount"] or 0.0) - float(b["paid_amount"] or 0.0)) for b in (dues_res.data or []))
         
         payment_modes = {"Cash": 0.0, "UPI": 0.0, "IDFC": 0.0, "Pending": 0.0}

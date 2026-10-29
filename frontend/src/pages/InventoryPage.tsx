@@ -354,13 +354,12 @@ export default function InventoryPage() {
     }
     const daysMr = ['रविवार', 'सोमवार', 'मंगळवार', 'बुधवार', 'गुरुवार', 'शुक्रवार', 'शनिवार']
     const daysMrCompact = ['रवि', 'सोम', 'मंगळ', 'बुध', 'गुरु', 'शुक्र', 'शनि']
-    const monthsMr = ['जानेवारी', 'फेब्रुवारी', 'मार्च', 'एप्रिल', 'मे', 'जून', 'जुलै', 'ऑगस्ट', 'सप्टेंबर', 'ऑक्टोबर', 'नोव्हेंबर', 'डिसेंबर']
-    const monthsMrCompact = ['जाने', 'फेब्रु', 'मार्च', 'एप्रि', 'मे', 'जून', 'जुलै', 'ऑग', 'सप्टें', 'ऑक्टो', 'नोव्हें', 'डिसें']
+    // Use English short month names in Marathi mode
+    const monthsEn = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
     const dayName = compact ? daysMrCompact[parsed.getDay()] : daysMr[parsed.getDay()]
-    const monthName = monthsMr[parsed.getMonth()]
-    return compact 
-      ? `${dayName}, ${parsed.getDate()} ${monthsMrCompact[parsed.getMonth()]}`
-      : `${dayName}, ${parsed.getDate()} ${monthName} ${parsed.getFullYear()}`
+    return compact
+      ? `${dayName}, ${parsed.getDate()} ${monthsEn[parsed.getMonth()]}`
+      : `${dayName}, ${parsed.getDate()} ${monthsEn[parsed.getMonth()]} ${parsed.getFullYear()}`
   }
 
   const formattedDate = formatSelectedDate(selectedDate, false)
@@ -1029,7 +1028,7 @@ export default function InventoryPage() {
                       const istDate = formatIST_Date(iso)
                       const d = new Date(istDate + 'T00:00:00')
                       const months = language === 'mr'
-                        ? ['जाने','फेब्रु','मार्च','एप्रि','मे','जून','जुलै','ऑग','सप्टें','ऑक्टो','नोव्हें','डिसें']
+                        ? ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
                         : ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
                       return `${d.getDate()} ${months[d.getMonth()]}`
                     }

@@ -47,8 +47,8 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
   const viewport = useVisualViewport()
   const queryClient = useQueryClient()
 
-  // Language map for Marathi
-  const monthsMr = ['जानेवारी', 'फेब्रुवारी', 'मार्च', 'एप्रिल', 'मे', 'जून', 'जुलै', 'ऑगस्ट', 'सप्टेंबर', 'ऑक्टोबर', 'नोव्हेंबर', 'डिसेंबर']
+  // Language map for Marathi — use English short month names
+  const monthsMr = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
   const weekdaysMrShort = ['रवी', 'सोम', 'मं', 'बुध', 'गुरू', 'शुक्र', 'शनी']
 
   // Utility: format a UTC ISO string as IST date display ("Tue, Jun 30")
@@ -1605,8 +1605,7 @@ export default function BookingDetailSheet({ bookingId, onClose, onSuccess, auto
                 const d = new Date(new Date(booking.created_at).getTime() + IST_MS)
                 const day = d.getUTCDate()
                 const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-                const monthNamesMr = ['जाने','फेब्रु','मार्च','एप्रि','मे','जून','जुलै','ऑग','सप्टे','ऑक्टो','नोव्हे','डिसे']
-                const mon = language === 'mr' ? monthNamesMr[d.getUTCMonth()] : monthNames[d.getUTCMonth()]
+                const mon = monthNames[d.getUTCMonth()]
                 const yr = d.getUTCFullYear()
                 const h24 = d.getUTCHours()
                 const min = d.getUTCMinutes().toString().padStart(2, '0')

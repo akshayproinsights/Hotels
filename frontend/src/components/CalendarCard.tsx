@@ -7,9 +7,7 @@ interface CalendarCardProps {
   language?: string
 }
 
-const monthsMr = ['जानेवारी', 'फेब्रुवारी', 'मार्च', 'एप्रिल', 'मे', 'जून', 'जुलै', 'ऑगस्ट', 'सप्टेंबर', 'ऑक्टोबर', 'नोव्हेंबर', 'डिसेंबर']
-
-export function getCalendarParts(dStr: string, language: string = 'en') {
+export function getCalendarParts(dStr: string, _language: string = 'en') {
   if (!dStr) return { month: '---', day: '--' }
   try {
     let d: Date
@@ -18,11 +16,7 @@ export function getCalendarParts(dStr: string, language: string = 'en') {
     } else {
       d = parse(dStr.slice(0, 10), 'yyyy-MM-dd', new Date())
     }
-    if (language === 'mr') {
-      const month = monthsMr[d.getMonth()]
-      const shortMonth = month.length > 5 ? month.substring(0, 4) : month
-      return { month: shortMonth, day: format(d, 'dd') }
-    }
+    // Always use English short month names (even in Marathi mode)
     return { month: format(d, 'MMM').toUpperCase(), day: format(d, 'dd') }
   } catch (e) {
     return { month: '---', day: '--' }

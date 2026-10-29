@@ -8084,3 +8084,73 @@
 [2026-10-28 01:00:11 UTC]    R2 prefix : backups/db/2026-10-28/
 [2026-10-28 01:00:11 UTC] ============================================================
 === Backup completed successfully at Wed Oct 28 02:00:11 CET 2026 ===
+=== Backup started at Thu Oct 29 02:00:01 CET 2026 ===
+[2026-10-29 01:00:05 UTC] ============================================================
+[2026-10-29 01:00:05 UTC] Hotel Santosh — Database Backup Starting (host: vmi3271961)
+[2026-10-29 01:00:05 UTC] ============================================================
+[2026-10-29 01:00:05 UTC] Connecting to Supabase...
+[2026-10-29 01:00:05 UTC] Connecting to Cloudflare R2...
+[2026-10-29 01:00:06 UTC] Phase 1: Fetching all tables from Supabase...
+[2026-10-29 01:00:06 UTC]   Fetching rooms...
+[2026-10-29 01:00:07 UTC]   ✓ rooms: 16 rows fetched
+[2026-10-29 01:00:07 UTC]   Fetching customers...
+[2026-10-29 01:00:07 UTC]   ✓ customers: 493 rows fetched
+[2026-10-29 01:00:07 UTC]   Fetching bookings...
+[2026-10-29 01:00:08 UTC]   ✓ bookings: 1116 rows fetched
+[2026-10-29 01:00:08 UTC]   Fetching documents...
+[2026-10-29 01:00:08 UTC]   ✓ documents: 965 rows fetched
+[2026-10-29 01:00:08 UTC] Verifying row counts against live Supabase...
+[2026-10-29 01:00:08 UTC]   ✓ rooms: 16 rows — matches Supabase
+[2026-10-29 01:00:08 UTC]   ✓ customers: 493 rows — matches Supabase
+[2026-10-29 01:00:08 UTC]   ✓ bookings: 1116 rows — matches Supabase
+[2026-10-29 01:00:08 UTC]   ✓ documents: 965 rows — matches Supabase
+[2026-10-29 01:00:08 UTC] Phase 3: Uploading to Cloudflare R2...
+[2026-10-29 01:00:10 UTC]   Uploaded backups/db/2026-10-29/rooms_2026-10-29_010006.json (5171 bytes)
+[2026-10-29 01:00:10 UTC]   Uploaded backups/db/2026-10-29/customers_2026-10-29_010006.json (236547 bytes)
+[2026-10-29 01:00:11 UTC]   Uploaded backups/db/2026-10-29/bookings_2026-10-29_010006.json (1220587 bytes)
+[2026-10-29 01:00:11 UTC]   Uploaded backups/db/2026-10-29/documents_2026-10-29_010006.json (424850 bytes)
+[2026-10-29 01:00:12 UTC]   Uploaded schema → backups/db/2026-10-29/schema_2026-10-29_010006.sql
+[2026-10-29 01:00:12 UTC]   Uploaded manifest → backups/db/2026-10-29/manifest_2026-10-29_010006.json
+[2026-10-29 01:00:13 UTC]   Updated backups/db/latest.json pointer
+[2026-10-29 01:00:13 UTC] ============================================================
+[2026-10-29 01:00:13 UTC] ✅ BACKUP SUCCESSFUL
+[2026-10-29 01:00:13 UTC]    Timestamp : 2026-10-29_010006
+[2026-10-29 01:00:13 UTC]    Tables    : rooms(16), customers(493), bookings(1116), documents(965)
+[2026-10-29 01:00:13 UTC]    Total rows: 2590
+[2026-10-29 01:00:13 UTC]    R2 prefix : backups/db/2026-10-29/
+[2026-10-29 01:00:13 UTC] ============================================================
+[2026-10-29 01:00:05 UTC] ============================================================
+[2026-10-29 01:00:05 UTC] Hotel Santosh — Database Backup Starting (host: vmi3271961)
+[2026-10-29 01:00:05 UTC] ============================================================
+[2026-10-29 01:00:05 UTC] Connecting to Supabase...
+[2026-10-29 01:00:05 UTC] Connecting to Cloudflare R2...
+[2026-10-29 01:00:06 UTC] Phase 1: Fetching all tables from Supabase...
+[2026-10-29 01:00:06 UTC]   Fetching rooms...
+[2026-10-29 01:00:07 UTC]   ✓ rooms: 16 rows fetched
+[2026-10-29 01:00:07 UTC]   Fetching customers...
+[2026-10-29 01:00:07 UTC]   ✓ customers: 493 rows fetched
+[2026-10-29 01:00:07 UTC]   Fetching bookings...
+[2026-10-29 01:00:08 UTC]   ✓ bookings: 1116 rows fetched
+[2026-10-29 01:00:08 UTC]   Fetching documents...
+[2026-10-29 01:00:08 UTC]   ✓ documents: 965 rows fetched
+[2026-10-29 01:00:08 UTC] Verifying row counts against live Supabase...
+[2026-10-29 01:00:08 UTC]   ✓ rooms: 16 rows — matches Supabase
+[2026-10-29 01:00:08 UTC]   ✓ customers: 493 rows — matches Supabase
+[2026-10-29 01:00:08 UTC]   ✓ bookings: 1116 rows — matches Supabase
+[2026-10-29 01:00:08 UTC]   ✓ documents: 965 rows — matches Supabase
+[2026-10-29 01:00:08 UTC] Phase 3: Uploading to Cloudflare R2...
+[2026-10-29 01:00:10 UTC]   Uploaded backups/db/2026-10-29/rooms_2026-10-29_010006.json (5171 bytes)
+[2026-10-29 01:00:10 UTC]   Uploaded backups/db/2026-10-29/customers_2026-10-29_010006.json (236547 bytes)
+[2026-10-29 01:00:11 UTC]   Uploaded backups/db/2026-10-29/bookings_2026-10-29_010006.json (1220587 bytes)
+[2026-10-29 01:00:11 UTC]   Uploaded backups/db/2026-10-29/documents_2026-10-29_010006.json (424850 bytes)
+[2026-10-29 01:00:12 UTC]   Uploaded schema → backups/db/2026-10-29/schema_2026-10-29_010006.sql
+[2026-10-29 01:00:12 UTC]   Uploaded manifest → backups/db/2026-10-29/manifest_2026-10-29_010006.json
+[2026-10-29 01:00:13 UTC]   Updated backups/db/latest.json pointer
+[2026-10-29 01:00:13 UTC] ============================================================
+[2026-10-29 01:00:13 UTC] ✅ BACKUP SUCCESSFUL
+[2026-10-29 01:00:13 UTC]    Timestamp : 2026-10-29_010006
+[2026-10-29 01:00:13 UTC]    Tables    : rooms(16), customers(493), bookings(1116), documents(965)
+[2026-10-29 01:00:13 UTC]    Total rows: 2590
+[2026-10-29 01:00:13 UTC]    R2 prefix : backups/db/2026-10-29/
+[2026-10-29 01:00:13 UTC] ============================================================
+=== Backup completed successfully at Thu Oct 29 02:00:13 CET 2026 ===

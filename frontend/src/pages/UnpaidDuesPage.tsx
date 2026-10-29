@@ -155,13 +155,34 @@ export default function UnpaidDuesPage() {
   // Group the unpaid dues by customer
   const allGroups = unpaidData ? groupDuesByCustomer(unpaidData) : []
 
-  // Sort groups: most urgent checkout first, then by total due amount descending
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  // Sort groups: for overdue/today — least overdue first (today=0d first, then 1d, 2d…)
+  // For future dues — soonest checkout first. Tie-break: highest total due.
   const groupedData = [...allGroups].sort((a, b) => {
-    const dateCompare = a.mostUrgentCheckout.localeCompare(b.mostUrgentCheckout)
-    if (dateCompare !== 0) {
-      return dateCompare
+    const aDate = parseISO(a.mostUrgentCheckout)
+    const bDate = parseISO(b.mostUrgentCheckout)
+    const aIsUrgent = a.hasAnyOverdue || a.hasAnyToday
+    const bIsUrgent = b.hasAnyOverdue || b.hasAnyToday
+
+    // Both urgent (overdue/today): sort by checkout date DESCENDING
+    // so today (most recent) comes first, then yesterday, then 2d ago…
+    if (aIsUrgent && bIsUrgent) {
+      const dateCompare = bDate.getTime() - aDate.getTime()
+      if (dateCompare !== 0) return dateCompare
+      return b.totalDue - a.totalDue
     }
-    return b.totalDue - a.totalDue
+
+    // Both future: sort ascending (soonest first)
+    if (!aIsUrgent && !bIsUrgent) {
+      const dateCompare = aDate.getTime() - bDate.getTime()
+      if (dateCompare !== 0) return dateCompare
+      return b.totalDue - a.totalDue
+    }
+
+    // Urgent before future
+    return aIsUrgent ? -1 : 1
   })
 
   const handleCardClick = (bookingId: string) => {
@@ -389,8 +410,8 @@ export default function UnpaidDuesPage() {
             <p className="text-center text-[10px] text-slate-600 pt-1">
               <IndianRupee className="inline h-3 w-3 mr-0.5" />
               {language === 'mr' 
-                ? 'चेकआऊट तारीख (लवकर असणारे आधी) आणि जास्त बाकी रक्कमेनुसार क्रमवारी लावली आहे · कार्डवर टॅप करा'
-                : 'Sorted by checkout date (earliest first) and highest due amount · Tap any card to manage payment'}
+                ? 'आज चेकआऊट → थकीत (कमी ते जास्त दिवस) · कार्डवर टॅप करा'
+                : 'Today → Overdue (0d first, then 1d, 2d…) · Tap any card to manage payment'}
             </p>
           )}
         </div>

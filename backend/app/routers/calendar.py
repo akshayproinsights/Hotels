@@ -3,6 +3,7 @@ import calendar as pycalendar
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from app.database import supabase
 from app.auth import get_current_user
+from app.utils.retry import supabase_execute
 import logging
 
 router = APIRouter()
@@ -22,7 +23,9 @@ def get_calendar(
     """
     try:
         # Fetch all active rooms count
-        rooms_res = supabase.table("rooms").select("id").eq("is_active", True).execute()
+        rooms_res = supabase_execute(
+            supabase.table("rooms").select("id").eq("is_active", True)
+        )
         total_rooms = len(rooms_res.data)
     except Exception as e:
         logging.error(f"Error fetching rooms in calendar: {str(e)}")
@@ -41,12 +44,13 @@ def get_calendar(
 
     try:
         # Fetch all active bookings overlapping with the month range
-        bookings_res = supabase.table("bookings") \
-            .select("room_id,check_in,check_out,payment_status") \
-            .eq("status", "active") \
-            .lte("check_in", end_str) \
-            .gt("check_out", start_str) \
-            .execute()
+        bookings_res = supabase_execute(
+            supabase.table("bookings")
+            .select("room_id,check_in,check_out,payment_status")
+            .eq("status", "active")
+            .lte("check_in", end_str)
+            .gt("check_out", start_str)
+        )
     except Exception as e:
         logging.error(f"Error fetching bookings in calendar: {str(e)}")
         raise HTTPException(
